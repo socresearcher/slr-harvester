@@ -1,0 +1,43 @@
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+*.so
+.Python
+env/
+venv/
+.venv/
+ENV/
+pip-wheel-metadata/
+*.egg-info/
+*.egg
+dist/
+build/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+coverage.xml
+.coverage.*
+
+# IDEs / OS
+.DS_Store
+.idea/
+.vscode/
+Thumbs.db
+
+# Project data folders
+projects/
+results/
+query_history.json
+search_log.json
+slr_global_tags.json
+tag_aliases.json
+tags_config.json
+gui_settings.json
+slr_gui_settings.json
+
+# Local config
+slr_config.json
+api_keys.txt

@@ -1,0 +1,24 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "slr-harvester"
+version = "0.1.0"
+description = "SLR Harvester - Dashboard (CustomTkinter GUI for research projects)"
+readme = "README.md"
+requires-python = ">=3.10"
+license = { file = "LICENSE.md" }
+authors = [
+  { name = "Gregor Hobersdorfer" }
+]
+dependencies = [
+  "customtkinter>=5.2.0",
+  "requests>=2.31.0",
+  "Pillow>=10.0.0",
+  "matplotlib>=3.8.0"
+]
+
+[project.urls]
+Homepage = "https://github.com/socresearcher"
+Repository = "https://github.com/socresearcher/slr-harvester"
