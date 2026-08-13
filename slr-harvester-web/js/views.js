@@ -2949,7 +2949,9 @@ window.SLRViews = (() => {
     return lines.join('');
   }
 
-  function renderSettings(container, { apiKey, instToken, openAlexKey, openAlexEmail, autoFetchEnabled, fetchMode, autoTagEnabled, autoRunScope, folderName }) {
+  function renderSettings(container, { apiKey, instToken, openAlexKey, openAlexEmail, autoFetchEnabled, fetchMode, autoTagEnabled, autoRunScope, autoTagCategories, allTagCategories, folderName }) {
+    const categories = Array.isArray(allTagCategories) ? allTagCategories : [];
+    const enabledCategorySet = new Set(Array.isArray(autoTagCategories) && autoTagCategories.length ? autoTagCategories : categories);
     container.innerHTML = `
       <div class="settings-view">
         <p class="settings-subtitle">Configure your API credentials and workspace.</p>
@@ -3080,6 +3082,26 @@ window.SLRViews = (() => {
             <p class="field-hint">Applies to Fetch actions and the Fetch All button.</p>
           </div>
 
+          <div class="form-field">
+            <label>Auto-tag disciplines</label>
+            <p class="field-hint" style="margin-top:2px">
+              Deselect disciplines that don't apply to this project to remove them as
+              auto-tag candidates entirely — sharpens results among the ones that remain
+              instead of competing against irrelevant categories. All enabled by default.
+            </p>
+            <div class="settings-category-grid" id="settings-autotag-categories">
+              ${categories.map(cat => `
+                <label class="settings-category-item">
+                  <input type="checkbox" value="${esc(cat)}" ${enabledCategorySet.has(cat) ? 'checked' : ''}>
+                  <span>${esc(cat)}</span>
+                </label>`).join('')}
+            </div>
+            <div class="settings-category-actions">
+              <button type="button" class="link-btn" id="settings-autotag-categories-all">Select all</button>
+              <button type="button" class="link-btn" id="settings-autotag-categories-none">Select none</button>
+            </div>
+          </div>
+
           <div class="settings-save-row">
             <button class="btn-primary" id="settings-fetch-save-btn">Save Fetch Settings</button>
             <span class="settings-saved-msg" id="settings-fetch-saved-msg">Saved!</span>
@@ -3104,6 +3126,12 @@ window.SLRViews = (() => {
       </div>`;
 
     function collectSettingsFromForm() {
+      const categoryBoxes = [...container.querySelectorAll('#settings-autotag-categories input[type="checkbox"]')];
+      const checkedCategories = categoryBoxes.filter(cb => cb.checked).map(cb => cb.value);
+      // Empty selection means "restrict to nothing", which would silently
+      // disable auto-tagging entirely — treat "none checked" as "all enabled"
+      // instead, since that's almost certainly not what a user intends.
+      const autoTagCategoriesValue = checkedCategories.length ? checkedCategories : categories;
       return {
         apiKey: container.querySelector('#settings-apikey').value.trim(),
         instToken: container.querySelector('#settings-insttoken').value.trim(),
@@ -3112,6 +3140,7 @@ window.SLRViews = (() => {
         autoFetchEnabled: container.querySelector('#settings-auto-fetch-enabled').value === 'on',
         autoTagEnabled: container.querySelector('#settings-auto-tag-enabled').value === 'on',
         autoRunScope: container.querySelector('#settings-auto-run-scope').value === 'new' ? 'new' : 'all',
+        autoTagCategories: autoTagCategoriesValue,
         fetchMode: container.querySelector('#settings-fetch-mode').value === 'all' ? 'all' : 'missing',
       };
     }
@@ -3137,6 +3166,13 @@ window.SLRViews = (() => {
     container.querySelector('#settings-fetch-save-btn').addEventListener('click', async () => {
       await SLRApp.saveSettings(collectSettingsFromForm());
       flashSavedMsg('#settings-fetch-saved-msg');
+    });
+
+    container.querySelector('#settings-autotag-categories-all')?.addEventListener('click', () => {
+      container.querySelectorAll('#settings-autotag-categories input[type="checkbox"]').forEach(cb => { cb.checked = true; });
+    });
+    container.querySelector('#settings-autotag-categories-none')?.addEventListener('click', () => {
+      container.querySelectorAll('#settings-autotag-categories input[type="checkbox"]').forEach(cb => { cb.checked = false; });
     });
 
     container.querySelector('#settings-scopus-test-btn').addEventListener('click', async () => {
