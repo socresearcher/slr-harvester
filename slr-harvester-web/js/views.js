@@ -188,7 +188,7 @@ window.SLRViews = (() => {
       <div class="welcome-view">
         <div class="welcome-hero">
           <div class="welcome-logo">${SLRIcons.logo}</div>
-          <h1>SLR Harvester</h1>
+          <h1>SLR Harvester Web</h1>
           <p>A local browser tool for managing Systematic Literature Reviews.<br>
              Open your SLR Harvester data folder to get started.</p>
         </div>
@@ -1640,7 +1640,7 @@ window.SLRViews = (() => {
     ctx.font = `600 15px ${FONT}`; ctx.fillStyle = txtC;
     ctx.fillText(title, PAD, PAD);
     ctx.font = `400 11px ${FONT}`; ctx.fillStyle = mutC;
-    ctx.fillText(`SLR Harvester \u00b7 ${new Date().toLocaleDateString()}`, PAD, PAD + 20);
+    ctx.fillText(`SLR Harvester Web \u00b7 ${new Date().toLocaleDateString()}`, PAD, PAD + 20);
     const ox = PAD, oy = PAD + HDR;
     const resolveVarStr = s => s.replace(/var\(\s*([^,)]+)(?:,\s*([^)]*))?\s*\)/g,
       (_, k, fb) => gv(k.trim()) || fb || '#888');
@@ -3188,7 +3188,7 @@ window.SLRViews = (() => {
   function renderAbout(container) {
     container.innerHTML = `
       <div class="settings-view">
-        <h2>About SLR Harvester</h2>
+        <h2>About SLR Harvester Web</h2>
         <p class="settings-subtitle">A project-based workflow tool for conducting Systematic Literature Reviews.</p>
 
         <div class="about-links-row">
@@ -3313,7 +3313,7 @@ window.SLRViews = (() => {
 
         <div class="settings-section">
           <h3>Version &amp; License</h3>
-          <p style="font-size:13px;color:var(--text-muted)">SLR Harvester Web &mdash; 2025&ndash;2026</p>
+          <p style="font-size:13px;color:var(--text-muted)">SLR Harvester Web &mdash; 2026</p>
           <p style="font-size:12px;color:var(--text-faint);margin-top:4px">&copy; 2026 Gregor Hobersdorfer &mdash; All rights reserved. Non-commercial use permitted with attribution.</p>
         </div>
       </div>`;

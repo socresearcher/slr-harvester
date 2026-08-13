@@ -254,12 +254,19 @@ a:hover {
   -webkit-overflow-scrolling: touch;
 }
 
+/* Fixed height + identical padding-left in both collapsed and expanded modes:
+   icons must not move at all when the sidebar-label appears/disappears.
+   height (not padding) sets the vertical size so the row can't grow/shrink
+   with label line-height, and padding-left is the same 19px used to center
+   the 18px icon in the 56px collapsed sidebar — kept identical when expanded
+   so the icon never shifts horizontally either. */
 .nav-item {
   display: flex;
   align-items: center;
   gap: 10px;
   width: 100%;
-  padding: 8px 10px 8px 14px;
+  height: 34px;
+  padding: 0 10px 0 19px;
   border-radius: 0;
   color: var(--text-muted);
   white-space: nowrap;
@@ -286,17 +293,6 @@ a:hover {
   width: 3px;
   background: var(--accent);
   border-radius: 0 2px 2px 0;
-}
-
-/* Collapsed: just shift padding-left so the icon (18px) centers in 56px sidebar.
-   Never change justify-content — that would move icons the instant the class is applied. */
-.sidebar.collapsed .nav-item {
-  padding-left: 19px;
-}
-
-.sidebar.collapsed .nav-item::before {
-  top: 4px;
-  bottom: 4px;
 }
 
 .nav-icon {
