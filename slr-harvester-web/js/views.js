@@ -2134,15 +2134,13 @@ window.SLRViews = (() => {
         items.forEach(li => { li.addEventListener('mouseenter', () => activate(li.dataset.tagKey)); li.addEventListener('mouseleave', reset); });
       }
       if (chartType === 'world') {
-        const bubbles = [...el.querySelectorAll('.viz-world-bubble-group[data-country-key]')];
+        const countries = [...el.querySelectorAll('.viz-world-country-has-data[data-country-key]')];
         const items = [...el.querySelectorAll('.viz-world-legend-item[data-country-key]')];
         let lockedKey = null;
 
         const setActive = (key) => {
-          bubbles.forEach(b => {
-            const isActive = b.dataset.countryKey === key;
-            b.classList.toggle('viz-seg-dim', !isActive);
-            b.classList.toggle('viz-world-bubble-active', isActive);
+          countries.forEach(c => {
+            c.classList.toggle('viz-world-country-active', c.dataset.countryKey === key);
           });
           items.forEach(item => {
             const isActive = item.dataset.countryKey === key;
@@ -2152,10 +2150,7 @@ window.SLRViews = (() => {
         };
 
         const reset = () => {
-          bubbles.forEach(b => {
-            b.classList.remove('viz-seg-dim');
-            b.classList.remove('viz-world-bubble-active');
-          });
+          countries.forEach(c => c.classList.remove('viz-world-country-active'));
           items.forEach(item => {
             item.classList.remove('viz-seg-dim');
             item.classList.remove('viz-legend-active');
@@ -2200,8 +2195,13 @@ window.SLRViews = (() => {
           });
         };
 
-        bubbles.forEach(bindInteractive);
+        countries.forEach(bindInteractive);
         items.forEach(bindInteractive);
+
+        const stage = el.querySelector('.viz-world-stage');
+        if (stage && window.SLRWorldMap && typeof SLRWorldMap.wireZoomPan === 'function') {
+          SLRWorldMap.wireZoomPan(stage);
+        }
       }
       if (chartType === 'bars') {
         const rows = [...el.querySelectorAll('.viz-bar-row')];
@@ -3213,6 +3213,7 @@ window.SLRViews = (() => {
           </div>
           <ul class="about-feature-list">
             <li><span class="about-li-icon" aria-hidden="true">${SLRIcons.folderOpen}</span><span><strong>Browser-based</strong> &mdash; no installation, runs from <code>index.html</code> or a local server</span></li>
+            <li><span class="about-li-icon" aria-hidden="true">${SLRIcons.globe}</span><span><strong>Hosted on GitHub Pages</strong> &mdash; open <a href="https://socresearcher.github.io/slr-harvester/" target="_blank" rel="noopener">socresearcher.github.io/slr-harvester</a> directly, no download required; your project data still never leaves your device</span></li>
             <li><span class="about-li-icon" aria-hidden="true">${SLRIcons.databases}</span><span><strong>Multi-database search</strong> &mdash; Scopus, PubMed and OpenAlex integrated directly in the Search view</span></li>
             <li><span class="about-li-icon" aria-hidden="true">${SLRIcons.refresh}</span><span><strong>Data enrichment via Crossref</strong> &mdash; fetch missing abstracts, full author lists and document types by DOI</span></li>
             <li><span class="about-li-icon" aria-hidden="true">${SLRIcons.search}</span><span><strong>Advanced article-list search</strong> &mdash; use semicolon-separated terms for AND logic (e.g., <code>companion; ethnography</code>) across title, abstract and journal fields</span></li>
