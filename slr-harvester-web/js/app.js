@@ -48,9 +48,11 @@ window.SLRApp = (() => {
 			instToken: localStorage.getItem('slr-insttoken') || '',
 			openAlexKey: localStorage.getItem('slr-openalex-key') || '',
 			openAlexEmail: localStorage.getItem('slr-openalex-email') || '',
-			autoFetchEnabled: localStorage.getItem('slr-auto-fetch-enabled') === '1',
-			autoTagEnabled: localStorage.getItem('slr-auto-tag-enabled') === '1',
-			autoRunScope: localStorage.getItem('slr-auto-run-scope') === 'new' ? 'new' : 'all',
+			// Default ON for first-time users (localStorage key absent); once a user
+			// explicitly saves a choice via Settings, that choice is respected as-is.
+			autoFetchEnabled: localStorage.getItem('slr-auto-fetch-enabled') === null ? true : localStorage.getItem('slr-auto-fetch-enabled') === '1',
+			autoTagEnabled: localStorage.getItem('slr-auto-tag-enabled') === null ? true : localStorage.getItem('slr-auto-tag-enabled') === '1',
+			autoRunScope: localStorage.getItem('slr-auto-run-scope') === null ? 'new' : (localStorage.getItem('slr-auto-run-scope') === 'new' ? 'new' : 'all'),
 		},
 
 		fetchMode: localStorage.getItem('slr-fetch-mode') === 'all' ? 'all' : 'missing',

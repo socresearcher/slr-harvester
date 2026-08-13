@@ -1,6 +1,9 @@
 /*
  * SLR Harvester Web — World map helper
- * Aggregates affiliation country data and renders a compact SVG world map.
+ * Aggregates affiliation country data and renders a zoomable SVG choropleth
+ * (country shapes filled by publication count, not point markers).
+ * Country boundary data: Natural Earth (public domain), via world-atlas —
+ * see js/world-map-paths-data.js for full attribution.
  *
  * Global: window.SLRWorldMap
  */
@@ -8,6 +11,7 @@
 window.SLRWorldMap = (() => {
   const worldData = Array.isArray(window.SLRWorldMapData) ? window.SLRWorldMapData : [];
   const outlineData = Array.isArray(window.SLRWorldMapOutlineData) ? window.SLRWorldMapOutlineData : [];
+  const countryPaths = (window.SLRWorldMapPaths && typeof window.SLRWorldMapPaths === 'object') ? window.SLRWorldMapPaths : {};
 
   const normalizeKey = (value) => String(value || '')
     .trim()
@@ -34,15 +38,16 @@ window.SLRWorldMap = (() => {
     return {
       ocean: themeColor('--surface-2', '#21262d'),
       oceanStroke: themeColor('--border', '#30363d'),
-      land: themeColor('--surface', '#161b22'),
+      land: themeColor('--surface-3', '#2d333b'),
       landStroke: themeColor('--border', '#30363d'),
-      grid: themeColor('--border', '#30363d'),
       outline: themeColor('--text-faint', '#8b949e'),
       accent: themeColor('--accent', '#1f6feb'),
       accentHover: themeColor('--accent-hover', '#388bfd'),
       text: themeColor('--text', '#e6edf3'),
       muted: themeColor('--text-muted', '#8b949e'),
       bg: themeColor('--bg', '#0d1117'),
+      heatLow: themeColor('--heat-low', '#1b2836'),
+      heatHigh: themeColor('--heat-high', '#6fb5ff'),
     };
   }
 
@@ -87,6 +92,7 @@ window.SLRWorldMap = (() => {
     ['PALESTINIANTERRITORY', 'PS'],
     ['KOSOVO', 'XK'],
     ['COTEDIVOIRE', 'CI'],
+    ['CTEDIVOIRE', 'CI'],
     ['IVORYCOAST', 'CI'],
     ['DEMOCRATICREPUBLICOFTHECONGO', 'CD'],
     ['DRCONGO', 'CD'],
@@ -106,6 +112,8 @@ window.SLRWorldMap = (() => {
     ['MACAU', 'MO'],
     ['TAIWAN', 'TW'],
     ['REPUBLICOFCHINA', 'TW'],
+    ['CHINA', 'CN'],
+    ['PEOPLESREPUBLICOFCHINA', 'CN'],
     ['SLOVAKIA', 'SK'],
     ['SERBIA', 'RS'],
     ['MONTENEGRO', 'ME'],
@@ -271,36 +279,97 @@ window.SLRWorldMap = (() => {
     return { x, y };
   }
 
-  function buildGraticule(width, height, pad, colors) {
-    const lonLines = [-120, -60, 0, 60, 120];
-    const latLines = [-60, -30, 0, 30, 60];
+  // --- Heat scale -----------------------------------------------------------
+
+  function hexToRgb(hex) {
+    const clean = String(hex || '').trim().replace('#', '');
+    const full = clean.length === 3 ? clean.split('').map(c => c + c).join('') : clean;
+    const n = parseInt(full, 16);
+    if (Number.isNaN(n) || full.length !== 6) return { r: 128, g: 128, b: 128 };
+    return { r: (n >> 16) & 255, g: (n >> 8) & 255, b: n & 255 };
+  }
+
+  function heatColor(t, colors) {
+    const low = hexToRgb(colors.heatLow);
+    const high = hexToRgb(colors.heatHigh);
+    const clamped = Math.max(0, Math.min(1, t));
+    const r = Math.round(low.r + (high.r - low.r) * clamped);
+    const g = Math.round(low.g + (high.g - low.g) * clamped);
+    const b = Math.round(low.b + (high.b - low.b) * clamped);
+    return `rgb(${r},${g},${b})`;
+  }
+
+  // sqrt-scaled min-max normalization: keeps a handful of high-count outliers
+  // from washing out all the low-count countries into a single pale shade.
+  function buildHeatScale(items) {
+    if (!items.length) return () => 0;
+    const counts = items.map(i => Math.sqrt(i.count));
+    const min = Math.min(...counts);
+    const max = Math.max(...counts);
+    if (max === min) return () => 1;
+    return (count) => (Math.sqrt(count) - min) / (max - min);
+  }
+
+  function buildCountryLayer(items, colors) {
+    const scale = buildHeatScale(items);
+    const byIso2Count = new Map(items.map(i => [i.iso2, i]));
     const parts = [];
-
-    for (const lon of lonLines) {
-      const top = projectPoint(lon, 84, width, height, pad);
-      const bottom = projectPoint(lon, -84, width, height, pad);
-      parts.push(`<line class="viz-world-grid" x1="${top.x.toFixed(2)}" y1="${top.y.toFixed(2)}" x2="${bottom.x.toFixed(2)}" y2="${bottom.y.toFixed(2)}" stroke="${colors.grid}" stroke-opacity="0.45" stroke-width="1"/>`);
+    for (const entry of worldData) {
+      const d = countryPaths[entry.iso2];
+      if (!d) continue;
+      const item = byIso2Count.get(entry.iso2);
+      const fill = item ? heatColor(scale(item.count), colors) : colors.land;
+      const label = item
+        ? `${entry.name}: ${item.count} article${item.count !== 1 ? 's' : ''}`
+        : entry.name;
+      parts.push(
+        `<path class="viz-world-country${item ? ' viz-world-country-has-data' : ''}"
+               d="${d}" fill="${fill}" stroke="${colors.landStroke}" stroke-width="0.6"
+               vector-effect="non-scaling-stroke"
+               data-country-key="${entry.iso2}"
+               role="${item ? 'button' : 'img'}" ${item ? 'tabindex="0"' : ''}
+               aria-label="${label}">
+          <title>${label}</title>
+        </path>`
+      );
     }
-
-    for (const lat of latLines) {
-      const left = projectPoint(-180, lat, width, height, pad);
-      const right = projectPoint(180, lat, width, height, pad);
-      parts.push(`<line class="viz-world-grid" x1="${left.x.toFixed(2)}" y1="${left.y.toFixed(2)}" x2="${right.x.toFixed(2)}" y2="${right.y.toFixed(2)}" stroke="${colors.grid}" stroke-opacity="0.45" stroke-width="1"/>`);
+    // Fallback: any legacy anonymous outlines for shapes we have no ISO match for yet.
+    for (const path of outlineData) {
+      parts.push(`<path class="viz-world-outline-fallback" d="${path}" fill="${colors.land}" fill-opacity="0.35" stroke="none"/>`);
     }
-
     return parts.join('');
   }
 
-  function buildOutlines(colors) {
-    if (!outlineData.length) return '';
-    return outlineData.map(path => `
-      <path class="viz-world-outline" d="${path}"
-            fill="${colors.land}"
-            fill-opacity="0.9"
-            stroke="${colors.landStroke}"
-            stroke-opacity="0.9"
-            stroke-width="0.7"
-            vector-effect="non-scaling-stroke"/>`).join('');
+  function renderLegend(items, colors, totalAssignments) {
+    const scale = buildHeatScale(items);
+    return items.map(item => {
+      const pct = totalAssignments > 0 ? (item.count / totalAssignments * 100).toFixed(1) : '0.0';
+      const color = heatColor(scale(item.count), colors);
+      return `
+        <div class="viz-world-legend-item viz-legend-item" data-country-key="${item.iso2}" role="button" tabindex="0" aria-label="${item.name}: ${item.count} article${item.count !== 1 ? 's' : ''}">
+          <span class="viz-legend-dot" style="background:${color}"></span>
+          <span class="viz-legend-label" title="${item.name}">${item.name}</span>
+          <span class="viz-legend-count">${item.count}</span>
+          <span class="viz-bar-pct">${pct}%</span>
+        </div>`;
+    }).join('');
+  }
+
+  function renderScaleBar(items, colors) {
+    if (!items.length) return '';
+    const max = items[0].count;
+    const min = items[items.length - 1].count;
+    const stops = 6;
+    const swatches = Array.from({ length: stops }, (_, i) => {
+      const t = i / (stops - 1);
+      return `<span class="viz-world-scale-swatch" style="background:${heatColor(t, colors)}"></span>`;
+    }).join('');
+    return `
+      <div class="viz-world-scale" aria-hidden="true">
+        <span class="viz-world-scale-label">${min}</span>
+        <div class="viz-world-scale-bar">${swatches}</div>
+        <span class="viz-world-scale-label">${max}</span>
+      </div>`;
   }
 
   function renderWorldMap(articles, showLegend) {
@@ -310,94 +379,130 @@ window.SLRWorldMap = (() => {
     const height = 520;
     const antarcticaCrop = 98;
     const visibleHeight = height - antarcticaCrop;
-    const pad = 22;
     const totalAssignments = items.reduce((sum, item) => sum + item.count, 0);
 
-    const circles = items.map((item) => {
-      const point = projectPoint(item.lon, item.lat, width, height, pad);
-      const radius = Math.max(3.5, Math.min(13, 3.5 + Math.sqrt(item.count) * 1.35));
-          const ringRadius = Math.max(2.3, radius - 1.2);
-          const pulseRadius = radius + 1.8;
-      return `
-        <g class="viz-world-bubble-group" data-country-key="${item.iso2}" role="button" tabindex="0" aria-label="${item.name}: ${item.count} article${item.count !== 1 ? 's' : ''}">
-        <circle class="viz-world-bubble-pulse"
-          cx="${point.x.toFixed(2)}" cy="${point.y.toFixed(2)}" r="${pulseRadius.toFixed(2)}"
-          fill="none"
-          stroke="${colors.accent}"
-          stroke-opacity="0.28"
-          stroke-width="0.8"
-          stroke-dasharray="2 2"/>
-          <circle class="viz-world-bubble"
-                  cx="${point.x.toFixed(2)}" cy="${point.y.toFixed(2)}" r="${radius.toFixed(2)}"
-                  fill="url(#viz-world-bubble-fill)"
-          fill-opacity="0.78"
-                  stroke="${colors.bg}"
-          stroke-opacity="0.15"
-          stroke-width="0.7"
-                  title="${item.name}: ${item.count} article${item.count !== 1 ? 's' : ''}">
-            <title>${item.name}: ${item.count} article${item.count !== 1 ? 's' : ''}</title>
-          </circle>
-        <circle class="viz-world-bubble-ring"
-          cx="${point.x.toFixed(2)}" cy="${point.y.toFixed(2)}" r="${ringRadius.toFixed(2)}"
-          fill="none"
-          stroke="${colors.accentHover}"
-          stroke-opacity="0.9"
-          stroke-width="1.15"/>
-        </g>`;
-    }).join('');
-
-    const legendItems = items.map(item => {
-      const pct = totalAssignments > 0 ? (item.count / totalAssignments * 100).toFixed(1) : '0.0';
-      return `
-        <div class="viz-world-legend-item viz-legend-item" data-country-key="${item.iso2}" role="button" tabindex="0" aria-label="${item.name}: ${item.count} article${item.count !== 1 ? 's' : ''}">
-          <span class="viz-legend-dot" style="background:${colors.accent}"></span>
-          <span class="viz-legend-label" title="${item.name}">${item.name}</span>
-          <span class="viz-legend-count">${item.count}</span>
-          <span class="viz-bar-pct">${pct}%</span>
-        </div>`;
-    }).join('');
-
-    const labels = [
-      { text: 'North America', x: 155, y: 120 },
-      { text: 'South America', x: 235, y: 360 },
-      { text: 'Europe', x: 500, y: 140 },
-      { text: 'Africa', x: 490, y: 300 },
-      { text: 'Asia', x: 720, y: 175 },
-      { text: 'Oceania', x: 840, y: 365 },
-    ].map(item => `<text class="viz-world-region" x="${item.x}" y="${item.y}" fill="${colors.muted}" fill-opacity="0.75">${item.text}</text>`).join('');
+    const countryLayer = buildCountryLayer(items, colors);
+    const legendItems = renderLegend(items, colors, totalAssignments);
+    const scaleBar = renderScaleBar(items, colors);
 
     return `
       <div class="viz-world-wrap${showLegend ? '' : ' legend-hidden'}">
         <div class="viz-world-stage">
-          <svg class="viz-world-svg" viewBox="0 0 ${width} ${visibleHeight}" role="img" aria-label="World map showing article counts by affiliation country">
-            <defs>
-              <radialGradient id="viz-world-glow" cx="50%" cy="40%" r="70%">
-                <stop offset="0%" stop-color="${colors.accentHover}" stop-opacity="0.22"/>
-                <stop offset="100%" stop-color="${colors.accent}" stop-opacity="0"/>
-              </radialGradient>
-              <radialGradient id="viz-world-bubble-fill" cx="35%" cy="30%" r="80%">
-                <stop offset="0%" stop-color="${colors.accentHover}" stop-opacity="0.82"/>
-                <stop offset="65%" stop-color="${colors.accent}" stop-opacity="0.7"/>
-                <stop offset="100%" stop-color="${colors.accent}" stop-opacity="0.45"/>
-              </radialGradient>
-            </defs>
+          <svg class="viz-world-svg" viewBox="0 0 ${width} ${visibleHeight}" role="img" aria-label="World map showing article counts by affiliation country, shaded by count">
             <rect class="viz-world-ocean" x="0" y="0" width="${width}" height="${height}" rx="18" fill="${colors.ocean}" stroke="${colors.oceanStroke}" stroke-width="1.2"/>
-            <rect class="viz-world-glow" x="0" y="0" width="${width}" height="${height}" rx="18" fill="url(#viz-world-glow)"/>
-            <g class="viz-world-outline-layer">${buildOutlines(colors)}</g>
-            <g class="viz-world-graticule">
-              ${buildGraticule(width, height, pad, colors)}
-            </g>
-            <g class="viz-world-region-layer">${labels}</g>
-            <g class="viz-world-bubbles">${circles}</g>
+            <g class="viz-world-country-layer">${countryLayer}</g>
           </svg>
+          <div class="viz-world-zoom-controls" role="group" aria-label="Map zoom controls">
+            <button type="button" class="viz-world-zoom-btn" data-zoom="in" aria-label="Zoom in">+</button>
+            <button type="button" class="viz-world-zoom-btn" data-zoom="out" aria-label="Zoom out">&minus;</button>
+            <button type="button" class="viz-world-zoom-btn viz-world-zoom-reset" data-zoom="reset" aria-label="Reset zoom">&#8634;</button>
+          </div>
+          <div class="viz-world-credit">Map: <a href="https://www.naturalearthdata.com/" target="_blank" rel="noopener">Natural Earth</a></div>
           <div class="viz-world-note">
             ${items.length > 0
-              ? `${mappedArticles} article${mappedArticles !== 1 ? 's' : ''} have at least one country assignment. ${missingArticles} article${missingArticles !== 1 ? 's' : ''} do not expose usable country metadata yet.`
+              ? `${mappedArticles} article${mappedArticles !== 1 ? 's' : ''} have at least one country assignment. ${missingArticles} article${missingArticles !== 1 ? 's' : ''} do not expose usable country metadata yet. Scroll/pinch to zoom, drag to pan.`
               : 'No affiliation country data available yet. Use Fetch Affiliations to enrich records from DOI, OpenAlex, or PMID sources.'}
           </div>
+          ${scaleBar}
         </div>
         ${showLegend && legendItems ? `<div class="viz-world-legend">${legendItems}</div>` : ''}
       </div>`;
+  }
+
+  // --- Zoom & pan -------------------------------------------------------------
+
+  function wireZoomPan(stageEl) {
+    if (!stageEl) return;
+    const svg = stageEl.querySelector('svg.viz-world-svg');
+    if (!svg) return;
+
+    const baseBox = svg.viewBox.baseVal;
+    const base = { x: baseBox.x, y: baseBox.y, w: baseBox.width, h: baseBox.height };
+    let view = { ...base };
+    const minW = base.w * 0.12;
+    const maxW = base.w;
+
+    const apply = () => svg.setAttribute('viewBox', `${view.x} ${view.y} ${view.w} ${view.h}`);
+
+    const clientToSvg = (clientX, clientY) => {
+      const rect = svg.getBoundingClientRect();
+      const sx = view.x + ((clientX - rect.left) / rect.width) * view.w;
+      const sy = view.y + ((clientY - rect.top) / rect.height) * view.h;
+      return { sx, sy };
+    };
+
+    const zoomAt = (clientX, clientY, factor) => {
+      const { sx, sy } = clientToSvg(clientX, clientY);
+      let newW = Math.max(minW, Math.min(maxW, view.w * factor));
+      const ratio = newW / view.w;
+      const newH = view.h * ratio;
+      view = {
+        x: sx - (sx - view.x) * ratio,
+        y: sy - (sy - view.y) * ratio,
+        w: newW,
+        h: newH,
+      };
+      clampPan();
+      apply();
+    };
+
+    const clampPan = () => {
+      view.x = Math.max(base.x - view.w * 0.5, Math.min(base.x + base.w - view.w * 0.5, view.x));
+      view.y = Math.max(base.y - view.h * 0.5, Math.min(base.y + base.h - view.h * 0.5, view.y));
+    };
+
+    stageEl.addEventListener('wheel', (ev) => {
+      ev.preventDefault();
+      const factor = ev.deltaY > 0 ? 1.15 : 1 / 1.15;
+      zoomAt(ev.clientX, ev.clientY, factor);
+    }, { passive: false });
+
+    let dragging = false;
+    let lastX = 0, lastY = 0;
+    stageEl.addEventListener('pointerdown', (ev) => {
+      if (ev.button !== 0) return;
+      dragging = true;
+      lastX = ev.clientX; lastY = ev.clientY;
+      stageEl.classList.add('is-panning');
+      stageEl.setPointerCapture(ev.pointerId);
+    });
+    stageEl.addEventListener('pointermove', (ev) => {
+      if (!dragging) return;
+      const rect = svg.getBoundingClientRect();
+      const dx = (ev.clientX - lastX) / rect.width * view.w;
+      const dy = (ev.clientY - lastY) / rect.height * view.h;
+      view.x -= dx;
+      view.y -= dy;
+      lastX = ev.clientX; lastY = ev.clientY;
+      clampPan();
+      apply();
+    });
+    const endDrag = (ev) => {
+      dragging = false;
+      stageEl.classList.remove('is-panning');
+      if (ev && stageEl.releasePointerCapture && ev.pointerId != null) {
+        try { stageEl.releasePointerCapture(ev.pointerId); } catch (_) { /* noop */ }
+      }
+    };
+    stageEl.addEventListener('pointerup', endDrag);
+    stageEl.addEventListener('pointercancel', endDrag);
+
+    stageEl.addEventListener('dblclick', (ev) => {
+      ev.preventDefault();
+      zoomAt(ev.clientX, ev.clientY, 0.5);
+    });
+
+    stageEl.querySelectorAll('.viz-world-zoom-btn').forEach(btn => {
+      btn.addEventListener('click', () => {
+        const action = btn.dataset.zoom;
+        const rect = svg.getBoundingClientRect();
+        const cx = rect.left + rect.width / 2;
+        const cy = rect.top + rect.height / 2;
+        if (action === 'in') zoomAt(cx, cy, 0.7);
+        else if (action === 'out') zoomAt(cx, cy, 1 / 0.7);
+        else { view = { ...base }; apply(); }
+      });
+    });
   }
 
   return {
@@ -407,5 +512,6 @@ window.SLRWorldMap = (() => {
     extractCountries,
     aggregateCountryCounts,
     renderWorldMap,
+    wireZoomPan,
   };
 })();

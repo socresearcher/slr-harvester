@@ -25,6 +25,12 @@
   --danger:       #f85149;
   --danger-subtle:#2d1a1a;
   --warning:      #d29922;
+  /* World-map choropleth scale: low (no/few publications, blends toward
+     background) -> high (most publications, stands out). Direction is
+     deliberately inverted vs. light theme so "more data" always reads as
+     more visually prominent, not as invisible-dark-on-dark. */
+  --heat-low:     #1b2836;
+  --heat-high:    #6fb5ff;
   --sidebar-w:    220px;
   --sidebar-collapsed-w: 56px;
   --topbar-h:     52px;
@@ -53,6 +59,10 @@
   --danger:       #cf222e;
   --danger-subtle:#fde8e8;
   --warning:      #9a6700;
+  /* Classic light-to-dark choropleth direction: low data is a pale tint,
+     high data is deep and saturated — reads correctly on a light page. */
+  --heat-low:     #dbeafe;
+  --heat-high:    #0a3d7a;
   --shadow:       0 1px 3px rgba(0,0,0,.12);
   --shadow-lg:    0 4px 16px rgba(0,0,0,.15);
 }
@@ -168,7 +178,9 @@ a:hover {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 12px 10px 12px 14px;
+  /* Left padding chosen so the logo icon's horizontal center (17 + 22/2 = 28px)
+     matches the nav icons' center below it (padding-left 19 + 18/2 = 28px). */
+  padding: 12px 10px 12px 17px;
   border-bottom: 1px solid var(--border);
   height: var(--topbar-h);
   flex-shrink: 0;
@@ -183,7 +195,7 @@ a:hover {
 .app-logo {
   display: flex;
   align-items: center;
-  gap: 10px;
+  gap: 13px;
   overflow: hidden;
 }
 
@@ -234,16 +246,10 @@ a:hover {
   margin: 0 auto;
 }
 
-/* Rotate the toggle chevron via CSS — no JS re-injection needed */
-@media (prefers-reduced-motion: no-preference) {
-  #sidebar-toggle-icon svg {
-    transition: transform var(--transition);
-  }
-}
-
-.sidebar.collapsed #sidebar-toggle-icon svg {
-  transform: rotate(180deg);
-}
+/* The chevron direction is set by swapping the icon in JS (app-ui.js:
+   setSidebarCollapsed/injectIcons use chevronLeft/chevronRight directly) — do
+   NOT also rotate it here via CSS, that cancels the swap and points it the
+   wrong way. */
 
 /* Sidebar nav */
 .sidebar-nav {
@@ -4269,52 +4275,110 @@ a.db-link:visited {
   padding-top: 4px;
 }
 
-.viz-world-outline {
-  pointer-events: none;
+.viz-world-country {
+  transition: fill .18s ease, opacity .18s ease;
 }
 
-.viz-world-outline-layer {
-  filter: drop-shadow(0 1px 0 color-mix(in srgb, var(--bg) 55%, transparent));
-}
-
-.viz-world-bubble-group {
+.viz-world-country-has-data {
   cursor: pointer;
-  transition: opacity .18s ease, transform .18s ease;
-  transform-origin: center;
 }
 
-.viz-world-bubble-group:focus {
+.viz-world-country-has-data:hover,
+.viz-world-country-active {
+  fill: var(--accent-hover) !important;
+}
+
+.viz-world-country-has-data:focus {
   outline: none;
+  fill: var(--accent-hover) !important;
 }
 
-.viz-world-bubble-group:hover {
-  transform: scale(1.06);
-}
-
-.viz-world-bubble,
-.viz-world-bubble-ring,
-.viz-world-bubble-pulse {
+.viz-world-outline-fallback {
   pointer-events: none;
 }
 
-.viz-world-bubble-pulse {
-  transition: opacity .18s ease, stroke-opacity .18s ease;
+.viz-world-stage {
+  position: relative;
+  touch-action: none;
+  cursor: grab;
+  background: var(--surface-2);
 }
 
-.viz-world-bubble-group:hover .viz-world-bubble-pulse {
-  stroke-opacity: 0.58;
+.viz-world-stage.is-panning {
+  cursor: grabbing;
 }
 
-.viz-world-bubble-ring {
-  transition: stroke-opacity .18s ease;
+.viz-world-zoom-controls {
+  position: absolute;
+  top: 10px;
+  right: 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  z-index: 2;
 }
 
-.viz-world-bubble-group:hover .viz-world-bubble-ring {
-  stroke-opacity: 1;
+.viz-world-zoom-btn {
+  width: 26px;
+  height: 26px;
+  border-radius: var(--radius);
+  background: color-mix(in srgb, var(--surface) 85%, transparent);
+  border: 1px solid var(--border);
+  color: var(--text);
+  font-size: 15px;
+  line-height: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  backdrop-filter: blur(2px);
 }
 
-.viz-world-bubble-active {
-  transform: scale(1.1);
+.viz-world-zoom-btn:hover {
+  background: var(--surface-3);
+  border-color: var(--accent);
+}
+
+.viz-world-zoom-reset {
+  font-size: 13px;
+}
+
+.viz-world-credit {
+  position: absolute;
+  bottom: 6px;
+  left: 10px;
+  font-size: 10px;
+  color: var(--text-faint);
+  background: color-mix(in srgb, var(--surface) 70%, transparent);
+  padding: 1px 6px;
+  border-radius: 4px;
+  pointer-events: auto;
+  z-index: 2;
+}
+
+.viz-world-credit a {
+  color: inherit;
+  text-decoration: underline;
+}
+
+.viz-world-scale {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 8px;
+  font-size: 11px;
+  color: var(--text-muted);
+}
+
+.viz-world-scale-bar {
+  display: flex;
+  border-radius: 3px;
+  overflow: hidden;
+  border: 1px solid var(--border);
+}
+
+.viz-world-scale-swatch {
+  width: 22px;
+  height: 10px;
 }
 
 .viz-world-legend-item {
@@ -4331,18 +4395,6 @@ a.db-link:visited {
 .viz-world-legend-item:focus {
   outline: 1px solid var(--accent);
   outline-offset: 1px;
-}
-
-.viz-world-grid {
-  pointer-events: none;
-}
-
-.viz-world-region {
-  font-size: 12px;
-  font-weight: 600;
-  letter-spacing: .04em;
-  text-transform: uppercase;
-  pointer-events: none;
 }
 
 .viz-world-empty {
