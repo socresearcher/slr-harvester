@@ -1,0 +1,139 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="dark">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>SLR Harvester</title>
+  <link rel="icon" type="image/svg+xml" href="favicon.svg">
+  <link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+
+  <div id="app">
+
+    <!-- Sidebar -->
+    <aside id="sidebar" class="sidebar">
+      <div class="sidebar-header">
+        <div class="app-logo">
+          <span class="logo-icon" id="logo-icon"></span>
+          <span class="app-name sidebar-label">SLR Harvester</span>
+        </div>
+        <button id="sidebar-toggle" class="icon-btn" title="Collapse sidebar" aria-label="Toggle sidebar">
+          <span id="sidebar-toggle-icon"></span>
+        </button>
+      </div>
+
+      <nav class="sidebar-nav" role="navigation" aria-label="Main navigation">
+
+        <!-- Databases view shortcut -->
+        <button class="nav-item" data-view="databases" title="Databases" aria-label="Databases">
+          <span class="nav-icon" data-icon="databases"></span>
+          <span class="nav-label sidebar-label">Databases</span>
+        </button>
+
+        <button class="nav-item" data-view="projects" title="Projects" aria-label="Projects">
+          <span class="nav-icon" data-icon="projects"></span>
+          <span class="nav-label sidebar-label">Projects</span>
+        </button>
+
+        <div class="nav-divider"></div>
+
+        <!-- App views -->
+        <div class="nav-section-label sidebar-label">Research</div>
+
+        <button class="nav-item" data-view="search" title="Search" aria-label="Search">
+          <span class="nav-icon" data-icon="search"></span>
+          <span class="nav-label sidebar-label">Search</span>
+        </button>
+        <button class="nav-item" data-view="history" title="Query History" aria-label="Query History">
+          <span class="nav-icon" data-icon="history"></span>
+          <span class="nav-label sidebar-label">History</span>
+        </button>
+        <button class="nav-item" data-view="articles" title="Articles" aria-label="Articles">
+          <span class="nav-icon" data-icon="articles"></span>
+          <span class="nav-label sidebar-label">Articles</span>
+        </button>
+        <button class="nav-item" data-view="selected" title="Selected" aria-label="Selected">
+          <span class="nav-icon" data-icon="selected"></span>
+          <span class="nav-label sidebar-label">Selected</span>
+        </button>
+        <button class="nav-item" data-view="corpus" title="Corpus" aria-label="Corpus">
+          <span class="nav-icon" data-icon="corpus"></span>
+          <span class="nav-label sidebar-label">Corpus</span>
+        </button>
+
+        <div class="nav-divider"></div>
+
+        <button class="nav-item" data-view="project" title="Project Info" aria-label="Project Info">
+          <span class="nav-icon" data-icon="project"></span>
+          <span class="nav-label sidebar-label">Project</span>
+        </button>
+        <button class="nav-item" data-view="tags" title="Tags" aria-label="Tags">
+          <span class="nav-icon" data-icon="tags"></span>
+          <span class="nav-label sidebar-label">Tags</span>
+        </button>
+        <button class="nav-item" data-view="visualizations" title="Visualizations" aria-label="Visualizations">
+          <span class="nav-icon" data-icon="chart"></span>
+          <span class="nav-label sidebar-label">Visualizations</span>
+        </button>
+      </nav>
+
+      <div class="sidebar-footer">
+        <button id="open-folder-btn" class="nav-item" title="Open SLR folder" aria-label="Open folder">
+          <span class="nav-icon" data-icon="folder"></span>
+          <span class="nav-label sidebar-label">Open Folder</span>
+        </button>
+        <button class="nav-item" data-view="settings" title="Settings" aria-label="Settings">
+          <span class="nav-icon" data-icon="settings"></span>
+          <span class="nav-label sidebar-label">Settings</span>
+        </button>
+        <button class="nav-item" data-view="about" title="About SLR Harvester" aria-label="About">
+          <span class="nav-icon" data-icon="info"></span>
+          <span class="nav-label sidebar-label">About</span>
+        </button>        <div class="sidebar-copyright sidebar-label">&copy; 2025&ndash;2026 Gregor Hobersdorfer</div>
+      </div>
+    </aside>
+
+    <!-- Main Content -->
+    <main id="main">
+      <header id="topbar">
+        <div class="topbar-left">
+          <span id="view-title" class="view-title"></span>
+          <span id="project-badge" class="project-badge"></span>
+        </div>
+        <div class="topbar-right">
+          <span id="folder-path" class="folder-path"></span>
+          <button id="fullscreen-toggle" class="theme-switch fullscreen-switch" title="Toggle fullscreen" aria-label="Toggle fullscreen">
+            <span class="theme-switch-knob">
+              <span id="fullscreen-icon" class="theme-switch-icon"></span>
+            </span>
+          </button>
+          <button id="theme-toggle" class="theme-switch" title="Toggle dark/light mode" aria-label="Toggle theme">
+            <span class="theme-switch-knob">
+              <span id="theme-icon" class="theme-switch-icon"></span>
+            </span>
+          </button>
+        </div>
+      </header>
+
+      <div id="view-container" role="main">
+        <!-- Views rendered here by app.js -->
+      </div>
+    </main>
+
+  </div>
+
+  <!-- Modal overlay (rendered dynamically) -->
+  <div id="modal-overlay" class="modal-overlay hidden" role="dialog" aria-modal="true"></div>
+
+  <script src="js/icons.js?v=20260813c"></script>
+  <script src="js/data.js?v=20260813c"></script>
+  <script src="js/world-map-data.js?v=20260813c"></script>
+  <script src="js/world-map-outline-data.js?v=20260813c"></script>
+  <script src="js/world-map.js?v=20260813c"></script>
+  <script src="js/views.js?v=20260813c"></script>
+  <script src="js/app-ui.js?v=20260813c"></script>
+  <script src="js/app.js?v=20260813c"></script>
+
+</body>
+</html>

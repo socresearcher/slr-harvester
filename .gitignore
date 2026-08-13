@@ -25,6 +25,7 @@ coverage.xml
 .DS_Store
 .idea/
 .vscode/
+.claude/
 Thumbs.db
 
 # Project data folders
@@ -41,3 +42,7 @@ slr_gui_settings.json
 # Local config
 slr_config.json
 api_keys.txt
+projects.json
+
+# SLR Harvester Web — local backup copies (see slr-harvester-web/backup-file.ps1)
+slr-harvester-web/backups/

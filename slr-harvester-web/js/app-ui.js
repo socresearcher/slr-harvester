@@ -1,0 +1,142 @@
+/**
+ * SLR Harvester Web - App UI Shell Helpers
+ * Keeps topbar/sidebar/theme/fullscreen logic outside app.js.
+ *
+ * Global: window.SLRAppUI
+ */
+
+window.SLRAppUI = (() => {
+
+  function applyTheme(state, $) {
+    state.theme = state.theme === 'light' ? 'light' : 'dark';
+    document.documentElement.setAttribute('data-theme', state.theme);
+    localStorage.setItem('slr-theme', state.theme);
+
+    const icon = $('theme-icon');
+    if (icon) icon.innerHTML = state.theme === 'dark' ? SLRIcons.moon : SLRIcons.sun;
+
+    const themeBtn = $('theme-toggle');
+    if (themeBtn) themeBtn.classList.toggle('is-light', state.theme === 'light');
+  }
+
+  function toggleTheme(state, $) {
+    state.theme = state.theme === 'dark' ? 'light' : 'dark';
+    applyTheme(state, $);
+  }
+
+  function setSidebarCollapsed(state, sidebarEl, $) {
+    state.sidebarCollapsed = !!state.sidebarCollapsed;
+    if (sidebarEl) sidebarEl.classList.toggle('collapsed', state.sidebarCollapsed);
+    localStorage.setItem('slr-sidebar-collapsed', state.sidebarCollapsed ? '1' : '0');
+
+    const icon = $('sidebar-toggle-icon');
+    if (icon) icon.innerHTML = state.sidebarCollapsed ? SLRIcons.chevronRight : SLRIcons.chevronLeft;
+  }
+
+  function toggleSidebar(state, sidebarEl, $) {
+    state.sidebarCollapsed = !state.sidebarCollapsed;
+    setSidebarCollapsed(state, sidebarEl, $);
+  }
+
+  function injectIcons(state, $) {
+    const logoEl = $('logo-icon');
+    if (logoEl) logoEl.innerHTML = SLRIcons.logo;
+
+    const map = {
+      databases: SLRIcons.databases,
+      projects: SLRIcons.projects,
+      search: SLRIcons.search,
+      history: SLRIcons.history,
+      articles: SLRIcons.articles,
+      tags: SLRIcons.tag,
+      selected: SLRIcons.selected,
+      corpus: SLRIcons.corpus,
+      chart: SLRIcons.chart,
+      project: SLRIcons.project,
+      folder: SLRIcons.folder,
+      settings: SLRIcons.settings,
+      info: SLRIcons.info,
+    };
+
+    document.querySelectorAll('[data-icon]').forEach(el => {
+      const key = el.dataset.icon;
+      if (map[key]) el.innerHTML = map[key];
+    });
+
+    const toggleIcon = $('sidebar-toggle-icon');
+    if (toggleIcon) toggleIcon.innerHTML = state.sidebarCollapsed ? SLRIcons.chevronRight : SLRIcons.chevronLeft;
+  }
+
+  function updateTopbar(state, refs) {
+    const titles = {
+      welcome: 'Welcome',
+      projects: 'Projects',
+      search: 'Search',
+      history: 'History',
+      articles: 'Articles',
+      selected: 'Selected',
+      corpus: 'Corpus',
+      visualizations: 'Visualizations',
+      tags: 'Tags',
+      project: 'Project',
+      settings: 'Settings',
+      about: 'About',
+      databases: 'Databases',
+    };
+
+    if (refs.viewTitle) refs.viewTitle.textContent = titles[state.view] || 'SLR Harvester';
+    if (refs.projectBadge) refs.projectBadge.textContent = state.currentProject ? state.currentProject.name : '';
+    if (refs.folderPath) refs.folderPath.textContent = state.folderName || '';
+
+    document.querySelectorAll('.nav-item[data-view]').forEach(btn => {
+      btn.classList.toggle('active', btn.dataset.view === state.view);
+    });
+  }
+
+  function isFullscreen() {
+    return !!document.fullscreenElement;
+  }
+
+  function updateFullscreenButton($) {
+    const icon = $('fullscreen-icon');
+    const btn = $('fullscreen-toggle');
+    if (!icon || !btn) return;
+
+    const active = isFullscreen();
+    icon.innerHTML = active ? SLRIcons.fullscreenExit : SLRIcons.fullscreen;
+    btn.classList.toggle('is-active', active);
+    btn.title = active ? 'Exit fullscreen' : 'Toggle fullscreen';
+    btn.setAttribute('aria-label', active ? 'Exit fullscreen' : 'Toggle fullscreen');
+  }
+
+  async function toggleFullscreen(showToast, $) {
+    if (!document.fullscreenEnabled) {
+      showToast('Fullscreen is not supported by this browser.', true);
+      return;
+    }
+
+    try {
+      if (isFullscreen()) {
+        await document.exitFullscreen();
+      } else {
+        await document.documentElement.requestFullscreen();
+      }
+    } catch (err) {
+      showToast(`Unable to toggle fullscreen: ${err?.message || err}`, true);
+    }
+
+    updateFullscreenButton($);
+  }
+
+  return {
+    applyTheme,
+    toggleTheme,
+    setSidebarCollapsed,
+    toggleSidebar,
+    injectIcons,
+    updateTopbar,
+    updateFullscreenButton,
+    toggleFullscreen,
+  };
+
+})();
