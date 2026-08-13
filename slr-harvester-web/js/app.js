@@ -53,6 +53,17 @@ window.SLRApp = (() => {
 			autoFetchEnabled: localStorage.getItem('slr-auto-fetch-enabled') === null ? true : localStorage.getItem('slr-auto-fetch-enabled') === '1',
 			autoTagEnabled: localStorage.getItem('slr-auto-tag-enabled') === null ? true : localStorage.getItem('slr-auto-tag-enabled') === '1',
 			autoRunScope: localStorage.getItem('slr-auto-run-scope') === null ? 'new' : (localStorage.getItem('slr-auto-run-scope') === 'new' ? 'new' : 'all'),
+			// Which disciplines auto-tag is allowed to assign. Empty/absent means
+			// "all" (unrestricted, matches prior behavior); deselecting categories
+			// that don't apply to a given project removes them as candidates
+			// entirely, sharpening results among the categories that remain.
+			autoTagCategories: (() => {
+				try {
+					const raw = localStorage.getItem('slr-auto-tag-categories');
+					const parsed = raw ? JSON.parse(raw) : null;
+					return Array.isArray(parsed) ? parsed : [];
+				} catch (_) { return []; }
+			})(),
 		},
 
 		fetchMode: localStorage.getItem('slr-fetch-mode') === 'all' ? 'all' : 'missing',
@@ -404,6 +415,8 @@ window.SLRApp = (() => {
 					autoFetchEnabled: state.settings.autoFetchEnabled,
 					autoTagEnabled: state.settings.autoTagEnabled,
 					autoRunScope: state.settings.autoRunScope,
+					autoTagCategories: state.settings.autoTagCategories,
+					allTagCategories: JOURNAL_TAG_RULES.map(r => r.tag),
 					fetchMode: state.fetchMode,
 					folderName: state.folderName,
 				});
@@ -575,7 +588,7 @@ window.SLRApp = (() => {
 		}
 	}
 
-	async function saveSettings({ apiKey, instToken, openAlexKey, openAlexEmail, autoFetchEnabled, fetchMode, autoTagEnabled, autoRunScope }) {
+	async function saveSettings({ apiKey, instToken, openAlexKey, openAlexEmail, autoFetchEnabled, fetchMode, autoTagEnabled, autoRunScope, autoTagCategories }) {
 		state.settings.apiKey = normalizePrimaryCredential(apiKey);
 		state.settings.instToken = normalizeToken(instToken);
 		state.settings.openAlexKey = normalizeToken(openAlexKey);
@@ -583,6 +596,7 @@ window.SLRApp = (() => {
 		state.settings.autoFetchEnabled = !!autoFetchEnabled;
 		state.settings.autoTagEnabled = !!autoTagEnabled;
 		state.settings.autoRunScope = autoRunScope === 'new' ? 'new' : 'all';
+		state.settings.autoTagCategories = Array.isArray(autoTagCategories) ? autoTagCategories : [];
 		state.fetchMode = fetchMode === 'all' ? 'all' : 'missing';
 		localStorage.setItem('slr-apikey', state.settings.apiKey);
 		localStorage.setItem('slr-insttoken', state.settings.instToken);
@@ -591,6 +605,7 @@ window.SLRApp = (() => {
 		localStorage.setItem('slr-auto-fetch-enabled', state.settings.autoFetchEnabled ? '1' : '0');
 		localStorage.setItem('slr-auto-tag-enabled', state.settings.autoTagEnabled ? '1' : '0');
 		localStorage.setItem('slr-auto-run-scope', state.settings.autoRunScope);
+		localStorage.setItem('slr-auto-tag-categories', JSON.stringify(state.settings.autoTagCategories));
 		localStorage.setItem('slr-fetch-mode', state.fetchMode);
 
 		// Persist credentials into THIS folder's own slr_config.json (creating it
@@ -1804,16 +1819,29 @@ window.SLRApp = (() => {
 	}
 
 	// Journal to tag heuristics.
+	// Keyword rules for the journal/title/abstract keyword-scoring fallback used
+	// when an article has no OpenAlex field/subfield data (see
+	// inferTagFromOpenAlexCategories, checked first). Keep every keyword either
+	// (a) a genuine word-stem intentionally left unterminated to catch multiple
+	// suffixes (e.g. 'psycholog' -> psychology/psychological/psychologist), or
+	// (b) specific enough not to appear as an incidental substring/mention in
+	// otherwise-unrelated academic writing. Bare single words like the old
+	// 'design'/'communication'/'language'/'visual'/'arts' under Design & Arts
+	// caused real misclassifications (e.g. "IFIP Advances in Information and
+	// Communication Technology" - a computing conference series - matched
+	// 'communication' and outscored the weaker "software" signal elsewhere;
+	// "Visualization" substring-matched bare 'visual') — verified via a 20-case
+	// adversarial test suite plus real project data before landing this list.
 	const JOURNAL_TAG_RULES = [
-		{ color: 'Blue', tag: 'Computer Science', keywords: ['computer', 'computing', 'software', 'informatics', 'information system', 'machine learning', 'artificial intelligence', 'data science', 'human computer interaction', 'digital'] },
+		{ color: 'Blue', tag: 'Computer Science', keywords: ['computer', 'computing', 'software', 'informatics', 'information system', 'information and communication technology', 'information technology', 'ict', 'machine learning', 'artificial intelligence', 'data science', 'human computer interaction', 'programming language', 'natural language processing', 'algorithm', 'cybersecurity', 'computer network', 'network protocol', 'telecommunications', 'telecommunication', 'wireless network', 'wireless', 'internet of things', 'cloud computing'] },
 		{ color: 'Green', tag: 'Engineering', keywords: ['engineering', 'engineer', 'mechanic', 'electrical', 'industrial', 'manufacturing', 'automation', 'robotics', 'systems engineering'] },
 		{ color: 'Magenta', tag: 'Psychology & Psychotherapy', keywords: ['psycholog', 'psychotherap', 'psychodynamic', 'psychoanal', 'counsel', 'counselling', 'cognitive behavioral', 'cognitive behavioural', 'mental distress', 'trauma therapy', 'coping', 'resilience', 'depression', 'anxiety', 'mourning', 'attachment'] },
 		{ color: 'Orange', tag: 'Social Sciences', keywords: ['social', 'sociolog', 'anthropolog', 'humanities', 'society', 'education', 'cultural', 'behavior', 'behaviour', 'ethnograph', 'qualitative', 'interview study', 'lived experience', 'sociocultural', 'social work'] },
 		{ color: 'Red', tag: 'Medicine & Health', keywords: ['medical', 'medicine', 'clinical', 'health', 'biomed', 'nursing', 'public health', 'patient', 'hospital', 'therapy', 'care', 'caring', 'palliative', 'obstetric', 'gynaecolog', 'gynecolog', 'midwif', 'perinatal', 'neonatal', 'bereave', 'grief', 'hospice', 'psychiatr', 'healthcare', 'oncolog', 'epidemiolog', 'pediatr'] },
 		{ color: 'Indigo', tag: 'Spirituality & Religion', keywords: ['spiritual', 'spirituality', 'religion', 'religious', 'faith', 'theolog', 'chaplain', 'chaplaincy', 'pastoral care', 'existential', 'meaning making', 'ritual', 'pastoral', 'meaning centered'] },
-		{ color: 'Violet', tag: 'Law & Policy', keywords: ['law', 'policy', 'governance', 'regulation', 'jurisprudence', 'legal', 'public policy', 'ethics', 'accountability', 'legislation', 'rights based', 'compliance', 'guideline'] },
-		{ color: 'Turquoise', tag: 'Business & Economics', keywords: ['econom', 'finance', 'management', 'business', 'marketing', 'innovation management', 'organization', 'organisation', 'entrepreneur'] },
-		{ color: 'Pink', tag: 'Design & Arts', keywords: ['design', 'arts', 'media', 'language', 'communication', 'creative', 'aesthetic', 'visual', 'interaction design'] },
+		{ color: 'Violet', tag: 'Law & Policy', keywords: ['law', 'policy', 'governance', 'regulation', 'regulatory', 'jurisprudence', 'legal', 'public policy', 'ethics', 'accountability', 'legislation', 'rights based', 'compliance'] },
+		{ color: 'Turquoise', tag: 'Business & Economics', keywords: ['econom', 'finance', 'management', 'business', 'marketing', 'innovation management', 'entrepreneur'] },
+		{ color: 'Pink', tag: 'Design & Arts', keywords: ['graphic design', 'industrial design', 'product design', 'fashion design', 'visual arts', 'fine arts', 'performing arts', 'creative arts', 'media arts', 'art history', 'design studies', 'design practice', 'communication design', 'visual communication', 'aesthetic', 'interaction design', 'user experience design', 'typography', 'illustration', 'curatorial'] },
 		{ color: 'Lavender', tag: 'Philosophy', keywords: ['philosoph', 'epistemolog', 'ontolog', 'metaphysic', 'ethic', 'phenomenolog', 'hermeneutic'] },
 		{ color: 'Gold', tag: 'Futures & Foresight', keywords: ['futures studies', 'foresight', 'scenario', 'horizon scanning', 'forecast', 'future studies', 'anticipation', 'strategic foresight'] },
 		{ color: 'Steel Blue', tag: 'Natural Sciences', keywords: ['physics', 'chemistry', 'biolog', 'mathematics', 'geology', 'geoscience', 'earth science', 'ecology', 'biochemistry', 'molecular', 'cell biology', 'astrophysics', 'environmental science'] },
@@ -1854,8 +1882,13 @@ window.SLRApp = (() => {
 	];
 
 	const LAW_CONTEXT_KEYWORDS = [
-		'law', 'legal', 'policy', 'regulation', 'governance', 'legislation', 'rights', 'compliance', 'guideline'
+		'law', 'legal', 'policy', 'regulation', 'regulatory', 'governance', 'legislation', 'rights', 'compliance'
 	];
+
+	// Mirrors Computer Science's own keyword list; used to suppress Design & Arts
+	// when strong technical/CS signals are present (defense in depth alongside
+	// the narrower Design & Arts keyword list itself — see JOURNAL_TAG_RULES).
+	const TECH_CONTEXT_KEYWORDS = JOURNAL_TAG_RULES.find(r => r.tag === 'Computer Science').keywords;
 
 	function normalizeRuleText(text) {
 		return String(text || '')
@@ -1885,7 +1918,7 @@ window.SLRApp = (() => {
 		return score;
 	}
 
-	function inferTagFromOpenAlexCategories(article) {
+	function inferTagFromOpenAlexCategories(article, enabledCategories) {
 		const categoryText = [
 			...(Array.isArray(article && article.openAlexFields) ? article.openAlexFields : []),
 			...(Array.isArray(article && article.openAlexSubfields) ? article.openAlexSubfields : []),
@@ -1898,6 +1931,7 @@ window.SLRApp = (() => {
 
 		let best = null;
 		for (const rule of OPENALEX_CATEGORY_RULES) {
+			if (enabledCategories && !enabledCategories.has(rule.tag)) continue;
 			let score = 0;
 			for (const keyword of rule.keywords) {
 				if (keywordMatches(categoryText, keyword)) {
@@ -1927,8 +1961,14 @@ window.SLRApp = (() => {
 			return;
 		}
 
+		const enabledCategories = new Set(
+			Array.isArray(state.settings.autoTagCategories) && state.settings.autoTagCategories.length
+				? state.settings.autoTagCategories
+				: JOURNAL_TAG_RULES.map(r => r.tag)
+		);
+
 		function matchRules(article) {
-			const openAlexCategoryMatch = inferTagFromOpenAlexCategories(article);
+			const openAlexCategoryMatch = inferTagFromOpenAlexCategories(article, enabledCategories);
 			if (openAlexCategoryMatch) return openAlexCategoryMatch;
 
 			const fields = [
@@ -1956,8 +1996,12 @@ window.SLRApp = (() => {
 			const lawContextHits = LAW_CONTEXT_KEYWORDS.reduce((sum, kw) => {
 				return sum + (keywordMatches(fullText, kw) ? 1 : 0);
 			}, 0);
+			const techContextHits = TECH_CONTEXT_KEYWORDS.reduce((sum, kw) => {
+				return sum + (keywordMatches(fullText, kw) ? 1 : 0);
+			}, 0);
 			let best = null;
 			for (const rule of JOURNAL_TAG_RULES) {
+				if (!enabledCategories.has(rule.tag)) continue;
 				if (!tagsConfig[rule.color] && tagsConfig[rule.color] !== undefined) continue;
 				let score = fields.reduce((sum, field) => sum + scoreRuleMatch(field.text, rule, field.weight), 0);
 				if (rule.tag === 'Psychology & Psychotherapy' && psychContextHits > 0) {
@@ -1976,7 +2020,12 @@ window.SLRApp = (() => {
 					score += socialContextHits * 3;
 				}
 				if (rule.tag === 'Law & Policy' && lawContextHits > 0) {
-					score += lawContextHits * 4;
+					// Lower than the other boosts (was *4): this one previously let
+					// tangential law/policy word co-occurrence (e.g. a "Law" in a
+					// journal title) tip close races against a clearly-dominant rival
+					// signal elsewhere (verified: an "Artificial Intelligence and Law"
+					// venue outscored a strong Computer Science match on an NLP paper).
+					score += lawContextHits * 2;
 				}
 				if (rule.tag === 'Natural Sciences' && healthContextHits > 0) {
 					score -= healthContextHits * 6;
@@ -1986,6 +2035,11 @@ window.SLRApp = (() => {
 				}
 				if (rule.tag === 'Medicine & Health' && healthContextHits > 0) {
 					score += healthContextHits * 2;
+				}
+				if (rule.tag === 'Design & Arts' && techContextHits > 0) {
+					// Defense in depth alongside the narrowed Design & Arts keyword
+					// list itself: technical/computing content should not read as arts.
+					score -= techContextHits * 4;
 				}
 				if (score <= 0) continue;
 				if (!best || score > best.score) best = { color: rule.color, tag: rule.tag, score };

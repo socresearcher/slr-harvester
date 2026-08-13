@@ -2796,6 +2796,36 @@ a.db-link:visited {
   color: var(--accent-hover);
 }
 
+.settings-category-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+  gap: 6px 12px;
+  margin-top: 8px;
+}
+
+.settings-category-item {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  font-size: 13px;
+  color: var(--text);
+  cursor: pointer;
+}
+
+.settings-category-item input[type="checkbox"] {
+  accent-color: var(--accent);
+  width: 15px;
+  height: 15px;
+  cursor: pointer;
+}
+
+.settings-category-actions {
+  display: flex;
+  gap: 14px;
+  margin-top: 8px;
+  font-size: 12.5px;
+}
+
 /* ----------------------------------------------------------
    18b. Tags view
    ---------------------------------------------------------- */
