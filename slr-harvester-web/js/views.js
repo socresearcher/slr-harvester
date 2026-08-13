@@ -165,8 +165,24 @@ window.SLRViews = (() => {
 
   //  Welcome view 
 
+  function isMobileDevice() {
+    return /Mobi|Android|iPhone|iPad|iPod/i.test(navigator.userAgent || '');
+  }
+
   function renderWelcome(container) {
     const supported = typeof window.showDirectoryPicker === 'function';
+    const mobile = isMobileDevice();
+
+    const compatMessage = mobile
+      ? `<strong>Mobile browsers aren't supported yet.</strong>
+         SLR Harvester Web needs the File System Access API for local folder access,
+         and no mobile browser currently implements it — not Chrome, not Edge, not
+         Safari, regardless of phone/tablet. This is a platform limitation, not
+         something this app can work around. Please open this page in <strong>Chrome
+         or Edge on a desktop or laptop computer</strong> instead.`
+      : `<strong>Browser not supported.</strong>
+         SLR Harvester Web requires <strong>Chrome 86+ or Edge 86+ on desktop</strong>
+         for the File System Access API. Firefox and Safari (desktop) don't support it.`;
 
     container.innerHTML = `
       <div class="welcome-view">
@@ -180,9 +196,7 @@ window.SLRViews = (() => {
         ${!supported ? `
           <div class="welcome-compat-notice">
             ${SLRIcons.warning}
-            <span><strong>Browser not supported.</strong>
-            SLR Harvester Web requires Chrome 86+ or Edge 86+ for the
-            File System Access API. Firefox and Safari are not supported yet.</span>
+            <span>${compatMessage}</span>
           </div>` : ''}
 
         <div class="welcome-actions">
@@ -3284,9 +3298,12 @@ window.SLRViews = (() => {
         <div class="settings-section">
           <h3>Compatibility</h3>
           <p style="font-size:13px;color:var(--text-muted);line-height:1.7">
-            Requires <strong>Chrome 86+</strong> or <strong>Edge 86+</strong> for the
-            File System Access API (<code>showDirectoryPicker</code>).
-            Firefox and Safari are not supported.
+            Requires <strong>Chrome 86+</strong> or <strong>Edge 86+</strong> on
+            <strong>desktop</strong> for the File System Access API
+            (<code>showDirectoryPicker</code>). Desktop Firefox and Safari don't
+            support it, and neither does any mobile browser yet (Chrome, Edge, or
+            Safari on phone/tablet) &mdash; this API isn't implemented on mobile at all
+            regardless of vendor.
           </p>
           <p style="font-size:13px;color:var(--text-muted);margin-top:8px;line-height:1.7">
             The app works entirely offline &mdash; no data is sent to any server.

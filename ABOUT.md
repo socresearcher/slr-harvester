@@ -8,7 +8,7 @@
 
 SLR Harvester Web lets you search multiple academic databases, collect and annotate results, and produce outputs — all without leaving the browser.
 
-- **Search** Scopus, arXiv, PubMed, and Semantic Scholar directly from the app
+- **Search** Scopus, PubMed, and OpenAlex directly from the app
 - **Annotate** articles with tags, colors, comments, Selected and Corpus flags
 - **Visualize** your corpus with tag distribution charts, a year timeline, and a PRISMA 2020 screening flow diagram
 - **Auto-tag** articles by discipline using journal keyword heuristics
@@ -25,10 +25,13 @@ All data stays local — no network requests are made except to the APIs you exp
 
 | Database | API | Key required | Notes |
 |---|---|---|---|
-| **Scopus** | Elsevier Search API | Yes (free via Elsevier Developer Portal) | Institutional subscription required for full abstracts |
-| **arXiv** | arXiv Atom API | No | Free, open; max 500 results per query |
-| **PubMed** | NCBI E-utilities | No | Free, open; max 2,000 results; abstracts via Crossref |
-| **Semantic Scholar** | Academic Graph API | No | Free, open; max 1,000 results; includes abstracts and citation counts |
+| **Scopus** | Elsevier Search API | Yes (free via Elsevier Developer Portal) | Institutional subscription required for full abstracts/author lists (COMPLETE view); falls back to STANDARD view + Crossref enrichment otherwise |
+| **PubMed** | NCBI E-utilities | No | Free, open; abstracts via Crossref |
+| **OpenAlex** | OpenAlex Works API | No (optional key/email for higher rate limits) | Free, open; full-text search across a large open index of scholarly works |
+
+### Why arXiv and Semantic Scholar are not included
+
+Both were tested but their APIs don't allow direct browser-side (CORS) requests, or return CORS-less error responses under normal use — the browser blocks the request before this app ever sees a response. Without a server-side proxy (which would break the "no server, all data local" design), they can't be integrated reliably. Use them directly via their own websites instead.
 
 ### Why Google Scholar is not included
 
@@ -43,9 +46,9 @@ These databases provide APIs only under institutional subscription agreements. T
 ## Architecture
 
 - **Zero dependencies** — plain HTML, CSS, JavaScript. No React, Vue, webpack, or any other framework or build tool.
-- **Works as `file://`** — can be opened directly from the filesystem; no web server required.
+- **Works as `file://` or hosted `https://`** — can be opened directly from the filesystem, or run from the live GitHub Pages deployment at [socresearcher.github.io/slr-harvester](https://socresearcher.github.io/slr-harvester/); no web server of your own required either way. Your project data always stays on your device — Pages only serves the app's own code.
 - **No external CDN** — no fonts, icon libraries, or scripts loaded from the internet.
-- **File System Access API** — uses the browser's `showDirectoryPicker()` to read (and optionally write) your project folder. Requires Chrome 86+ or Edge 86+. Firefox and Safari do not support this API and will receive a clear error message.
+- **File System Access API** — uses the browser's `showDirectoryPicker()` to read (and optionally write) your project folder. Requires **Chrome 86+ or Edge 86+ on desktop**. Desktop Firefox and Safari don't support it, and as of now **no mobile browser does either** (Chrome, Edge, or Safari on phone/tablet) — this is a platform limitation, not something this app can work around; a clear in-app message explains this when detected.
 - **IndexedDB** — the folder handle is persisted between sessions so you don't need to pick it every time.
 - **Dark mode by default** — theme persisted in `localStorage`, togglable at any time.
 
@@ -76,10 +79,11 @@ This means projects created in the Python desktop app are fully readable in the 
 
 | Browser | Support |
 |---|---|
-| Chrome 86+ | ✅ Full support |
-| Edge 86+ | ✅ Full support |
-| Firefox | ❌ No File System Access API — error message shown |
-| Safari | ❌ No File System Access API — error message shown |
+| Chrome 86+ (desktop) | ✅ Full support |
+| Edge 86+ (desktop) | ✅ Full support |
+| Firefox (desktop) | ❌ No File System Access API — error message shown |
+| Safari (desktop) | ❌ No File System Access API — error message shown |
+| Any mobile browser (Chrome, Edge, Safari on phone/tablet) | ❌ No File System Access API on any mobile platform yet — error message shown |
 
 ---
 
@@ -106,8 +110,15 @@ Note: Under `file://`, browsers can occasionally keep stale script versions long
 - **Fetch Abstracts & Authors** — Crossref integration to fill gaps Scopus leaves (first-author-only, missing abstracts)
 - **Auto-tag by journal** — heuristic discipline tagging with one click
 - **Tag color themes** — 17 built-in schemes (Vivid, Pastel, Monochrome, Earth, Neon, …) plus individual per-tag color editing
-- **Multi-database search** — arXiv, PubMed, Semantic Scholar alongside Scopus
+- **Multi-database search** — PubMed and OpenAlex alongside Scopus
 - **Browser-based, zero-install** — no Python, no dependencies, works offline
+- **Hosted on GitHub Pages** — usable directly from a URL, no download required, alongside the original local `file://` mode
+
+---
+
+## Development
+
+Both the original SLR Harvester desktop application and this browser-based Web version — including its bug fixes, new features, and the GitHub Pages deployment setup — were built with the assistance of AI coding agents (including GitHub Copilot and Claude/Claude Code by Anthropic) working alongside the author.
 
 ---
 
@@ -116,4 +127,4 @@ Note: Under `file://`, browsers can occasionally keep stale script versions long
 Non-Commercial Source-Available License.  
 © 2025–2026 Gregor Hobersdorfer. All rights reserved.
 
-See [LICENSE.md](../LICENSE.md) for the full text.
+See [LICENSE.md](LICENSE.md) for the full text.
