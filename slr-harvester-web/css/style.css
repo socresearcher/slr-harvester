@@ -788,7 +788,16 @@ a:hover {
 .welcome-tips {
   font-size: 12px;
   color: var(--text-faint);
-  max-width: 420px;
+  max-width: 460px;
+  text-align: left;
+}
+
+.welcome-tips p + p {
+  margin-top: 10px;
+}
+
+.welcome-tips strong {
+  color: var(--text-muted);
 }
 
 /* ----------------------------------------------------------

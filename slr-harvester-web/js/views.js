@@ -192,11 +192,16 @@ window.SLRViews = (() => {
           </button>
         </div>
 
-        <p class="welcome-tips">
-          Select the root folder that contains <code>projects.json</code> and the
-          <code>projects/</code> directory - typically your SLR Harvester workspace.
-          Works with local folders and cloud-synced drives (OneDrive, Google Drive).
-        </p>
+        <div class="welcome-tips">
+          <p><strong>First time here?</strong> Click the button above, then create a new,
+          empty folder in the picker dialog (any name works, e.g.
+          <code>SLR-Harvester-Data</code>) and select it. The app sets everything up the
+          moment you create your first project — nothing is written until then.</p>
+          <p><strong>Already have data?</strong> Select the folder that contains
+          <code>projects.json</code> and the <code>projects/</code> directory - your existing
+          SLR Harvester workspace. Works with local folders and cloud-synced drives
+          (OneDrive, Google Drive) alike.</p>
+        </div>
       </div>`;
 
     if (supported) {
@@ -217,7 +222,9 @@ window.SLRViews = (() => {
               ${SLRIcons.plus} New Project
             </button>
           </div>
-          <p class="projects-subtitle">No projects found in <code>projects.json</code>.</p>
+          <p class="projects-subtitle">No projects yet in this folder. Click
+          <strong>New Project</strong> to create your first one - this also sets up
+          <code>projects.json</code> and the <code>projects/</code> folder here automatically.</p>
         </div>`;
       container.querySelector('#new-project-btn').addEventListener('click', () => SLRApp.showNewProjectModal());
       return;

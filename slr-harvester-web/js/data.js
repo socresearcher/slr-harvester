@@ -124,12 +124,16 @@ window.SLRData = (() => {
 
   /**
    * Load projects.json from the root folder.
+   * A missing projects.json is not an error — it means this folder hasn't
+   * been used as an SLR Harvester workspace yet (e.g. a first-time user
+   * picked a fresh empty folder). Treat it as zero projects; createProject()
+   * already writes projects.json + projects/ on first use.
    * @returns {Array} array of project objects
    */
   async function loadProjects() {
     if (!_rootHandle) throw new Error('No folder open');
     const data = await readJSON(_rootHandle, 'projects.json');
-    if (data === null) throw new Error('projects.json not found in this folder. Make sure you selected the correct root folder (the one containing projects.json and the projects/ subfolder).');
+    if (data === null) return [];
     if (!Array.isArray(data.projects)) return [];
     return data.projects;
   }

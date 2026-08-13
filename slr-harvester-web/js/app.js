@@ -506,7 +506,11 @@ window.SLRApp = (() => {
 			state.projectData = null;
 			state.articles = [];
 
-			state.view = state.projects.length ? 'projects' : 'welcome';
+			// A folder was successfully opened — always go to the Projects view,
+			// even with zero projects. Its empty state guides the user to create
+			// a first project; routing back to Welcome here made a successful,
+			// brand-new-folder pick look like nothing happened.
+			state.view = 'projects';
 			renderCurrentView();
 		} catch (err) {
 			SLRViews.renderError(_container, err.message || String(err));
@@ -524,7 +528,7 @@ window.SLRApp = (() => {
 		state.folderName = handle.name || '';
 		await hydrateSettingsFromConfig();
 		await loadProjectsAndStats();
-		state.view = state.projects.length ? 'projects' : 'welcome';
+		state.view = 'projects';
 		renderCurrentView();
 	}
 
