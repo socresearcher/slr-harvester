@@ -16,52 +16,54 @@ Diese Liste wird zu Beginn jeder Session gelesen; bei offenen Punkten wird immer
 
 ## Deployment (GitHub)
 
-Beratschlagt am 2026-08-13. Noch nichts davon ausgeführt — alles unten ist Planung/Checkliste,
-kein Ergebnis. Root-Dateien (`LICENSE.md`, `README.md`, `.gitignore`, `projects.json`, `.github/`)
-liegen außerhalb von `slr-harvester-web/` und werden hier nur referenziert, nicht bearbeitet.
+**Live seit 2026-08-13: https://socresearcher.github.io/slr-harvester/** — verifiziert (200 OK,
+lädt fehlerfrei, keine Konsolenfehler).
 
-### Entscheidung: bestehendes Repo, kein neues
-`slr-harvester-web/` bleibt Unterordner im bestehenden Repo `github.com/socresearcher/slr-harvester`
-(Remote `origin` ist bereits konfiguriert, Branch `main`). Kein separates Repo — die Web-App ist
-laut ABOUT.md explizit "v2.0" desselben Projekts, teilt Projektdatenformat, LICENSE und Zielgruppe
-mit der Desktop-App. Ein zweites Repo würde nur doppelte Pflege (Issues, README, LICENSE)
-bedeuten, ohne echten Nutzen.
+### Entscheidung: bestehendes Repo, GitHub-Actions-Deployment
+`slr-harvester-web/` blieb Unterordner im bestehenden Repo `github.com/socresearcher/slr-harvester`
+(kein separates Repo). Grund: die gewünschte Ziel-URL `.../slr-harvester/` entspricht exakt dem
+bestehenden Repo-Namen — ein zweites Repo hätte zwingend einen anderen Pfad bekommen
+(z. B. `.../slr-harvester-web/`). Ein neuer Workflow `.github/workflows/deploy-pages.yml` baut
+und deployt `slr-harvester-web/` bei jedem Push auf `main` automatisch nach GitHub Pages
+(`actions/upload-pages-artifact` + `actions/deploy-pages`, Pages-Source auf "GitHub Actions"
+gesetzt via API). Kein manueller Build-Schritt nötig, rein statische Dateien.
 
-### Vor dem ersten Push zu prüfen (Root-Ebene, nicht von mir verändert)
-- [ ] `projects.json` (Root) ist **nicht** in `.gitignore` gelistet — enthält echte Projekttitel/
-      -beschreibungen. Vor `git add .` entweder in `.gitignore` ergänzen oder bewusst freigeben.
-- [ ] `LICENSE.md` (Root) ist lokal bereits auf "Non-Commercial Source-Available License"
-      umgestellt, aber noch nicht committet (auf GitHub liegt noch MIT). Empfehlung: bei der
-      bereits vorbereiteten Non-Commercial-Lizenz bleiben (passt zu dem, was `ABOUT.md` in
-      `slr-harvester-web/` bereits über die Lizenz aussagt) — nicht zurück zu MIT wechseln, sonst
-      Widerspruch zwischen Repo-Lizenz und App-eigener Aussage.
-- [ ] `slr_config.json`, `search_log.json`, `tags_config.json`, `query_history.json`,
-      `tag_aliases.json`, `projects/`, `results/` sind bereits korrekt in `.gitignore` — verifiziert,
-      keine Aktion nötig.
-- [ ] `.github/copilot-instructions.md` ist aktuell untracked — bewusst mit committen oder in
-      `.gitignore` aufnehmen, je nachdem ob es geteilt werden soll.
-- [ ] Kurzer Blick in `slr-harvester-web/backups/` vor dem Commit: das sind lokale
-      Sicherungskopien (siehe `backup-file.ps1`), vermutlich nicht für das öffentliche Repo gedacht
-      — ggf. `slr-harvester-web/backups/` in `.gitignore` aufnehmen, statt sie mitzupushen.
+### Was vor dem Push geprüft/erledigt wurde (Root-Ebene)
+- [x] `projects.json` (Root, echte Projekttitel/-beschreibungen) zu `.gitignore` hinzugefügt —
+      wurde **nicht** mitgepusht.
+- [x] `.claude/` (lokales Session-Tooling, analog zu bereits ignoriertem `.vscode/`) zu
+      `.gitignore` hinzugefügt.
+- [x] `slr-harvester-web/backups/` (lokale Sicherungskopien) zu `.gitignore` hinzugefügt — nicht
+      mitgepusht.
+- [x] `LICENSE.md` committet mit der bereits lokal vorbereiteten "Non-Commercial Source-Available
+      License" (ersetzt die auf GitHub bis dahin noch aktive MIT-Lizenz) — passend zu dem, was
+      `ABOUT.md` in `slr-harvester-web/` schon länger über die Lizenz aussagt.
+- [x] `.github/copilot-instructions.md` geprüft (reine Architektur-/Konventionsdoku, keine
+      sensiblen Inhalte) und mitcommittet.
+- [x] Vor dem Push zwei kleinere Datenschutz-Fundstellen bereinigt: ein Scopus-Key-Fragment
+      (`c5a199…`) in `SUGGESTIONS.md` entfernt, zwei Changelog-Zeilen in diesem File, die einen
+      echten Projektnamen ("Bereavement Support") nannten, generalisiert.
+- [x] `slr_config.json`, `search_log.json`, `tags_config.json`, `query_history.json`,
+      `tag_aliases.json`, `projects/`, `results/` waren bereits korrekt in `.gitignore`.
 
-### Ablauf (reines Git, kein Zusatz-Skript nötig)
-Normales Hochladen braucht keine Befehlsdatei — Standard-Git reicht (oder identisch über die
-VS Code Source-Control-Seitenleiste):
-```bash
-git add slr-harvester-web .github/copilot-instructions.md LICENSE.md
-git status   # vor dem Commit prüfen, was wirklich staged ist
-git commit -m "Add SLR Harvester Web (v2.0)"
-git push
-```
-Bewusst kein `git add .` / `git add -A`, um `projects.json` nicht versehentlich mitzunehmen,
-solange der Punkt oben nicht geklärt ist.
+### Bekannter offener Punkt (nicht blockierend)
+`slr-harvester-web/literaturrecherche.html` (13 KB, zuletzt gesehen zu Session-Beginn) war beim
+Zusammenstellen des Commits nicht mehr auf der Platte — wurde in dieser Session nicht von mir
+gelesen, bearbeitet oder gelöscht und war nie in Git getrackt (kein Wiederherstellen über Git
+möglich). Mögliche Ursache: OneDrive-Sync-Ereignis außerhalb dieser Session. Falls die Datei
+gebraucht wird, prüfen, ob eine ältere OneDrive-Version/der Papierkorb sie noch hat.
 
-### Optional: GitHub Pages (separate Entscheidung, nicht Teil des reinen Uploads)
-Nur relevant, falls eine öffentlich erreichbare URL gewünscht ist (z. B.
-`https://socresearcher.github.io/slr-harvester/` o. Ä.). Da die Pages-Einstellung im
-GitHub-UI nur Root oder `/docs` des Quell-Branches unterstützt, nicht beliebige Unterordner,
-bräuchte es dafür einen kleinen GitHub-Actions-Workflow, der `slr-harvester-web/` bei jedem
-Push auf `main` nach GitHub Pages deployt. Noch nicht erstellt — erst auf Wunsch umsetzen.
+### Nächste mögliche Schritte (nicht umgesetzt, nur falls gewünscht)
+- [ ] `README.md` (Root) erwähnt die Web-Version noch nicht — Link/Abschnitt ergänzen? (Root-Datei,
+      nicht von mir verändert ohne Rückfrage.)
+- [ ] Scopus-Zugangsdaten-Feld: siehe SUGGESTIONS.md-Eintrag zu `slr_config.json`-Rückschreiben
+      für originübergreifende Persistenz (relevant, seit die App sowohl lokal als auch gehostet
+      läuft).
+- [ ] Öffentlicher Pages-Artefakt enthält aktuell auch interne Planungsdateien
+      (`TASKS.md`, `SUGGESTIONS.md`, `serve.py`, …) unter der Live-URL erreichbar (z. B.
+      `.../TASKS.md` als Klartext). Unschädlich (statisch, nicht ausführbar), aber optisch nicht
+      nötig — könnte per `.nojekyll`/Artefakt-Filter im Workflow ausgeschlossen werden, falls
+      gewünscht.
 
 ### Prompt Archive (Completed)
 
