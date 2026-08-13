@@ -29,6 +29,11 @@ subject to the following conditions:
    ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
    DEALINGS IN THE SOFTWARE.
 
+Note: Both the original SLR Harvester desktop application and the browser-based SLR Harvester
+Web version (including its GitHub Pages deployment) were developed with the assistance of AI
+coding agents (including GitHub Copilot and Claude/Claude Code by Anthropic) working alongside
+the copyright holder.
+
 For commercial licensing inquiries, contact the copyright holder:
 https://github.com/socresearcher
 

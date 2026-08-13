@@ -31,3 +31,10 @@ Alternatively, use the direct links:
 
 - Data is stored locally in the projects/ folder.
 - First run creates local configuration files if missing.
+
+## Web version
+
+A browser-based rewrite, **SLR Harvester Web**, is also available — zero-install, runs from
+[GitHub Pages](https://socresearcher.github.io/slr-harvester/) or as a local `index.html` file,
+and reads/writes the same project folder format as the desktop app. See [ABOUT.md](ABOUT.md) and
+[slr-harvester-web/](slr-harvester-web/) for details.
