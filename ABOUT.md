@@ -125,6 +125,6 @@ Both the original SLR Harvester desktop application and this browser-based Web v
 ## License
 
 Non-Commercial Source-Available License.  
-© 2025–2026 Gregor Hobersdorfer. All rights reserved.
+© 2026 Gregor Hobersdorfer. All rights reserved.
 
 See [LICENSE.md](LICENSE.md) for the full text.

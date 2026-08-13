@@ -84,7 +84,7 @@ window.SLRAppUI = (() => {
       databases: 'Databases',
     };
 
-    if (refs.viewTitle) refs.viewTitle.textContent = titles[state.view] || 'SLR Harvester';
+    if (refs.viewTitle) refs.viewTitle.textContent = titles[state.view] || 'SLR Harvester Web';
     if (refs.projectBadge) refs.projectBadge.textContent = state.currentProject ? state.currentProject.name : '';
     if (refs.folderPath) refs.folderPath.textContent = state.folderName || '';
 
