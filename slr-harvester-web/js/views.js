@@ -699,16 +699,6 @@ window.SLRViews = (() => {
               ${sourceBadge}
               ${docTypeBadge}
             </div>
-            <div class="article-badges-row">
-              <button class="badge badge-toggle ${a.selected ? 'badge-selected' : 'badge-dim'}"
-                      data-action="toggle-selected"
-                      title="${a.selected ? 'Remove from Selected' : 'Mark as Selected'}"
-                      aria-label="${a.selected ? 'Remove from Selected' : 'Mark as Selected'}">${SLRIcons.selected}</button>
-              <button class="badge badge-toggle ${a.corpus ? 'badge-corpus' : 'badge-dim'}"
-                      data-action="toggle-corpus"
-                      title="${a.corpus ? 'Remove from Corpus' : 'Add to Corpus'}"
-                      aria-label="${a.corpus ? 'Remove from Corpus' : 'Add to Corpus'}">${SLRIcons.corpus}</button>
-            </div>
           </div>
         </div>
 
@@ -717,6 +707,17 @@ window.SLRViews = (() => {
           ${affiliationCountryDetail}
           ${idRow}
           ${comment}
+        </div>
+
+        <div class="article-toggle-row">
+          <button class="badge badge-toggle ${a.selected ? 'badge-selected' : 'badge-dim'}"
+                  data-action="toggle-selected"
+                  title="${a.selected ? 'Remove from Selected' : 'Mark as Selected'}"
+                  aria-label="${a.selected ? 'Remove from Selected' : 'Mark as Selected'}">${SLRIcons.selected}</button>
+          <button class="badge badge-toggle ${a.corpus ? 'badge-corpus' : 'badge-dim'}"
+                  data-action="toggle-corpus"
+                  title="${a.corpus ? 'Remove from Corpus' : 'Add to Corpus'}"
+                  aria-label="${a.corpus ? 'Remove from Corpus' : 'Add to Corpus'}">${SLRIcons.corpus}</button>
         </div>
       </div>`;
   }
