@@ -148,6 +148,25 @@ window.SLRData = (() => {
   }
 
   /**
+   * Merge-write fields into slr_config.json in the currently open root folder,
+   * creating the file if it doesn't exist yet. This is what makes API
+   * credentials entered in Settings persist per-folder (matching the desktop
+   * app's slr_config.json) instead of only living in this browser's
+   * localStorage — critical so a key never silently follows the user from one
+   * folder into an unrelated one.
+   * @param {Object} patch  Fields to merge into the existing config, e.g. { APIKey, InstToken }
+   * @returns {boolean} true if the write succeeded
+   */
+  async function saveConfig(patch) {
+    if (!_rootHandle) return false;
+    const hasWrite = await ensureWriteAccess();
+    if (!hasWrite) return false;
+    const existing = (await readJSON(_rootHandle, 'slr_config.json')) || {};
+    await writeJSON(_rootHandle, 'slr_config.json', { ...existing, ...patch });
+    return true;
+  }
+
+  /**
    * Load all data for a specific project folder.
    * @param {string} folderName  e.g. "20260416_193649"
    * @returns {Object} { searchLog, globalTags, tagsConfig, queryHistory }
@@ -607,6 +626,7 @@ window.SLRData = (() => {
     loadProjects,
     saveProjectMeta,
     loadConfig,
+    saveConfig,
     loadProjectData,
     getArticles,
     getStats,

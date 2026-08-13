@@ -3123,18 +3123,18 @@ window.SLRViews = (() => {
       }
     }
 
-    container.querySelector('#settings-save-btn').addEventListener('click', () => {
-      SLRApp.saveSettings(collectSettingsFromForm());
+    container.querySelector('#settings-save-btn').addEventListener('click', async () => {
+      await SLRApp.saveSettings(collectSettingsFromForm());
       flashSavedMsg('#settings-saved-msg');
     });
 
-    container.querySelector('#settings-openalex-save-btn').addEventListener('click', () => {
-      SLRApp.saveSettings(collectSettingsFromForm());
+    container.querySelector('#settings-openalex-save-btn').addEventListener('click', async () => {
+      await SLRApp.saveSettings(collectSettingsFromForm());
       flashSavedMsg('#settings-openalex-saved-msg');
     });
 
-    container.querySelector('#settings-fetch-save-btn').addEventListener('click', () => {
-      SLRApp.saveSettings(collectSettingsFromForm());
+    container.querySelector('#settings-fetch-save-btn').addEventListener('click', async () => {
+      await SLRApp.saveSettings(collectSettingsFromForm());
       flashSavedMsg('#settings-fetch-saved-msg');
     });
 
