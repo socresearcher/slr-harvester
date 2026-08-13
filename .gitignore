@@ -50,3 +50,6 @@ slr-harvester-web/backups/
 # SLR Harvester Web — dev-only planning docs, not part of the public app
 slr-harvester-web/TASKS.md
 slr-harvester-web/SUGGESTIONS.md
+
+# Dev-only AI-agent instructions, not part of the public repo
+.github/copilot-instructions.md
