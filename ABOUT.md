@@ -106,6 +106,7 @@ Note: Under `file://`, browsers can occasionally keep stale script versions long
 ## What's new in v2 (vs. the Python desktop app)
 
 - **Interactive visualizations** — hovering a legend entry or chart segment cross-highlights the entire chart
+- **Zoomable world map choropleth** — affiliation countries shaded by publication count (not point markers), pan/zoom with mouse, touch, or the on-map controls; boundary data from [Natural Earth](https://www.naturalearthdata.com/) (public domain)
 - **PRISMA 2020 diagram** — auto-generated screening flow diagram for use directly in your methods section
 - **Fetch Abstracts & Authors** — Crossref integration to fill gaps Scopus leaves (first-author-only, missing abstracts)
 - **Auto-tag by journal** — heuristic discipline tagging with one click
