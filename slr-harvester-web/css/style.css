@@ -17,9 +17,14 @@
   --text:         #e6edf3;
   --text-muted:   #8b949e;
   --text-faint:   #484f58;
-  --accent:       #1f6feb;
-  --accent-hover: #388bfd;
-  --accent-subtle:#1c2a3a;
+  /* Brand color: turquoise, base #31E6D3. Bright/light by nature (relative
+     luminance ~0.62) — great as text/icon/border color on dark backgrounds,
+     but text painted ON a solid fill of it needs dark ink, not white; see
+     --accent-ink below. accent-hover is a brighter pop for hover feedback. */
+  --accent:       #31e6d3;
+  --accent-hover: #5ff0e0;
+  --accent-subtle:#123330;
+  --accent-ink:   #06231f;
   --green:        #3fb950;
   --green-subtle: #1a2e1a;
   --danger:       #f85149;
@@ -29,8 +34,8 @@
      background) -> high (most publications, stands out). Direction is
      deliberately inverted vs. light theme so "more data" always reads as
      more visually prominent, not as invisible-dark-on-dark. */
-  --heat-low:     #1b2836;
-  --heat-high:    #6fb5ff;
+  --heat-low:     #17322e;
+  --heat-high:    #5ff0e0;
   --sidebar-w:    220px;
   --sidebar-collapsed-w: 56px;
   --topbar-h:     52px;
@@ -51,9 +56,13 @@
   --text:         #1f2328;
   --text-muted:   #636c76;
   --text-faint:   #b0b8c1;
-  --accent:       #0969da;
-  --accent-hover: #0550ae;
-  --accent-subtle:#dbeafe;
+  /* Same brand hue as dark theme (~173°) but deepened for contrast against a
+     white page — the literal bright #31E6D3 fails WCAG AA as text/borders
+     here. accent-ink is white: this darker fill has enough contrast for it. */
+  --accent:       #0a7a6e;
+  --accent-hover: #086159;
+  --accent-subtle:#d7f7f2;
+  --accent-ink:   #ffffff;
   --green:        #1a7f37;
   --green-subtle: #d1fae5;
   --danger:       #cf222e;
@@ -61,8 +70,8 @@
   --warning:      #9a6700;
   /* Classic light-to-dark choropleth direction: low data is a pale tint,
      high data is deep and saturated — reads correctly on a light page. */
-  --heat-low:     #dbeafe;
-  --heat-high:    #0a3d7a;
+  --heat-low:     #d7f7f2;
+  --heat-high:    #0a4a42;
   --shadow:       0 1px 3px rgba(0,0,0,.12);
   --shadow-lg:    0 4px 16px rgba(0,0,0,.15);
 }
@@ -691,7 +700,7 @@ a:hover {
   align-items: center;
   gap: 8px;
   background: var(--accent);
-  color: #fff;
+  color: var(--accent-ink);
   padding: 6px 18px;
   border-radius: var(--radius);
   font-size: 14px;
@@ -932,7 +941,7 @@ a:hover {
 
 .open-project-btn:hover {
   background: var(--accent);
-  color: #fff;
+  color: var(--accent-ink);
 }
 
 .open-project-btn svg {
@@ -994,7 +1003,7 @@ a:hover {
 
 .mode-tab.active {
   background: var(--accent);
-  color: #fff;
+  color: var(--accent-ink);
 }
 
 /* Search input */
@@ -1185,6 +1194,18 @@ a:hover {
   display: flex;
   align-items: center;
   gap: 4px;
+}
+
+/* Selected/Corpus toggles sit at the card's bottom edge, not stacked under the
+   source/doc-type badges. Placed after .article-detail in the DOM, which is
+   display:none when collapsed, so this row naturally lands right under the
+   header when collapsed and at the true bottom when expanded either way. */
+.article-toggle-row {
+  display: flex;
+  justify-content: flex-end;
+  align-items: center;
+  gap: 6px;
+  margin-top: 10px;
 }
 
 .badge {
@@ -2217,8 +2238,8 @@ a.db-link:visited {
 }
 
 .about-v2-banner {
-  border-left: 4px solid #4A90D9;
-  background: color-mix(in srgb, #4A90D9 8%, var(--surface));
+  border-left: 4px solid var(--accent);
+  background: color-mix(in srgb, var(--accent) 8%, var(--surface));
   border-radius: 0 var(--radius-md, 8px) var(--radius-md, 8px) 0;
   padding: 16px 20px;
   margin-bottom: 20px;
@@ -2232,8 +2253,8 @@ a.db-link:visited {
 }
 
 .about-v2-badge {
-  background: #4A90D9;
-  color: #fff;
+  background: var(--accent);
+  color: var(--accent-ink);
   font-size: 11px;
   font-weight: 800;
   letter-spacing: .05em;
@@ -4045,7 +4066,7 @@ a.db-link:visited {
 
 .viz-mode-tab.active {
   background: var(--accent);
-  color: #fff;
+  color: var(--accent-ink);
 }
 
 .viz-bars {
@@ -4154,7 +4175,7 @@ a.db-link:visited {
 }
 
 .viz-legend-toggle.is-active {
-  color: #fff;
+  color: var(--accent-ink);
   border-color: var(--accent);
   background: var(--accent);
   box-shadow: 0 1px 0 color-mix(in srgb, var(--accent) 45%, transparent);
@@ -4167,7 +4188,7 @@ a.db-link:visited {
 }
 
 .viz-export-btn:hover:not(:disabled) {
-  color: #fff;
+  color: var(--accent-ink);
   background: var(--accent);
 }
 

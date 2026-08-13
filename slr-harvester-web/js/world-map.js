@@ -41,13 +41,13 @@ window.SLRWorldMap = (() => {
       land: themeColor('--surface-3', '#2d333b'),
       landStroke: themeColor('--border', '#30363d'),
       outline: themeColor('--text-faint', '#8b949e'),
-      accent: themeColor('--accent', '#1f6feb'),
-      accentHover: themeColor('--accent-hover', '#388bfd'),
+      accent: themeColor('--accent', '#31e6d3'),
+      accentHover: themeColor('--accent-hover', '#5ff0e0'),
       text: themeColor('--text', '#e6edf3'),
       muted: themeColor('--text-muted', '#8b949e'),
       bg: themeColor('--bg', '#0d1117'),
-      heatLow: themeColor('--heat-low', '#1b2836'),
-      heatHigh: themeColor('--heat-high', '#6fb5ff'),
+      heatLow: themeColor('--heat-low', '#17322e'),
+      heatHigh: themeColor('--heat-high', '#5ff0e0'),
     };
   }
 
