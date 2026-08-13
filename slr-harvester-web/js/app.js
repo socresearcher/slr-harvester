@@ -463,34 +463,23 @@ window.SLRApp = (() => {
 		state.allProjectData = cache;
 	}
 
+	// Credentials must be strictly per-folder: this always overwrites (not
+	// merges-if-empty) state.settings from the CURRENTLY open folder's own
+	// slr_config.json, clearing fields the file doesn't have. Without this,
+	// a key picked up from one folder (or typed in manually) would silently
+	// keep being used after switching to a different, keyless folder — the
+	// exact cross-folder credential leak this must prevent. localStorage is
+	// kept only as a same-folder-session mirror, not a cross-folder fallback.
 	async function hydrateSettingsFromConfig() {
 		const config = await SLRData.loadConfig();
-		if (!config) return;
-
-		let changed = false;
-		if (!state.settings.apiKey && config.APIKey) {
-			state.settings.apiKey = normalizePrimaryCredential(config.APIKey);
-			changed = true;
-		}
-		if (!state.settings.instToken && config.InstToken) {
-			state.settings.instToken = normalizeToken(config.InstToken);
-			changed = true;
-		}
-		if (!state.settings.openAlexKey && config.OpenAlexKey) {
-			state.settings.openAlexKey = normalizeToken(config.OpenAlexKey);
-			changed = true;
-		}
-		if (!state.settings.openAlexEmail && (config.OpenAlexEmail || config.OpenAlexMailto)) {
-			state.settings.openAlexEmail = normalizeEmail(config.OpenAlexEmail || config.OpenAlexMailto);
-			changed = true;
-		}
-
-		if (changed) {
-			localStorage.setItem('slr-apikey', state.settings.apiKey);
-			localStorage.setItem('slr-insttoken', state.settings.instToken);
-			localStorage.setItem('slr-openalex-key', state.settings.openAlexKey);
-			localStorage.setItem('slr-openalex-email', state.settings.openAlexEmail);
-		}
+		state.settings.apiKey = normalizePrimaryCredential((config && config.APIKey) || '');
+		state.settings.instToken = normalizeToken((config && config.InstToken) || '');
+		state.settings.openAlexKey = normalizeToken((config && config.OpenAlexKey) || '');
+		state.settings.openAlexEmail = normalizeEmail((config && (config.OpenAlexEmail || config.OpenAlexMailto)) || '');
+		localStorage.setItem('slr-apikey', state.settings.apiKey);
+		localStorage.setItem('slr-insttoken', state.settings.instToken);
+		localStorage.setItem('slr-openalex-key', state.settings.openAlexKey);
+		localStorage.setItem('slr-openalex-email', state.settings.openAlexEmail);
 	}
 
 	async function openFolder() {
@@ -584,7 +573,7 @@ window.SLRApp = (() => {
 		}
 	}
 
-	function saveSettings({ apiKey, instToken, openAlexKey, openAlexEmail, autoFetchEnabled, fetchMode, autoTagEnabled, autoRunScope }) {
+	async function saveSettings({ apiKey, instToken, openAlexKey, openAlexEmail, autoFetchEnabled, fetchMode, autoTagEnabled, autoRunScope }) {
 		state.settings.apiKey = normalizePrimaryCredential(apiKey);
 		state.settings.instToken = normalizeToken(instToken);
 		state.settings.openAlexKey = normalizeToken(openAlexKey);
@@ -601,6 +590,23 @@ window.SLRApp = (() => {
 		localStorage.setItem('slr-auto-tag-enabled', state.settings.autoTagEnabled ? '1' : '0');
 		localStorage.setItem('slr-auto-run-scope', state.settings.autoRunScope);
 		localStorage.setItem('slr-fetch-mode', state.fetchMode);
+
+		// Persist credentials into THIS folder's own slr_config.json (creating it
+		// if missing) so they're tied to the folder, not just this browser —
+		// critical for correctness (a different folder must never see them) and
+		// for parity with the desktop app's config file.
+		if (SLRData.rootHandle) {
+			try {
+				await SLRData.saveConfig({
+					APIKey: state.settings.apiKey,
+					InstToken: state.settings.instToken,
+					OpenAlexKey: state.settings.openAlexKey,
+					OpenAlexEmail: state.settings.openAlexEmail,
+				});
+			} catch (_) {
+				// Non-fatal: settings still work for this session via localStorage/state.
+			}
+		}
 	}
 
 	function mapScopusResult(r) {
