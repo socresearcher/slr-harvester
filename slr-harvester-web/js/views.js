@@ -3125,25 +3125,28 @@ window.SLRViews = (() => {
   }
 
   // Supabase's own error messages, translated into what to actually do about
-  // them — "Invalid login credentials" in particular covers both a wrong
-  // password AND "no such account in this project", which trips people up
-  // on a first attempt far more often than a typo. Shared by the Settings
-  // Cloud Sync form and the Welcome-screen sign-in modal.
+  // them. "Invalid login credentials" covers three different real causes —
+  // wrong password, no account with this email yet, AND an account that
+  // exists but was never confirmed — current Supabase versions deliberately
+  // no longer distinguish the unconfirmed case in the message (to avoid
+  // leaking account existence), so this can't pattern-match its way to a
+  // more specific answer; all three possibilities have to be spelled out.
+  // Shared by the Settings Cloud Sync form and the Welcome-screen modal.
   function describeAuthError(err, action) {
     const msg = err && err.message ? err.message : String(err);
     if (/invalid login credentials/i.test(msg) && action === 'signin') {
-      return {
-        text: 'Invalid login credentials. Either the password is wrong, or there’s no account with this email in this Supabase project yet — if this is your first time, use Sign Up instead.',
-        offerResend: false,
-      };
+      return 'Invalid login credentials. This covers three different things: wrong '
+        + 'password, no account with this email in this project yet (use Sign Up), '
+        + 'or — very common — an account that was created but never confirmed. For '
+        + 'the last one, click Sign Up again with the same email/password (Supabase '
+        + 'resends the confirmation instead of erroring) or use "Resend confirmation '
+        + 'email" below, then check Authentication → Users in your Supabase '
+        + 'dashboard to see whether that account shows as confirmed.';
     }
     if (/email not confirmed/i.test(msg)) {
-      return {
-        text: 'This account’s email hasn’t been confirmed yet — check your inbox for the confirmation link, or resend it below.',
-        offerResend: true,
-      };
+      return 'This account’s email hasn’t been confirmed yet — check your inbox for the confirmation link, or resend it below.';
     }
-    return { text: msg, offerResend: false };
+    return msg;
   }
 
   // The exact URL Supabase must be told to redirect confirmation/magic-link
@@ -3274,9 +3277,9 @@ window.SLRViews = (() => {
             <button class="btn-primary" id="settings-supabase-signin-btn">Sign In</button>
             <button class="btn-secondary" id="settings-supabase-signup-btn">Sign Up</button>
             <button class="btn-secondary" id="settings-supabase-magiclink-btn">Email me a magic link</button>
+            <button type="button" class="link-btn" id="settings-supabase-resend-btn">Resend confirmation email</button>
           </div>
           <div id="settings-supabase-auth-result" class="scopus-test-result" hidden></div>
-          <button type="button" class="link-btn" id="settings-supabase-resend-btn" hidden style="margin-top:6px">Resend confirmation email</button>
         `}
       </div>`;
   }
@@ -3311,12 +3314,11 @@ window.SLRViews = (() => {
 
     const resultEl  = container.querySelector('#settings-supabase-auth-result');
     const resendBtn = container.querySelector('#settings-supabase-resend-btn');
-    function showAuthResult(message, isError, { offerResend } = {}) {
+    function showAuthResult(message, isError) {
       if (!resultEl) return;
       resultEl.hidden = false;
       resultEl.textContent = message;
       resultEl.classList.toggle('scopus-test-fail', !!isError);
-      if (resendBtn) resendBtn.hidden = !offerResend;
     }
 
     function readEmailPassword() {
@@ -3334,8 +3336,7 @@ window.SLRViews = (() => {
         try {
           await SLRApp.cloudAuth('signin', email, password);
         } catch (err) {
-          const { text, offerResend } = describeAuthError(err, 'signin');
-          showAuthResult(text, true, { offerResend });
+          showAuthResult(describeAuthError(err, 'signin'), true);
         }
       });
     }
@@ -3351,8 +3352,7 @@ window.SLRViews = (() => {
             showAuthResult('Account created — check your email to confirm it, then sign in above.', false);
           }
         } catch (err) {
-          const { text, offerResend } = describeAuthError(err, 'signup');
-          showAuthResult(text, true, { offerResend });
+          showAuthResult(describeAuthError(err, 'signup'), true);
         }
       });
     }
@@ -4152,9 +4152,11 @@ window.SLRViews = (() => {
               </button>
             </div>
           </div>
-          <button type="button" class="link-btn" id="supabase-modal-magiclink-btn">Email me a magic link instead</button>
+          <div style="display:flex;gap:16px;flex-wrap:wrap">
+            <button type="button" class="link-btn" id="supabase-modal-magiclink-btn">Email me a magic link instead</button>
+            <button type="button" class="link-btn" id="supabase-modal-resend-btn">Resend confirmation email</button>
+          </div>
           <div id="supabase-modal-result" class="scopus-test-result" hidden></div>
-          <button type="button" class="link-btn" id="supabase-modal-resend-btn" hidden style="margin-top:8px">Resend confirmation email</button>
         </div>
         <div class="modal-footer">
           <button class="btn-secondary" id="supabase-modal-cancel">Cancel</button>
@@ -4196,12 +4198,11 @@ window.SLRViews = (() => {
 
     const resultEl  = overlay.querySelector('#supabase-modal-result');
     const resendBtn = overlay.querySelector('#supabase-modal-resend-btn');
-    function showResult(message, isError, { offerResend } = {}) {
+    function showResult(message, isError) {
       resultEl.hidden = false;
       resultEl.textContent = message;
       resultEl.classList.toggle('scopus-test-fail', !!isError);
       resultEl.classList.toggle('scopus-test-ok', !isError);
-      resendBtn.hidden = !offerResend;
     }
 
     const allButtons = () => overlay.querySelectorAll('.modal-footer button, #supabase-modal-magiclink-btn, #supabase-modal-resend-btn');
@@ -4238,8 +4239,7 @@ window.SLRViews = (() => {
           return;
         }
       } catch (err) {
-        const { text, offerResend } = describeAuthError(err, action);
-        showResult(text, true, { offerResend });
+        showResult(describeAuthError(err, action), true);
       } finally {
         buttons.forEach(b => b.disabled = false);
       }

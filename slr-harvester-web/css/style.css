@@ -258,11 +258,13 @@ a:hover {
   color: var(--text);
 }
 
-/* "Web" stays regular weight and runs a touch smaller/tighter everywhere
-   the app name/title is bold, so it reads as a subtitle, not part of the name */
+/* "Web" sits raised and shrunk like an exponent — up and to the right of
+   "Harvester" — rather than running inline with it, so it reads as a
+   superscript tag, not part of the name itself. */
 .title-web {
   font-weight: 400;
-  font-size: 0.8em;
+  font-size: 0.62em;
+  vertical-align: super;
   letter-spacing: -.01em;
 }
 
@@ -286,6 +288,16 @@ a:hover {
 .icon-btn svg {
   width: 16px;
   height: 16px;
+}
+
+/* Unlike .nav-icon/.theme-switch-icon, this wrapper span had no rules of its
+   own — a plain inline span lets its svg child sit on the text baseline
+   instead of centering, which reads as "not quite vertically centered"
+   inside the button. Flex-centering the wrapper itself fixes that. */
+#sidebar-toggle-icon {
+  display: flex;
+  align-items: center;
+  justify-content: center;
 }
 
 .sidebar.collapsed #sidebar-toggle {
