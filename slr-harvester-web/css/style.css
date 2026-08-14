@@ -172,6 +172,10 @@ a:hover {
   border-right: 1px solid var(--border);
   overflow: hidden;
   flex-shrink: 0;
+  /* position:relative makes z-index actually apply — needed so the sidebar's
+     opaque background reliably paints over the Home view's viewport-fixed
+     particle canvas instead of the other way around. */
+  position: relative;
   z-index: 100;
 }
 
@@ -387,7 +391,7 @@ a:hover {
   user-select: none;
 }
 
-.sidebar-copyright .sidebar-label {
+.sidebar-copyright-text {
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -647,23 +651,14 @@ a:hover {
     min-height: 32px;
   }
 
-  /* Articles/Selected/Corpus (.articles-view) and Search (.search-view) are
-     deliberately excluded here — their own toolbar/panel/card elements
-     already carry the correct left/right padding, so adding it again at the
-     view-container level only doubled it up into a visible side margin that
-     ate into the width actually available between the sidebar and the
-     screen edge. */
-  .projects-view,
-  .history-view,
-  .project-info-view,
-  .settings-view,
-  .about-view,
-  .tags-view,
-  .databases-view,
-  .viz-view {
-    padding-left: 12px;
-    padding-right: 12px;
-  }
+  /* Side-padding overrides for this breakpoint live at the very end of this
+     file, not here — several of the classes below (.databases-view,
+     .viz-view, etc.) have their base/desktop rule defined later in this
+     file than this block, and CSS gives source order the tie-break for
+     equal specificity regardless of which one is inside a media query, so
+     a same-specificity override placed here would silently lose to a later
+     unconditional rule. Keeping every side-padding override together at
+     the end guarantees it always wins. */
 
   .theme-switch,
   .fullscreen-switch {
@@ -703,13 +698,6 @@ a:hover {
   .sidebar .nav-item::before {
     left: 0;
   }
-
-  /* Copyright: only the "2026 Gregor Hobersdorfer" text (.sidebar-label,
-     hidden above) goes away here — the © icon stays, same as every other
-     sidebar icon staying visible in the collapsed rail. */
-  .sidebar-copyright {
-    padding-right: 0;
-  }
 }
 
 /* ----------------------------------------------------------
@@ -728,11 +716,16 @@ a:hover {
   gap: 32px;
 }
 
+/* Fixed to the true viewport (not absolute within .welcome-view) so its
+   coordinate space is completely independent of the sidebar's width — the
+   sidebar collapsing/expanding must not stretch or reflow the pattern.
+   The sidebar (given a real stacking position below) simply paints over
+   its own portion, exactly like an overlay. */
 .hero-particles-canvas {
-  position: absolute;
+  position: fixed;
   inset: 0;
-  width: 100%;
-  height: 100%;
+  width: 100vw;
+  height: 100dvh;
   z-index: -1;
   pointer-events: none;
 }
@@ -1080,7 +1073,7 @@ a:hover {
   display: flex;
   flex-direction: column;
   gap: 8px;
-  padding: 10px 20px;
+  padding: 10px 24px;
   background: var(--surface);
   border-bottom: 1px solid var(--border);
   flex-shrink: 0;
@@ -1231,7 +1224,7 @@ a:hover {
   display: flex;
   align-items: center;
   gap: 16px;
-  padding: 6px 20px;
+  padding: 6px 24px;
   font-size: 12px;
   color: var(--text-muted);
   background: var(--surface);
@@ -1276,10 +1269,23 @@ a:hover {
   font-size: 14px;
 }
 
+/* Shared "no project open" notice — same text, same top-left placement,
+   same Projects-navigating button, used by every view's empty state
+   instead of each view inventing its own wording/position. */
+.no-project-notice {
+  padding: 24px;
+  color: var(--text-faint);
+}
+
+.no-project-notice p {
+  font-size: 14px;
+  margin-bottom: 12px;
+}
+
 /* Article item */
 .article-item {
   border-left: 3px solid var(--tag-color, transparent);
-  padding: 10px 20px 10px 17px;
+  padding: 10px 24px 10px 21px;
   border-bottom: 1px solid var(--border-subtle);
   cursor: pointer;
   position: relative;
@@ -1325,18 +1331,6 @@ a:hover {
   display: flex;
   align-items: center;
   gap: 4px;
-}
-
-/* Selected/Corpus toggles sit at the card's bottom edge, not stacked under the
-   source/doc-type badges. Placed after .article-detail in the DOM, which is
-   display:none when collapsed, so this row naturally lands right under the
-   header when collapsed and at the true bottom when expanded either way. */
-.article-toggle-row {
-  display: flex;
-  justify-content: flex-end;
-  align-items: center;
-  gap: 6px;
-  margin-top: 10px;
 }
 
 .badge {
@@ -1482,12 +1476,23 @@ a:hover {
 .article-tag-row {
   display: flex;
   align-items: center;
-  gap: 5px;
+  justify-content: space-between;
+  gap: 8px;
   margin-top: 5px;
 }
 
-.article-tag-row .article-tag-pill {
-  margin-top: 0;
+.article-tag-row-indicators {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  min-width: 0;
+}
+
+.article-tag-row-actions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-shrink: 0;
 }
 
 .abstract-indicator svg {
@@ -1537,7 +1542,6 @@ a:hover {
   display: inline-flex;
   align-items: center;
   gap: 5px;
-  margin-top: 5px;
   padding: 1px 8px;
   border-radius: 20px;
   font-size: 11px;
@@ -1554,11 +1558,8 @@ a:hover {
   color: var(--text);
 }
 
-.article-tag-pill.tag-pill-set {
-  color: var(--tag-pill-color, var(--text-muted));
-  border-color: var(--tag-pill-color, var(--border));
-  background: color-mix(in srgb, var(--tag-pill-color, transparent) 10%, var(--surface-2));
-}
+/* Same look as .corpus-tag-chip: neutral grey border/background/text — only
+   the .tag-dot carries the tag's actual color, not the whole pill. */
 
 .article-tag-pill.tag-pill-unset {
   opacity: 0.45;
@@ -1746,7 +1747,7 @@ a:hover {
    9. History view
    ---------------------------------------------------------- */
 .history-view {
-  padding: 20px;
+  padding: 20px 24px;
   display: flex;
   flex-direction: column;
   gap: 12px;
@@ -2252,7 +2253,7 @@ a.db-link:visited {
   display: flex;
   align-items: center;
   gap: 20px;
-  padding: 14px 20px;
+  padding: 14px 24px;
   background: var(--green-subtle);
   border-bottom: 1px solid var(--green);
   flex-wrap: wrap;
@@ -2281,7 +2282,7 @@ a.db-link:visited {
   display: flex;
   flex-wrap: wrap;
   gap: 6px;
-  padding: 10px 20px 12px;
+  padding: 10px 24px 12px;
   border-bottom: 1px solid var(--border-subtle);
   background: var(--surface);
   flex-shrink: 0;
@@ -3749,7 +3750,7 @@ a.db-link:visited {
   }
 
   .search-editor-panel {
-    padding: 14px 0 20px;
+    padding: 14px 12px 20px;
   }
 
   .search-editor-toolbar {
@@ -5174,5 +5175,48 @@ a.db-link:visited {
 #view-container > .articles-view,
 #view-container > .search-view {
   padding-top: 0;
+}
+
+/* ----------------------------------------------------------
+   Side-padding standardization — kept together at the very end
+   of the file so it reliably wins the cascade over every view's
+   own base rule, whichever section of this file that rule is
+   in (equal specificity + a matching @media condition still
+   loses to a later unconditional rule earlier in the file).
+   Desktop: 24px everywhere. Mobile (<=900px): 12px everywhere.
+   The .article-item column additionally has a 3px colored
+   border, so its own left padding is 3px less than the others
+   at both sizes to keep the visual inset identical all round.
+   ---------------------------------------------------------- */
+@media (max-width: 900px) {
+  .projects-view,
+  .history-view,
+  .project-info-view,
+  .settings-view,
+  .about-view,
+  .tags-view,
+  .databases-view,
+  .viz-view,
+  .list-toolbar,
+  .corpus-banner,
+  .corpus-tag-breakdown,
+  .articles-stats,
+  .search-editor-panel {
+    padding-left: 12px;
+    padding-right: 12px;
+  }
+
+  .article-item {
+    padding-left: 9px;
+    padding-right: 12px;
+  }
+
+  /* Extra headroom for "SLR Harvester Web" in the 200px tablet sidebar —
+     verified comfortable in testing, but real-device font metrics can run
+     wider than simulated ones, and "Web" must never be the part that gets
+     silently clipped by .app-logo's overflow:hidden. */
+  .app-name {
+    font-size: 14px;
+  }
 }
 

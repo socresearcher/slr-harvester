@@ -2429,6 +2429,13 @@ window.SLRApp = (() => {
 		document.querySelectorAll('.nav-item[data-view]').forEach(btn => {
 			btn.addEventListener('click', () => navigate(btn.dataset.view));
 		});
+
+		// Delegated once, here — every view's "no project open" notice
+		// (SLRViews.renderNoProjectNotice) reuses this same button/handler
+		// instead of each view wiring its own click listener.
+		$('view-container')?.addEventListener('click', e => {
+			if (e.target.closest('[data-action="goto-projects"]')) navigate('projects');
+		});
 	}
 
 	async function init() {

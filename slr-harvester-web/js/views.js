@@ -33,6 +33,20 @@ window.SLRViews = (() => {
     return projectData.tagsConfig[colorName] || '';
   }
 
+  /** Same text, same top-left placement, same "go to Projects" button —
+   *  used by every view's empty state for "no project is open yet" instead
+   *  of each view inventing its own wording/position. The button's click is
+   *  wired once, generically, in app.js (bindEvents), not per view. */
+  function renderNoProjectNotice() {
+    return `
+      <div class="no-project-notice">
+        <p>No project selected. Open a project from the Projects view.</p>
+        <button class="btn-secondary" data-action="goto-projects">
+          ${SLRIcons.projects} Go to Projects
+        </button>
+      </div>`;
+  }
+
   function normalizeDocTypeKey(docType, source) {
     const raw = String(docType || '').trim().toLowerCase();
     if (!raw) return source === 'arxiv' ? 'preprint' : null;
@@ -169,10 +183,13 @@ window.SLRViews = (() => {
     const supported = typeof window.showDirectoryPicker === 'function';
 
     // Same message everywhere the File System Access API is missing — mobile
-    // browsers included, since none of them implement it either.
-    const compatMessage = `<strong>Browser not supported.</strong>
-         SLR Harvester Web requires <strong>Chrome 86+ or Edge 86+ on desktop</strong>
-         for the File System Access API. Firefox and Safari (desktop) don't support it.`;
+    // browsers included, since none of them implement it either. Local
+    // Folder specifically; Supabase works regardless.
+    const compatMessage = `<strong>Local Folder isn't supported in this browser.</strong>
+         It requires <strong>Chrome 86+ or Edge 86+ on desktop</strong> for the File
+         System Access API — Firefox and Safari (desktop) don't support it, and
+         neither does any mobile browser. Use <strong>Continue with Supabase</strong>
+         below instead.`;
 
     container.innerHTML = `
       <div class="welcome-view" id="home">
@@ -180,9 +197,9 @@ window.SLRViews = (() => {
         <div class="welcome-hero">
           <div class="welcome-logo">${SLRIcons.logo}</div>
           <h1>SLR Harvester <span class="title-web">Web</span></h1>
-          <p>A local browser tool for managing Systematic
-             <span style="white-space:nowrap">Literature Reviews</span>.<br>
-             Open your SLR Harvester data folder to get started.</p>
+          <p>A browser tool for managing
+             <span style="white-space:nowrap">Systematic Literature Reviews</span>.<br>
+             Connect a workspace below to get started.</p>
         </div>
 
         ${!supported ? `
@@ -192,28 +209,29 @@ window.SLRViews = (() => {
           </div>` : ''}
 
         <div class="welcome-actions">
-          <button id="welcome-open-btn" class="btn-primary" ${!supported ? 'disabled' : ''}>
-            ${SLRIcons.folderOpen}
-            Open SLR Harvester Folder
-          </button>
-          <button id="welcome-cloud-btn" class="btn-secondary">
+          <button id="welcome-cloud-btn" class="btn-primary">
             ${SLRIcons.globe}
-            Continue with Cloud Sync
+            Continue with Supabase
+          </button>
+          <button id="welcome-open-btn" class="btn-secondary" ${!supported ? 'disabled' : ''}>
+            ${SLRIcons.folderOpen}
+            Continue with Local Folder
           </button>
         </div>
 
         <div class="welcome-tips">
-          <p><strong>First time here?</strong> Click the button above, then create a new,
-          empty folder in the picker dialog (any name works, e.g.
-          <code>SLR-Harvester-Data</code>) and select it. The app sets everything up the
-          moment you create your first project — nothing is written until then.</p>
-          <p><strong>Already have data?</strong> Select the folder that contains
+          <p><strong>On mobile, or Firefox/Safari?</strong> Local Folder needs the
+          File System Access API, which isn't available there — use
+          <strong>Supabase</strong> instead: it syncs your projects through your own
+          Supabase project and works in any browser.</p>
+          <p><strong>First time with Local Folder?</strong> Click the button above,
+          then create a new, empty folder in the picker dialog (any name works, e.g.
+          <code>SLR-Harvester-Data</code>) and select it. The app sets everything up
+          the moment you create your first project — nothing is written until then.</p>
+          <p><strong>Already have local data?</strong> Select the folder that contains
           <code>projects.json</code> and the <code>projects/</code> directory - your existing
           SLR Harvester workspace. Works with local folders and cloud-synced drives
           (OneDrive, Google Drive) alike.</p>
-          <p><strong>On mobile, or Firefox/Safari?</strong> The File System Access API
-          above isn't available there — use <strong>Cloud Sync</strong> instead: it syncs
-          your projects through your own Supabase project and works in any browser.</p>
         </div>
       </div>`;
 
@@ -257,10 +275,13 @@ window.SLRViews = (() => {
       return isDark() ? `rgba(51, 230, 212, ${alpha})` : `rgba(23, 169, 156, ${alpha})`;
     }
 
+    // Sized to the viewport, not to #home's own box — the canvas is
+    // position:fixed (see .hero-particles-canvas) specifically so toggling
+    // the sidebar (which changes #home's width, not the viewport's) can
+    // never stretch/reflow the already-placed particles.
     function resize() {
-      const rect = hero.getBoundingClientRect();
-      W = canvas.width  = rect.width;
-      H = canvas.height = rect.height;
+      W = canvas.width  = document.documentElement.clientWidth;
+      H = canvas.height = document.documentElement.clientHeight;
     }
 
     // state: 'alive' (normal), 'dissolving' (löst sich auf), 'spawning' (kommt neu hinzu)
@@ -539,10 +560,12 @@ window.SLRViews = (() => {
     const tagBreakdownHTML = buildTagBreakdownHTML(articles, projectData, filter.tag);
 
     // Build article HTML
-    const listHTML = filtered.length === 0
+    const listHTML = !projectData
+      ? renderNoProjectNotice()
+      : filtered.length === 0
       ? `<div class="article-list-empty">
            ${SLRIcons.articles}
-           <p>${projectData ? 'No articles match the current filters.' : 'No project loaded. Open a project from Projects first.'}</p>
+           <p>No articles match the current filters.</p>
          </div>`
       : filtered.map(a => articleItemHTML(a, projectData)).join('');
 
@@ -720,23 +743,36 @@ window.SLRViews = (() => {
               <span>${a.citedby || 0} cited</span>
             </div>
             <div class="article-tag-row">
-              <span class="abstract-indicator ${a.abstract ? 'has-abstract' : 'no-abstract'}"
-                    title="${a.abstract ? 'Abstract available' : 'No abstract'}">
-                ${a.abstract ? SLRIcons.eye : SLRIcons.eyeOff}
+              <span class="article-tag-row-indicators">
+                <span class="abstract-indicator ${a.abstract ? 'has-abstract' : 'no-abstract'}"
+                      title="${a.abstract ? 'Abstract available' : 'No abstract'}">
+                  ${a.abstract ? SLRIcons.eye : SLRIcons.eyeOff}
+                </span>
+                ${affiliationBadge}
               </span>
-              ${affiliationBadge}
-              <button class="article-tag-pill ${tagName ? 'tag-pill-set' : 'tag-pill-unset'}"
-                      data-action="open-tag-picker"
-                      title="${tagName ? 'Change tag: ' + tagName : 'Set tag'}"
-                      ${hex ? `style="--tag-pill-color:${esc(hex)}"` : ''}>
-                ${tagName ? `<span class="tag-dot" ${hex ? `style="background:${esc(hex)}"` : ''}></span>${esc(tagName)}` : `<span class="tag-dot tag-dot-empty"></span>No tag`}
-              </button>
+              <span class="article-tag-row-actions">
+                <button class="badge badge-toggle ${a.selected ? 'badge-selected' : 'badge-dim'}"
+                        data-action="toggle-selected"
+                        title="${a.selected ? 'Remove from Selected' : 'Mark as Selected'}"
+                        aria-label="${a.selected ? 'Remove from Selected' : 'Mark as Selected'}">${SLRIcons.selected}</button>
+                <button class="badge badge-toggle ${a.corpus ? 'badge-corpus' : 'badge-dim'}"
+                        data-action="toggle-corpus"
+                        title="${a.corpus ? 'Remove from Corpus' : 'Add to Corpus'}"
+                        aria-label="${a.corpus ? 'Remove from Corpus' : 'Add to Corpus'}">${SLRIcons.corpus}</button>
+              </span>
             </div>
           </div>
           <div class="article-badges">
             <div class="article-badges-row">
               ${sourceBadge}
               ${docTypeBadge}
+            </div>
+            <div class="article-badges-row">
+              <button class="article-tag-pill ${tagName ? 'tag-pill-set' : 'tag-pill-unset'}"
+                      data-action="open-tag-picker"
+                      title="${tagName ? 'Change tag: ' + tagName : 'Set tag'}">
+                ${tagName ? `<span class="tag-dot" ${hex ? `style="background:${esc(hex)}"` : ''}></span>${esc(tagName)}` : `<span class="tag-dot tag-dot-empty"></span>No tag`}
+              </button>
             </div>
           </div>
         </div>
@@ -746,17 +782,6 @@ window.SLRViews = (() => {
           ${affiliationCountryDetail}
           ${idRow}
           ${comment}
-        </div>
-
-        <div class="article-toggle-row">
-          <button class="badge badge-toggle ${a.selected ? 'badge-selected' : 'badge-dim'}"
-                  data-action="toggle-selected"
-                  title="${a.selected ? 'Remove from Selected' : 'Mark as Selected'}"
-                  aria-label="${a.selected ? 'Remove from Selected' : 'Mark as Selected'}">${SLRIcons.selected}</button>
-          <button class="badge badge-toggle ${a.corpus ? 'badge-corpus' : 'badge-dim'}"
-                  data-action="toggle-corpus"
-                  title="${a.corpus ? 'Remove from Corpus' : 'Add to Corpus'}"
-                  aria-label="${a.corpus ? 'Remove from Corpus' : 'Add to Corpus'}">${SLRIcons.corpus}</button>
         </div>
       </div>`;
   }
@@ -1353,6 +1378,10 @@ window.SLRViews = (() => {
   //  History view
 
   function renderHistory(container, searchLog, projectData) {
+    if (!projectData) {
+      container.innerHTML = `<div class="history-view" style="padding:0">${renderNoProjectNotice()}</div>`;
+      return;
+    }
     if (!searchLog || searchLog.length === 0) {
       container.innerHTML = `
         <div class="history-view">
@@ -1481,10 +1510,7 @@ window.SLRViews = (() => {
 
   function renderProjectInfo(container, project, projectData) {
     if (!project) {
-      container.innerHTML = `
-        <div class="project-info-view">
-          <p style="color:var(--text-faint)">No project selected. Open a project from the Projects view.</p>
-        </div>`;
+      container.innerHTML = `<div class="project-info-view" style="padding:0">${renderNoProjectNotice()}</div>`;
       return;
     }
 
@@ -1603,8 +1629,10 @@ window.SLRViews = (() => {
     const tagBreakdownHTML = buildTagBreakdownHTML(corpusArticles, projectData, filter.tag);
 
     const filtered = applyFilter(corpusArticles, Object.assign({}, filter, { mode: 'corpus' }), projectData);
-    const listHTML = filtered.length === 0
-      ? `<div class="article-list-empty">${SLRIcons.corpus}<p>${projectData ? 'No corpus articles match the current filters.' : 'No project loaded. Open a project from Projects first.'}</p></div>`
+    const listHTML = !projectData
+      ? renderNoProjectNotice()
+      : filtered.length === 0
+      ? `<div class="article-list-empty">${SLRIcons.corpus}<p>No corpus articles match the current filters.</p></div>`
       : filtered.map(a => articleItemHTML(a, projectData)).join('');
 
     container.innerHTML = `
@@ -1685,8 +1713,10 @@ window.SLRViews = (() => {
     const selectedTagBreakdownHTML = buildTagBreakdownHTML(selectedArticles, projectData, filter.tag);
 
     const filtered = applyFilter(selectedArticles, Object.assign({}, filter, { mode: 'selected' }), projectData);
-    const listHTML = filtered.length === 0
-      ? `<div class="article-list-empty">${SLRIcons.selected}<p>${projectData ? 'No selected articles match the current filters.' : 'No project loaded. Open a project from Projects first.'}</p></div>`
+    const listHTML = !projectData
+      ? renderNoProjectNotice()
+      : filtered.length === 0
+      ? `<div class="article-list-empty">${SLRIcons.selected}<p>No selected articles match the current filters.</p></div>`
       : filtered.map(a => articleItemHTML(a, projectData)).join('');
 
     container.innerHTML = `
@@ -1970,9 +2000,12 @@ window.SLRViews = (() => {
   }
 
   function renderVisualizations(container, articles, projectData) {
-    if (!projectData || !articles || articles.length === 0) {
-      const msg = projectData ? 'No articles in this project yet.' : 'No project loaded. Open a project from Projects first.';
-      container.innerHTML = `<div class="viz-view"><p style="color:var(--text-faint);padding:20px">${msg}</p></div>`;
+    if (!projectData) {
+      container.innerHTML = `<div class="viz-view" style="padding:0">${renderNoProjectNotice()}</div>`;
+      return;
+    }
+    if (!articles || articles.length === 0) {
+      container.innerHTML = `<div class="viz-view"><p style="color:var(--text-faint);padding:20px">No articles in this project yet.</p></div>`;
       return;
     }
     const stats = SLRData.getStats(articles);
@@ -3691,7 +3724,7 @@ window.SLRViews = (() => {
 
   function renderTags(container, articles, projectData) {
     if (!projectData) {
-      container.innerHTML = `<div class="tags-view"><p style="color:var(--text-faint)">No project loaded.</p></div>`;
+      container.innerHTML = `<div class="tags-view" style="padding:0">${renderNoProjectNotice()}</div>`;
       return;
     }
 
