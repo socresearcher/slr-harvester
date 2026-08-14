@@ -557,8 +557,8 @@ window.SLRApp = (() => {
 	async function openFolder() {
 		try {
 			SLRViews.renderLoading(_container, 'Opening folder...');
-			const handle = await SLRData.openFolder();
-			state.folderName = handle && handle.name ? handle.name : '';
+			await SLRData.openFolder();
+			state.folderName = SLRData.workspaceLabel || '';
 
 			await hydrateSettingsFromConfig();
 			await loadProjectsAndStats();
@@ -578,18 +578,74 @@ window.SLRApp = (() => {
 		}
 	}
 
-	async function restoreFolderAtStartup() {
-		const handle = await SLRData.restoreFolder();
-		if (!handle) {
+	async function restoreWorkspaceAtStartup() {
+		// The two backends restore fundamentally different things (an FSA
+		// directory handle vs. a signed-in Supabase session), so this branches
+		// explicitly rather than forcing both through one abstract call.
+		const connected = SLRData.getBackend() === 'cloud'
+			? await SLRData.restoreSession()
+			: await SLRData.restoreFolder();
+		if (!connected) {
 			state.view = 'welcome';
 			renderCurrentView();
 			return;
 		}
 
-		state.folderName = handle.name || '';
+		state.folderName = SLRData.workspaceLabel || '';
 		await hydrateSettingsFromConfig();
 		await loadProjectsAndStats();
 		state.view = 'projects';
+		renderCurrentView();
+	}
+
+	function resetWorkspaceState() {
+		state.currentFolder = null;
+		state.currentProject = null;
+		state.projectData = null;
+		state.articles = [];
+		state.projects = [];
+		state.folderName = '';
+	}
+
+	function switchBackend(name) {
+		SLRData.setBackend(name);
+		resetWorkspaceState();
+		state.view = 'settings';
+		renderCurrentView();
+	}
+
+	function saveCloudCredentials(url, key) {
+		SLRDataCloud.configure(url, key);
+		resetWorkspaceState();
+		renderCurrentView();
+		showToast('Supabase connection saved.', false);
+	}
+
+	// action: 'signin' | 'signup' | 'magiclink'. Throws on failure — the
+	// Settings form displays the error inline; on success (signin/signup)
+	// this loads the cloud workspace the same way openFolder() does locally.
+	async function cloudAuth(action, email, password) {
+		if (action === 'signin') {
+			await SLRDataCloud.signIn(email, password);
+		} else if (action === 'signup') {
+			await SLRDataCloud.signUp(email, password);
+		} else if (action === 'magiclink') {
+			await SLRDataCloud.signInWithMagicLink(email);
+			return;
+		} else {
+			return;
+		}
+
+		state.folderName = SLRData.workspaceLabel || '';
+		await hydrateSettingsFromConfig();
+		await loadProjectsAndStats();
+		state.view = 'projects';
+		renderCurrentView();
+	}
+
+	async function cloudSignOut() {
+		await SLRDataCloud.signOut();
+		resetWorkspaceState();
 		renderCurrentView();
 	}
 
@@ -693,7 +749,7 @@ window.SLRApp = (() => {
 		// if missing) so they're tied to the folder, not just this browser —
 		// critical for correctness (a different folder must never see them) and
 		// for parity with the desktop app's config file.
-		if (SLRData.rootHandle) {
+		if (SLRData.hasWorkspace()) {
 			try {
 				await SLRData.saveConfig({
 					APIKey: state.settings.apiKey,
@@ -2334,10 +2390,22 @@ window.SLRApp = (() => {
 		showToast(`Color scheme "${scheme}" applied.`, false);
 	}
 
-	async function createProject(name, description) {
-		if (!SLRData.rootHandle) {
+	// Lazily connects a workspace when an action needs one but none is open yet:
+	// the local backend's folder picker, or the cloud backend's sign-in screen.
+	async function connectWorkspace() {
+		if (SLRData.getBackend() === 'cloud') {
+			state.view = 'settings';
+			renderCurrentView();
+			showToast('Sign in under Cloud Sync in Settings first.', true);
+		} else {
 			await openFolder();
-			if (!SLRData.rootHandle) return;
+		}
+	}
+
+	async function createProject(name, description) {
+		if (!SLRData.hasWorkspace()) {
+			await connectWorkspace();
+			if (!SLRData.hasWorkspace()) return;
 		}
 		const folder = await SLRData.createProject(name, description);
 		await loadProjectsAndStats();
@@ -2377,7 +2445,7 @@ window.SLRApp = (() => {
 
 		SLRViews.renderLoading(_container, 'Initializing...');
 		try {
-			await restoreFolderAtStartup();
+			await restoreWorkspaceAtStartup();
 		} catch (err) {
 			SLRViews.renderError(_container, err.message || String(err));
 		}
@@ -2393,6 +2461,10 @@ window.SLRApp = (() => {
 		state,
 		navigate,
 		openFolder,
+		switchBackend,
+		saveCloudCredentials,
+		cloudAuth,
+		cloudSignOut,
 		openProject,
 		setFilter,
 		setFetchMode,

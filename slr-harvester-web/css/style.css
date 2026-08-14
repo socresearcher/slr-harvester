@@ -2616,6 +2616,45 @@ a.db-link:visited {
   opacity: 1;
 }
 
+.backend-switch-row {
+  display: flex;
+  gap: 16px;
+  margin-top: 6px;
+}
+
+.backend-switch-option {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 13.5px;
+  color: var(--text);
+  cursor: pointer;
+}
+
+.cloud-auth-status {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 12px;
+  padding: 8px 12px;
+  border-radius: var(--radius);
+  background: var(--accent-subtle);
+  color: var(--accent);
+  font-size: 13px;
+}
+
+.cloud-auth-status svg {
+  width: 15px;
+  height: 15px;
+  flex-shrink: 0;
+}
+
+.cloud-auth-status .btn-secondary {
+  margin-left: auto;
+  padding: 4px 12px;
+  font-size: 12.5px;
+}
+
 /* ----------------------------------------------------------
    16. Modal overlay
    ---------------------------------------------------------- */
