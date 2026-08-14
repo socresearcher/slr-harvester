@@ -5,12 +5,19 @@
 -- your own Supabase project's SQL editor once, then enable Email auth.
 --
 -- Steps:
---   1. Create a free project at https://supabase.com.
+--   1. Create a free project at https://supabase.com. On the creation
+--      screen: Postgres (not the OrioleDB alpha option), "Enable Data API"
+--      on. "Automatically expose new tables" can stay off either way — this
+--      script grants the tables it creates explicit access itself (below),
+--      so it doesn't depend on that setting.
 --   2. Open the SQL editor (left sidebar) and run this entire file.
---   3. Authentication → Providers → make sure "Email" is enabled
---      (it's on by default). Email confirmation can be turned off in
---      Authentication → Settings if you want sign-up to work immediately
---      without a confirmation email, or left on for a real deployment.
+--   3. Authentication → Providers (or "Sign In / Providers") → Email →
+--      confirm it's enabled. The "require email confirmation" toggle has
+--      moved around across Supabase dashboard versions — it's not on the
+--      Emails/templates page (that only edits template content); look
+--      inside the Email provider's own settings panel, or leave it on and
+--      just make sure step 4 below is done, since confirmation emails need
+--      that either way.
 --   4. Authentication → URL Configuration → add the exact URL this app is
 --      served from (e.g. http://localhost:8765/, or your deployed URL) to
 --      "Redirect URLs", and set it as the "Site URL" too. Confirmation and
@@ -20,8 +27,9 @@
 --   5. Project Settings → API → copy the "Project URL" and the "anon
 --      public" key (or, on newer projects, the "Publishable key" —
 --      sb_publishable_... — which replaces it and works the same way here).
---   6. In SLR Harvester Web, click "Continue with Supabase" on the Home
---      screen (or Settings → Cloud Sync), paste both in, then sign up.
+--   6. In SLR Harvester Web, click "Sign Up" on the Home screen (or paste
+--      both into Settings → Cloud Sync first, if using a different project
+--      than the one already built into the app).
 --
 -- The anon/publishable key is safe to use client-side — it's designed to be public.
 -- Row Level Security (enabled below) is what actually protects the data:
@@ -62,6 +70,18 @@ create table public.user_settings (
   openalex_email text,
   updated_at     timestamptz not null default now()
 );
+
+-- ── Grants ────────────────────────────────────────────────────────────────
+-- Newer Supabase projects default "Automatically expose new tables" to OFF
+-- (Project Creation → Security) — a table you create no longer automatically
+-- gets Data API access for anon/authenticated just by existing. Without
+-- these explicit grants, RLS policies below would be correctly configured
+-- but never even reached, since the API role couldn't touch the tables at
+-- all. Only `authenticated` gets access — nothing here is ever read before
+-- sign-in, so `anon` needs none of it.
+grant usage on schema public to authenticated;
+grant select, insert, update, delete on public.projects to authenticated;
+grant select, insert, update on public.user_settings to authenticated;
 
 -- ── Row Level Security ────────────────────────────────────────────────────
 alter table public.projects enable row level security;

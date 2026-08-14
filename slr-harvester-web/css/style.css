@@ -790,6 +790,11 @@ a:hover {
   gap: 12px;
 }
 
+.welcome-auth-row {
+  display: flex;
+  gap: 10px;
+}
+
 .btn-primary {
   display: inline-flex;
   align-items: center;
@@ -811,16 +816,6 @@ a:hover {
 .btn-primary svg {
   width: 16px;
   height: 16px;
-}
-
-/* Supabase icon now fills with currentColor (see icons.js), so it already
-   inherits --accent-ink from .btn-primary automatically — correct contrast
-   in both themes with no color override needed here. Sized slightly larger
-   than the other primary-button icons since a solid bolt glyph reads
-   smaller than the stroke-based ones at the same box size. */
-#welcome-cloud-btn svg {
-  width: 18px;
-  height: 18px;
 }
 
 .btn-secondary {
