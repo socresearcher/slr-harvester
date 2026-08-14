@@ -54,7 +54,6 @@ window.SLRAppUI = (() => {
       corpus: SLRIcons.corpus,
       chart: SLRIcons.chart,
       project: SLRIcons.project,
-      folder: SLRIcons.folder,
       settings: SLRIcons.settings,
       info: SLRIcons.info,
     };

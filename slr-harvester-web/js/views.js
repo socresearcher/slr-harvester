@@ -1532,7 +1532,10 @@ window.SLRViews = (() => {
   function renderLoading(container, message) {
     container.innerHTML = `
       <div class="loading-spinner">
-        <div class="spinner"></div>
+        <svg class="spinner-ring" viewBox="0 0 44 44" aria-hidden="true">
+          <circle class="spinner-ring-track" cx="22" cy="22" r="18"></circle>
+          <circle class="spinner-ring-arc" cx="22" cy="22" r="18"></circle>
+        </svg>
         <span>${esc(message || 'Loading...')}</span>
       </div>`;
   }

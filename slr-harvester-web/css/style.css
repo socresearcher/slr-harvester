@@ -493,8 +493,8 @@ a:hover {
 
 /* Light mode: slide knob to the right */
 .theme-switch.is-light {
-  background: #e8f0fe;
-  border-color: #4285F4;
+  background: var(--accent-subtle);
+  border-color: var(--accent);
 }
 
 .theme-switch-knob {
@@ -2054,13 +2054,27 @@ a:hover {
   color: var(--text-muted);
 }
 
-.spinner {
-  width: 28px;
-  height: 28px;
-  border: 2px solid var(--border);
-  border-top-color: var(--accent);
-  border-radius: 50%;
-  animation: spin .7s linear infinite;
+.spinner-ring {
+  width: 32px;
+  height: 32px;
+  animation: spin .8s linear infinite;
+}
+
+.spinner-ring-track,
+.spinner-ring-arc {
+  fill: none;
+  stroke-width: 3;
+}
+
+.spinner-ring-track {
+  stroke: var(--border);
+}
+
+.spinner-ring-arc {
+  stroke: var(--accent);
+  stroke-linecap: round;
+  /* circumference = 2*pi*18 ≈ 113 — show ~28% of it as the moving arc */
+  stroke-dasharray: 32 200;
 }
 
 @keyframes spin {
