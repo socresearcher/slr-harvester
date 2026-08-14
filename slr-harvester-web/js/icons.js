@@ -244,6 +244,18 @@ window.SLRIcons = (() => {
        <path d="M12 3a15 15 0 0 0 0 18"/>`
     ),
 
+    // Supabase mark — a bolt/flash glyph in the brand's green, used only on
+    // the "Continue with Supabase" button and the About page's Cloud Sync
+    // note. Not the literal trademarked asset (this is original geometry,
+    // not traced from Supabase's brand SVG), just evocative of it via shape
+    // + brand color — filled, not stroke-based like the rest of this set,
+    // so it doesn't go through base() or take on currentColor.
+    supabaseLogo:
+      `<svg viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+         <path d="M13.4 21.6c-.5.7-1.7.3-1.6-.6l.4-9.5h6.9c1.3 0 2.1 1.5 1.3 2.6l-7 7.5z" fill="#3ECF8E"/>
+         <path d="M10.6 2.4c.5-.7 1.7-.3 1.6.6l-.4 9.5H4.9c-1.3 0-2.1-1.5-1.3-2.6l7-7.5z" fill="#3ECF8E"/>
+       </svg>`,
+
     // Databases — cylinder stack
     databases: base(
       `<ellipse cx="12" cy="5" rx="9" ry="3"/>
