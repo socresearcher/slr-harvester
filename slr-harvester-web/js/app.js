@@ -640,6 +640,12 @@ window.SLRApp = (() => {
 			return;
 		}
 
+		// Reachable directly from Home now (Sign Up/Log In), which never
+		// passes through Settings' "Active workspace" radio button — the only
+		// other place this used to get set. Without this, a successful
+		// Supabase sign-in silently kept routing every subsequent SLRData.*
+		// call at the local-folder backend instead ("No folder open").
+		SLRData.setBackend('cloud');
 		state.folderName = SLRData.workspaceLabel || '';
 		await hydrateSettingsFromConfig();
 		await loadProjectsAndStats();
@@ -2398,7 +2404,7 @@ window.SLRApp = (() => {
 	// the local backend's folder picker, or the cloud backend's sign-in modal.
 	async function connectWorkspace() {
 		if (SLRData.getBackend() === 'cloud') {
-			showSupabaseAuthModal();
+			showSupabaseAuthModal('signin');
 		} else {
 			await openFolder();
 		}
@@ -2422,10 +2428,10 @@ window.SLRApp = (() => {
 		SLRViews.renderNewProjectModal(overlay);
 	}
 
-	function showSupabaseAuthModal() {
+	function showSupabaseAuthModal(mode) {
 		const overlay = $('modal-overlay');
 		if (!overlay) return;
-		SLRViews.renderSupabaseAuthModal(overlay);
+		SLRViews.renderSupabaseAuthModal(overlay, mode);
 	}
 
 	function bindEvents() {

@@ -13,15 +13,29 @@ window.SLRDataCloud = (() => {
   const URL_KEY = 'slr-supabase-url';
   const KEY_KEY = 'slr-supabase-anon-key';
 
+  // This app's own Supabase project — the anon/publishable key is designed
+  // to be public (safe to ship in client-side source); Row Level Security
+  // is what actually keeps one signed-in user's rows invisible to another.
+  // Settings → Cloud Sync can still override these (Save Connection) for
+  // anyone self-hosting this app against their own Supabase project instead.
+  const DEFAULT_URL = 'https://hxfhwljwsxugruedyvvd.supabase.co';
+  const DEFAULT_KEY = 'sb_publishable_YvAsQGyGdAYblXQnsCMEhw_PcgBqxgR';
+
   let _client = null;
   let _user   = null; // the signed-in Supabase auth user, once known
 
-  /** Returns a Supabase client for the stored project URL/anon key, or null
-   *  if either hasn't been configured yet in Settings. */
+  function resolveCredentials() {
+    return {
+      url: localStorage.getItem(URL_KEY) || DEFAULT_URL,
+      key: localStorage.getItem(KEY_KEY) || DEFAULT_KEY,
+    };
+  }
+
+  /** Returns a Supabase client for the configured (or default) project
+   *  URL/anon key, or null if somehow neither is available. */
   function getClient() {
     if (_client) return _client;
-    const url = localStorage.getItem(URL_KEY);
-    const key = localStorage.getItem(KEY_KEY);
+    const { url, key } = resolveCredentials();
     if (!url || !key) return null;
     if (!window.supabase || typeof window.supabase.createClient !== 'function') {
       throw new Error('Supabase SDK failed to load.');
@@ -30,8 +44,8 @@ window.SLRDataCloud = (() => {
     return _client;
   }
 
-  /** Store the Project URL + anon key (from Settings) and reset the client
-   *  so the next call picks them up. */
+  /** Store an override Project URL + anon key (Settings → Cloud Sync) and
+   *  reset the client so the next call picks them up. */
   function configure(url, key) {
     localStorage.setItem(URL_KEY, (url || '').trim());
     localStorage.setItem(KEY_KEY, (key || '').trim());
@@ -40,14 +54,11 @@ window.SLRDataCloud = (() => {
   }
 
   function getCredentials() {
-    return {
-      url: localStorage.getItem(URL_KEY) || '',
-      key: localStorage.getItem(KEY_KEY) || '',
-    };
+    return resolveCredentials();
   }
 
   function isConfigured() {
-    const { url, key } = getCredentials();
+    const { url, key } = resolveCredentials();
     return !!(url && key);
   }
 
