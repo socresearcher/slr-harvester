@@ -39,6 +39,11 @@
   --sidebar-w:    236px;
   --sidebar-collapsed-w: 56px;
   --topbar-h:     52px;
+  /* Shared left inset for the sidebar's icon column (logo, nav icons,
+     copyright ©) so everything lines up on the same vertical axis. A single
+     source of truth — override this one variable per breakpoint instead of
+     re-tuning padding in three different places. */
+  --sidebar-icon-pad-left: 19px;
   --transition:   200ms ease;
   --radius:       6px;
   --radius-lg:    10px;
@@ -88,6 +93,10 @@
 html, body {
   height: 100%;
   overflow: hidden;
+  /* Defense in depth for #app's position:fixed below: if any sub-pixel
+     rounding ever leaves a sliver at the viewport edge, it reads as the
+     app's own background instead of the browser's default white canvas. */
+  background: var(--bg);
 }
 
 body {
@@ -125,21 +134,28 @@ a:hover {
    3. App shell — sidebar + main
    ---------------------------------------------------------- */
 #app {
+  /* position:fixed + inset:0 (not height:100vh/100dvh) so the app is pinned
+     to the ACTUAL visual viewport rectangle at all times. vh/dvh are values
+     computed once per layout pass; on some mobile browsers (observed: Edge
+     Android) that computed height can lag behind the real available height
+     as the browser's own UI chrome shows/hides, leaving a gap at the bottom
+     edge filled by the page background instead of the app. Fixed positioning
+     has no such lag — the browser places it against the current visual
+     viewport directly, which is what "reaches every screen edge, in every
+     browser, at every moment" actually requires. */
+  position: fixed;
+  inset: 0;
   display: flex;
-  height: 100vh;
-  height: 100dvh;
   overflow: hidden;
 }
 
-/* iOS notch/home-indicator safe-area baseline */
+/* iOS notch/home-indicator safe-area baseline.
+   The bottom inset is handled on .sidebar-footer directly (see below) via
+   max(), not here — keeping it in one place avoids stacking it twice. */
 @supports (padding: env(safe-area-inset-top)) {
   #topbar {
     padding-top: env(safe-area-inset-top);
     height: calc(var(--topbar-h) + env(safe-area-inset-top));
-  }
-
-  .sidebar {
-    padding-bottom: env(safe-area-inset-bottom);
   }
 }
 
@@ -291,7 +307,7 @@ a:hover {
   gap: 10px;
   width: 100%;
   height: 34px;
-  padding: 0 10px 0 19px;
+  padding: 0 10px 0 var(--sidebar-icon-pad-left);
   border-radius: 0;
   color: var(--text-muted);
   white-space: nowrap;
@@ -350,20 +366,41 @@ a:hover {
   text-overflow: ellipsis;
 }
 
-/* Sidebar footer — copyright only; no divider, matches the unified icon list above */
+/* Sidebar footer — copyright only; no divider, matches the unified icon list above.
+   Bottom padding is one deliberate max() expression: a small fixed minimum
+   on devices with no safe area, or exactly the safe-area-inset-bottom on
+   notched devices — never both added together, so the gap above the
+   screen edge stays intentional instead of accumulating across elements. */
 .sidebar-footer {
-  padding: 4px 0 8px;
+  padding: 4px 0 max(8px, env(safe-area-inset-bottom, 0px));
   flex-shrink: 0;
 }
 
 .sidebar-copyright {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
   font-size: 10.5px;
   color: var(--text-muted);
-  padding: 4px 16px 2px;
+  padding: 4px 10px 2px var(--sidebar-icon-pad-left);
+  user-select: none;
+}
+
+.sidebar-copyright .sidebar-label {
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
-  user-select: none;
+}
+
+/* Same box (width, centering) as .nav-icon so the © sits on the exact same
+   vertical axis as every sidebar icon above it, in every breakpoint. */
+.sidebar-copyright-icon {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  width: 18px;
 }
 
 /* ----------------------------------------------------------
@@ -634,6 +671,9 @@ a:hover {
 @media (max-width: 640px) {
   :root {
     --sidebar-w: 56px;
+    /* Header logo is hidden at this width (icon-only rail); nav icons and
+       the copyright's © are the only remaining alignment targets. */
+    --sidebar-icon-pad-left: 17px;
   }
 
   .sidebar {
@@ -653,15 +693,18 @@ a:hover {
   }
 
   .sidebar .nav-item {
-    padding: 10px 0 10px 17px;
+    padding: 10px 0 10px var(--sidebar-icon-pad-left);
   }
 
   .sidebar .nav-item::before {
     left: 0;
   }
 
-  .sidebar .sidebar-copyright {
-    display: none;
+  /* Copyright: only the "2026 Gregor Hobersdorfer" text (.sidebar-label,
+     hidden above) goes away here — the © icon stays, same as every other
+     sidebar icon staying visible in the collapsed rail. */
+  .sidebar-copyright {
+    padding-right: 0;
   }
 }
 
