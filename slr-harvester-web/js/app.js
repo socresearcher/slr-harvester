@@ -72,6 +72,13 @@ window.SLRApp = (() => {
 		},
 
 		fetchMode: localStorage.getItem('slr-fetch-mode') === 'all' ? 'all' : 'missing',
+		projectsSort: localStorage.getItem('slr-projects-sort') || 'newest',
+		pinnedProjects: (() => {
+			try {
+				const raw = JSON.parse(localStorage.getItem('slr-pinned-projects') || '[]');
+				return new Set(Array.isArray(raw) ? raw : []);
+			} catch (_) { return new Set(); }
+		})(),
 
 		search: {
 			query: '',
@@ -279,10 +286,24 @@ window.SLRApp = (() => {
 	}
 
 	// ── First-run onboarding hints ──────────────────────────────────────────
-	// Guides a new user top-to-bottom through the sidebar: once a step is
-	// reached, the next step's nav item flashes turquoise twice. Progress is
-	// remembered per-browser so a step is only ever hinted once, lifetime.
-	const ONBOARDING_STEPS = ['welcome', 'databases', 'projects', 'search', 'history', 'articles', 'selected', 'corpus', 'visualizations'];
+	// Guides a new user through the sidebar in the logical order things
+	// unlock: once a step is reached, whichever nav item(s) make sense next
+	// flash turquoise twice. Some steps fan out to more than one next step
+	// (e.g. after running a Search, History/Articles/Tags are all sensible
+	// next stops). Progress is remembered per-browser so a step is only ever
+	// hinted once, lifetime.
+	const ONBOARDING_NEXT = {
+		welcome: ['databases'],
+		databases: ['projects'],
+		projects: ['search'],
+		search: ['history', 'articles', 'tags'],
+		history: [],
+		articles: ['selected'],
+		selected: ['corpus'],
+		corpus: [],
+		tags: ['visualizations'],
+		visualizations: [],
+	};
 	let onboardingDone;
 	try {
 		onboardingDone = new Set(JSON.parse(localStorage.getItem('slr-onboarding-done') || '[]'));
@@ -301,11 +322,10 @@ window.SLRApp = (() => {
 	}
 
 	function markOnboardingStep(step) {
-		if (!ONBOARDING_STEPS.includes(step) || onboardingDone.has(step)) return;
+		if (!(step in ONBOARDING_NEXT) || onboardingDone.has(step)) return;
 		onboardingDone.add(step);
 		localStorage.setItem('slr-onboarding-done', JSON.stringify([...onboardingDone]));
-		const next = ONBOARDING_STEPS[ONBOARDING_STEPS.indexOf(step) + 1];
-		if (next) pulseNavHint(next);
+		ONBOARDING_NEXT[step].forEach(pulseNavHint);
 	}
 
 	function stableStringList(values) {
@@ -394,10 +414,6 @@ window.SLRApp = (() => {
 		showToast(`${summary}${skippedText}`, false);
 	}
 
-	function requireProjectForView(view) {
-		return !['welcome', 'projects', 'settings', 'about', 'databases'].includes(view);
-	}
-
 	function renderCurrentView() {
 		if (!_container) return;
 		const uiStateSnapshot = captureViewUiState();
@@ -406,24 +422,24 @@ window.SLRApp = (() => {
 			projectBadge: _projectBadge,
 		});
 
-		if (requireProjectForView(state.view) && !state.projectData) {
-			SLRViews.renderError(_container, 'No project loaded. Open a project from Projects first.');
-			return;
-		}
-
+		// Every case below renders its own chrome (toolbar/header/menu structure)
+		// and substitutes a "No project loaded" placeholder for just the data
+		// portion when state.projectData is null — this keeps the app's layout
+		// visible on browsers that can never load a project (e.g. mobile, which
+		// lacks the File System Access API) instead of blanking the whole view.
 		switch (state.view) {
 			case 'welcome':
 				SLRViews.renderWelcome(_container);
 				markOnboardingStep('welcome');
 				break;
 			case 'projects':
-				SLRViews.renderProjects(_container, state.projects, state.currentFolder, state.allProjectData);
+				SLRViews.renderProjects(_container, state.projects, state.currentFolder, state.allProjectData, state.projectsSort);
 				break;
 			case 'articles':
 				SLRViews.renderArticles(_container, state.articles, state.filter, state.projectData);
 				break;
 			case 'history':
-				SLRViews.renderHistory(_container, state.projectData.searchLog || [], state.projectData);
+				SLRViews.renderHistory(_container, (state.projectData && state.projectData.searchLog) || [], state.projectData);
 				break;
 			case 'project':
 				SLRViews.renderProjectInfo(_container, state.currentProject, state.projectData);
@@ -586,6 +602,24 @@ window.SLRApp = (() => {
 		const normalized = mode === 'all' ? 'all' : 'missing';
 		state.fetchMode = normalized;
 		localStorage.setItem('slr-fetch-mode', normalized);
+		renderCurrentView();
+	}
+
+	function setProjectsSort(sort) {
+		const valid = ['newest', 'oldest', 'az', 'za'];
+		state.projectsSort = valid.includes(sort) ? sort : 'newest';
+		localStorage.setItem('slr-projects-sort', state.projectsSort);
+		renderCurrentView();
+	}
+
+	function toggleProjectPin(folder) {
+		if (!folder) return;
+		if (state.pinnedProjects.has(folder)) {
+			state.pinnedProjects.delete(folder);
+		} else {
+			state.pinnedProjects.add(folder);
+		}
+		localStorage.setItem('slr-pinned-projects', JSON.stringify([...state.pinnedProjects]));
 		renderCurrentView();
 	}
 
@@ -2322,7 +2356,6 @@ window.SLRApp = (() => {
 		$('theme-toggle')?.addEventListener('click', () => SLRAppUI.toggleTheme(state, $));
 		$('fullscreen-toggle')?.addEventListener('click', () => SLRAppUI.toggleFullscreen(showToast, $));
 		$('sidebar-toggle')?.addEventListener('click', () => SLRAppUI.toggleSidebar(state, _sidebar, $));
-		$('open-folder-btn')?.addEventListener('click', openFolder);
 		document.addEventListener('fullscreenchange', () => SLRAppUI.updateFullscreenButton($));
 
 		document.querySelectorAll('.nav-item[data-view]').forEach(btn => {
@@ -2363,6 +2396,8 @@ window.SLRApp = (() => {
 		openProject,
 		setFilter,
 		setFetchMode,
+		setProjectsSort,
+		toggleProjectPin,
 		setCorpusFilter,
 		setSelectedFilter,
 		toggleActionsBar,

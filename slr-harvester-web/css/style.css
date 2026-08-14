@@ -39,6 +39,11 @@
   --sidebar-w:    236px;
   --sidebar-collapsed-w: 56px;
   --topbar-h:     52px;
+  /* Shared left inset for the sidebar's icon column (logo, nav icons,
+     copyright ©) so everything lines up on the same vertical axis. A single
+     source of truth — override this one variable per breakpoint instead of
+     re-tuning padding in three different places. */
+  --sidebar-icon-pad-left: 19px;
   --transition:   200ms ease;
   --radius:       6px;
   --radius-lg:    10px;
@@ -88,6 +93,10 @@
 html, body {
   height: 100%;
   overflow: hidden;
+  /* Defense in depth for #app's position:fixed below: if any sub-pixel
+     rounding ever leaves a sliver at the viewport edge, it reads as the
+     app's own background instead of the browser's default white canvas. */
+  background: var(--bg);
 }
 
 body {
@@ -125,21 +134,28 @@ a:hover {
    3. App shell — sidebar + main
    ---------------------------------------------------------- */
 #app {
+  /* position:fixed + inset:0 (not height:100vh/100dvh) so the app is pinned
+     to the ACTUAL visual viewport rectangle at all times. vh/dvh are values
+     computed once per layout pass; on some mobile browsers (observed: Edge
+     Android) that computed height can lag behind the real available height
+     as the browser's own UI chrome shows/hides, leaving a gap at the bottom
+     edge filled by the page background instead of the app. Fixed positioning
+     has no such lag — the browser places it against the current visual
+     viewport directly, which is what "reaches every screen edge, in every
+     browser, at every moment" actually requires. */
+  position: fixed;
+  inset: 0;
   display: flex;
-  height: 100vh;
-  height: 100dvh;
   overflow: hidden;
 }
 
-/* iOS notch/home-indicator safe-area baseline */
+/* iOS notch/home-indicator safe-area baseline.
+   The bottom inset is handled on .sidebar-footer directly (see below) via
+   max(), not here — keeping it in one place avoids stacking it twice. */
 @supports (padding: env(safe-area-inset-top)) {
   #topbar {
     padding-top: env(safe-area-inset-top);
     height: calc(var(--topbar-h) + env(safe-area-inset-top));
-  }
-
-  .sidebar {
-    padding-bottom: env(safe-area-inset-bottom);
   }
 }
 
@@ -151,6 +167,7 @@ a:hover {
   flex-direction: column;
   width: var(--sidebar-w);
   min-width: var(--sidebar-w);
+  min-height: 0;
   background: var(--surface);
   border-right: 1px solid var(--border);
   overflow: hidden;
@@ -229,9 +246,12 @@ a:hover {
   color: var(--text);
 }
 
-/* "Web" stays regular weight everywhere the app name/title is bold */
+/* "Web" stays regular weight and runs a touch smaller/tighter everywhere
+   the app name/title is bold, so it reads as a subtitle, not part of the name */
 .title-web {
   font-weight: 400;
+  font-size: 0.8em;
+  letter-spacing: -.01em;
 }
 
 /* Sidebar toggle button */
@@ -268,6 +288,7 @@ a:hover {
 /* Sidebar nav */
 .sidebar-nav {
   flex: 1;
+  min-height: 0; /* Safari: a scrollable flex:1 child needs this to actually fill (not just wrap) available height */
   padding: 8px 0;
   overflow-y: auto;
   overflow-x: hidden;
@@ -286,7 +307,7 @@ a:hover {
   gap: 10px;
   width: 100%;
   height: 34px;
-  padding: 0 10px 0 19px;
+  padding: 0 10px 0 var(--sidebar-icon-pad-left);
   border-radius: 0;
   color: var(--text-muted);
   white-space: nowrap;
@@ -345,20 +366,41 @@ a:hover {
   text-overflow: ellipsis;
 }
 
-/* Sidebar footer — copyright only; no divider, matches the unified icon list above */
+/* Sidebar footer — copyright only; no divider, matches the unified icon list above.
+   Bottom padding is one deliberate max() expression: a small fixed minimum
+   on devices with no safe area, or exactly the safe-area-inset-bottom on
+   notched devices — never both added together, so the gap above the
+   screen edge stays intentional instead of accumulating across elements. */
 .sidebar-footer {
-  padding: 4px 0 8px;
+  padding: 4px 0 max(8px, env(safe-area-inset-bottom, 0px));
   flex-shrink: 0;
 }
 
 .sidebar-copyright {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
   font-size: 10.5px;
   color: var(--text-muted);
-  padding: 4px 16px 2px;
+  padding: 4px 10px 2px var(--sidebar-icon-pad-left);
+  user-select: none;
+}
+
+.sidebar-copyright .sidebar-label {
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
-  user-select: none;
+}
+
+/* Same box (width, centering) as .nav-icon so the © sits on the exact same
+   vertical axis as every sidebar icon above it, in every breakpoint. */
+.sidebar-copyright-icon {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  width: 18px;
 }
 
 /* ----------------------------------------------------------
@@ -370,6 +412,7 @@ a:hover {
   flex-direction: column;
   overflow: hidden;
   min-width: 0;
+  min-height: 0;
 }
 
 #topbar {
@@ -493,8 +536,8 @@ a:hover {
 
 /* Light mode: slide knob to the right */
 .theme-switch.is-light {
-  background: #e8f0fe;
-  border-color: #4285F4;
+  background: var(--accent-subtle);
+  border-color: var(--accent);
 }
 
 .theme-switch-knob {
@@ -537,6 +580,7 @@ a:hover {
 /* View container */
 #view-container {
   flex: 1;
+  min-height: 0;
   overflow-y: auto;
   overflow-x: hidden;
   background: var(--bg);
@@ -603,15 +647,19 @@ a:hover {
     min-height: 32px;
   }
 
+  /* Articles/Selected/Corpus (.articles-view) and Search (.search-view) are
+     deliberately excluded here — their own toolbar/panel/card elements
+     already carry the correct left/right padding, so adding it again at the
+     view-container level only doubled it up into a visible side margin that
+     ate into the width actually available between the sidebar and the
+     screen edge. */
   .projects-view,
-  .articles-view,
   .history-view,
   .project-info-view,
   .settings-view,
   .about-view,
   .tags-view,
   .databases-view,
-  .search-view,
   .viz-view {
     padding-left: 12px;
     padding-right: 12px;
@@ -627,6 +675,9 @@ a:hover {
 @media (max-width: 640px) {
   :root {
     --sidebar-w: 56px;
+    /* Header logo is hidden at this width (icon-only rail); nav icons and
+       the copyright's © are the only remaining alignment targets. */
+    --sidebar-icon-pad-left: 17px;
   }
 
   .sidebar {
@@ -646,15 +697,18 @@ a:hover {
   }
 
   .sidebar .nav-item {
-    padding: 10px 0 10px 17px;
+    padding: 10px 0 10px var(--sidebar-icon-pad-left);
   }
 
   .sidebar .nav-item::before {
     left: 0;
   }
 
-  .sidebar .sidebar-copyright {
-    display: none;
+  /* Copyright: only the "2026 Gregor Hobersdorfer" text (.sidebar-label,
+     hidden above) goes away here — the © icon stays, same as every other
+     sidebar icon staying visible in the collapsed rail. */
+  .sidebar-copyright {
+    padding-right: 0;
   }
 }
 
@@ -772,11 +826,22 @@ a:hover {
   padding: 7px 14px;
   font-size: 13px;
   font-weight: 500;
+}
+
+/* Add Tag (Tags view) reuses this class for sizing only — keep it muted,
+   unlike the turquoise New Project button below. */
+.projects-add-btn.tag-add-btn {
   color: var(--text-muted);
 }
 
-.projects-add-btn:hover {
+.projects-add-btn.tag-add-btn:hover {
   color: var(--text);
+}
+
+/* New Project, empty-projects state: extra emphasis so it's unmissable
+   the first time a folder has no projects yet. */
+.projects-add-btn--emphasize {
+  box-shadow: 0 0 0 4px var(--accent-subtle), var(--shadow);
 }
 
 .btn-danger {
@@ -905,6 +970,28 @@ a:hover {
   color: var(--text-faint);
   white-space: nowrap;
   margin-top: 2px;
+}
+
+/* Top-right dot on a project card: marks it as "currently in progress" */
+.project-pin-dot {
+  width: 13px;
+  height: 13px;
+  border-radius: 50%;
+  border: 2px solid var(--border);
+  background: transparent;
+  flex-shrink: 0;
+  margin-top: 2px;
+  transition: background var(--transition), border-color var(--transition), transform var(--transition);
+}
+
+.project-pin-dot:hover {
+  border-color: var(--accent);
+  transform: scale(1.15);
+}
+
+.project-pin-dot.pinned {
+  background: var(--accent);
+  border-color: var(--accent);
 }
 
 .project-card-stats {
@@ -1161,11 +1248,12 @@ a:hover {
   color: var(--border);
 }
 
-/* Article list */
+/* Article list. No top padding: the first card's left tag-color stripe
+   should sit flush against the toolbar above it, not float below a gap. */
 .article-list {
   flex: 1;
   overflow-y: auto;
-  padding: 8px 0;
+  padding: 0 0 8px;
 }
 
 .article-list-empty {
@@ -2054,13 +2142,27 @@ a:hover {
   color: var(--text-muted);
 }
 
-.spinner {
-  width: 28px;
-  height: 28px;
-  border: 2px solid var(--border);
-  border-top-color: var(--accent);
-  border-radius: 50%;
-  animation: spin .7s linear infinite;
+.spinner-ring {
+  width: 32px;
+  height: 32px;
+  animation: spin .8s linear infinite;
+}
+
+.spinner-ring-track,
+.spinner-ring-arc {
+  fill: none;
+  stroke-width: 3;
+}
+
+.spinner-ring-track {
+  stroke: var(--border);
+}
+
+.spinner-ring-arc {
+  stroke: var(--accent);
+  stroke-linecap: round;
+  /* circumference = 2*pi*18 ≈ 113 — show ~28% of it as the moving arc */
+  stroke-dasharray: 32 200;
 }
 
 @keyframes spin {
@@ -2603,6 +2705,12 @@ a.db-link:visited {
 
 .projects-header .projects-subtitle {
   margin: 0;
+}
+
+.projects-header-actions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
 }
 
 /* ----------------------------------------------------------
@@ -3538,6 +3646,13 @@ a.db-link:visited {
 .search-mobile-toggle svg {
   width: 13px;
   height: 13px;
+}
+
+/* Drop the icon (keep the label) on these two buttons specifically when the
+   main sidebar is collapsed to its icon-only rail — more room is freed up,
+   so the icon starts to feel redundant there; expanded sidebar keeps it. */
+#sidebar.collapsed ~ #main .search-mobile-toggle svg {
+  display: none;
 }
 
 /* Database selector tabs in search view */
