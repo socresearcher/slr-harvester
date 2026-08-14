@@ -151,6 +151,7 @@ a:hover {
   flex-direction: column;
   width: var(--sidebar-w);
   min-width: var(--sidebar-w);
+  min-height: 0;
   background: var(--surface);
   border-right: 1px solid var(--border);
   overflow: hidden;
@@ -229,9 +230,12 @@ a:hover {
   color: var(--text);
 }
 
-/* "Web" stays regular weight everywhere the app name/title is bold */
+/* "Web" stays regular weight and runs a touch smaller/tighter everywhere
+   the app name/title is bold, so it reads as a subtitle, not part of the name */
 .title-web {
   font-weight: 400;
+  font-size: 0.8em;
+  letter-spacing: -.01em;
 }
 
 /* Sidebar toggle button */
@@ -268,6 +272,7 @@ a:hover {
 /* Sidebar nav */
 .sidebar-nav {
   flex: 1;
+  min-height: 0; /* Safari: a scrollable flex:1 child needs this to actually fill (not just wrap) available height */
   padding: 8px 0;
   overflow-y: auto;
   overflow-x: hidden;
@@ -370,6 +375,7 @@ a:hover {
   flex-direction: column;
   overflow: hidden;
   min-width: 0;
+  min-height: 0;
 }
 
 #topbar {
@@ -537,6 +543,7 @@ a:hover {
 /* View container */
 #view-container {
   flex: 1;
+  min-height: 0;
   overflow-y: auto;
   overflow-x: hidden;
   background: var(--bg);
