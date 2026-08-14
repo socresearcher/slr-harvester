@@ -622,13 +622,17 @@ window.SLRApp = (() => {
 	}
 
 	// action: 'signin' | 'signup' | 'magiclink'. Throws on failure — the
-	// Settings form displays the error inline; on success (signin/signup)
-	// this loads the cloud workspace the same way openFolder() does locally.
+	// Settings/Welcome forms display the error inline; on success this loads
+	// the cloud workspace the same way openFolder() does locally. Returns
+	// { confirmed: false } for a signup that needs email confirmation before
+	// it can do anything else — the caller is expected to tell the user to
+	// check their inbox instead of treating them as signed in.
 	async function cloudAuth(action, email, password) {
 		if (action === 'signin') {
 			await SLRDataCloud.signIn(email, password);
 		} else if (action === 'signup') {
-			await SLRDataCloud.signUp(email, password);
+			const { confirmed } = await SLRDataCloud.signUp(email, password);
+			if (!confirmed) return { confirmed: false };
 		} else if (action === 'magiclink') {
 			await SLRDataCloud.signInWithMagicLink(email);
 			return;
@@ -636,6 +640,12 @@ window.SLRApp = (() => {
 			return;
 		}
 
+		// Reachable directly from Home now (Sign Up/Log In), which never
+		// passes through Settings' "Active workspace" radio button — the only
+		// other place this used to get set. Without this, a successful
+		// Supabase sign-in silently kept routing every subsequent SLRData.*
+		// call at the local-folder backend instead ("No folder open").
+		SLRData.setBackend('cloud');
 		state.folderName = SLRData.workspaceLabel || '';
 		await hydrateSettingsFromConfig();
 		await loadProjectsAndStats();
@@ -2394,7 +2404,7 @@ window.SLRApp = (() => {
 	// the local backend's folder picker, or the cloud backend's sign-in modal.
 	async function connectWorkspace() {
 		if (SLRData.getBackend() === 'cloud') {
-			showSupabaseAuthModal();
+			showSupabaseAuthModal('signin');
 		} else {
 			await openFolder();
 		}
@@ -2418,10 +2428,10 @@ window.SLRApp = (() => {
 		SLRViews.renderNewProjectModal(overlay);
 	}
 
-	function showSupabaseAuthModal() {
+	function showSupabaseAuthModal(mode) {
 		const overlay = $('modal-overlay');
 		if (!overlay) return;
-		SLRViews.renderSupabaseAuthModal(overlay);
+		SLRViews.renderSupabaseAuthModal(overlay, mode);
 	}
 
 	function bindEvents() {

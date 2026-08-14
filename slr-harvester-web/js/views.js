@@ -184,12 +184,12 @@ window.SLRViews = (() => {
 
     // Same message everywhere the File System Access API is missing — mobile
     // browsers included, since none of them implement it either. Local
-    // Folder specifically; Supabase works regardless.
+    // Folder specifically; Cloud Sync works regardless.
     const compatMessage = `<strong>Local Folder isn't supported in this browser.</strong>
          It requires <strong>Chrome 86+ or Edge 86+ on desktop</strong> for the File
          System Access API — Firefox and Safari (desktop) don't support it, and
-         neither does any mobile browser. Use <strong>Continue with Supabase</strong>
-         below instead.`;
+         neither does any mobile browser. Use <strong>Sign Up</strong> or
+         <strong>Log In</strong> above instead.`;
 
     container.innerHTML = `
       <div class="welcome-view" id="home">
@@ -203,10 +203,10 @@ window.SLRViews = (() => {
         </div>
 
         <div class="welcome-actions">
-          <button id="welcome-cloud-btn" class="btn-primary">
-            ${SLRIcons.globe}
-            Continue with Supabase
-          </button>
+          <div class="welcome-auth-row">
+            <button id="welcome-signup-btn" class="btn-primary">Sign Up</button>
+            <button id="welcome-login-btn" class="btn-secondary">Log In</button>
+          </div>
           <button id="welcome-open-btn" class="btn-secondary">
             ${SLRIcons.folderOpen}
             Continue with Local Folder
@@ -216,8 +216,8 @@ window.SLRViews = (() => {
         <div class="welcome-tips">
           <p><strong>On mobile, or Firefox/Safari?</strong> Local Folder needs the
           File System Access API, which isn't available there — use
-          <strong>Supabase</strong> instead: it syncs your projects through your own
-          Supabase project and works in any browser.</p>
+          <strong>Sign Up</strong> or <strong>Log In</strong> instead: it syncs your
+          projects through the cloud and works in any browser.</p>
           <p><strong>First time with Local Folder?</strong> Click the button above,
           then create a new, empty folder in the picker dialog (any name works, e.g.
           <code>SLR-Harvester-Data</code>) and select it. The app sets everything up
@@ -242,8 +242,11 @@ window.SLRViews = (() => {
       }
     });
 
-    container.querySelector('#welcome-cloud-btn').addEventListener('click', () => {
-      SLRApp.showSupabaseAuthModal();
+    container.querySelector('#welcome-signup-btn').addEventListener('click', () => {
+      SLRApp.showSupabaseAuthModal('signup');
+    });
+    container.querySelector('#welcome-login-btn').addEventListener('click', () => {
+      SLRApp.showSupabaseAuthModal('signin');
     });
 
     initHeroParticles();
@@ -421,16 +424,15 @@ window.SLRViews = (() => {
   function renderProjects(container, projectsIn, currentFolder, allProjectData, sort) {
     if (!projectsIn || projectsIn.length === 0) {
       container.innerHTML = `
-        <div class="projects-view">
-          <div class="projects-header">
-            <div></div>
+        <div class="projects-view" style="padding:0">
+          <div class="no-project-notice">
+            <p>No projects yet in this folder. Click
+            <strong>New Project</strong> to create your first one - this also sets up
+            <code>projects.json</code> and the <code>projects/</code> folder here automatically.</p>
             <button class="btn-primary projects-add-btn projects-add-btn--emphasize" id="new-project-btn">
               ${SLRIcons.plus} New Project
             </button>
           </div>
-          <p class="projects-subtitle">No projects yet in this folder. Click
-          <strong>New Project</strong> to create your first one - this also sets up
-          <code>projects.json</code> and the <code>projects/</code> folder here automatically.</p>
         </div>`;
       container.querySelector('#new-project-btn').addEventListener('click', () => SLRApp.showNewProjectModal());
       return;
@@ -3124,6 +3126,88 @@ window.SLRViews = (() => {
     return lines.join('');
   }
 
+  // Supabase's own error messages, translated into what to actually do about
+  // them. "Invalid login credentials" covers three different real causes —
+  // wrong password, no account with this email yet, AND an account that
+  // exists but was never confirmed — current Supabase versions deliberately
+  // no longer distinguish the unconfirmed case in the message (to avoid
+  // leaking account existence), so this can't pattern-match its way to a
+  // more specific answer; all three possibilities have to be spelled out.
+  // Shared by the Settings Cloud Sync form and the Welcome-screen modal.
+  function describeAuthError(err, action) {
+    const msg = err && err.message ? err.message : String(err);
+    if (/invalid login credentials/i.test(msg) && action === 'signin') {
+      return 'Invalid login credentials. This covers three different things: wrong '
+        + 'password, no account with this email in this project yet (use Sign Up), '
+        + 'or — very common — an account that was created but never confirmed. For '
+        + 'the last one, click Sign Up again with the same email/password (Supabase '
+        + 'resends the confirmation instead of erroring) or use "Resend confirmation '
+        + 'email" below, then check Authentication → Users in your Supabase '
+        + 'dashboard to see whether that account shows as confirmed.';
+    }
+    if (/email not confirmed/i.test(msg)) {
+      return 'This account’s email hasn’t been confirmed yet — check your inbox for the confirmation link, or resend it below.';
+    }
+    return msg;
+  }
+
+  // The exact URL Supabase must be told to redirect confirmation/magic-link
+  // emails back to. Supabase ignores emailRedirectTo for any URL not on the
+  // project's own Authentication → URL Configuration allow-list and falls
+  // back to its placeholder http://localhost:3000 instead — silently, with
+  // no client-visible error — which is the #1 cause of "the confirmation/
+  // magic-link email goes nowhere". This can only be fixed in the Supabase
+  // dashboard itself, so the app's job is to make the exact value to paste
+  // there impossible to miss.
+  function currentAppUrl() {
+    return window.location.origin + window.location.pathname;
+  }
+
+  // Shown wherever the Supabase email/password fields themselves appear —
+  // the modal and Settings' "not signed in" state — since sign-in is the
+  // part that's currently unreliable, not Cloud Sync as a whole.
+  function renderSupabaseDevNotice() {
+    return `
+      <div class="scopus-api-notice scopus-api-notice-caution" style="margin-bottom:14px">
+        <span class="scopus-api-notice-icon">${SLRIcons.warning}</span>
+        <div><strong>Cloud Sync sign-in is still being implemented</strong> and currently
+          doesn't work reliably, or only works partially. <strong>Local Folder</strong> is
+          the dependable option for now.</div>
+      </div>`;
+  }
+
+  function renderRedirectUrlNotice(idPrefix) {
+    return `
+      <div class="scopus-api-notice" style="margin-bottom:14px">
+        <span class="scopus-api-notice-icon">${SLRIcons.info}</span>
+        <div>
+          <strong>Confirmation or magic-link email not arriving / leads nowhere?</strong>
+          In your Supabase project, go to <strong>Authentication → URL Configuration</strong>
+          and add this exact URL as both the <strong>Site URL</strong> and a
+          <strong>Redirect URL</strong>:
+          <div style="display:flex;align-items:center;gap:8px;margin:8px 0;flex-wrap:wrap">
+            <code id="${idPrefix}-redirect-url" style="word-break:break-all">${esc(currentAppUrl())}</code>
+            <button type="button" class="btn-secondary" id="${idPrefix}-copy-url-btn" style="flex-shrink:0">Copy</button>
+          </div>
+          Without this, those emails point at Supabase's placeholder
+          <code>localhost:3000</code> instead, which is why the link "can't be reached".
+        </div>
+      </div>`;
+  }
+
+  function wireRedirectUrlCopyButton(container, idPrefix) {
+    const copyBtn = container.querySelector(`#${idPrefix}-copy-url-btn`);
+    if (!copyBtn) return;
+    copyBtn.addEventListener('click', async () => {
+      try {
+        await navigator.clipboard.writeText(currentAppUrl());
+        const original = copyBtn.textContent;
+        copyBtn.textContent = 'Copied!';
+        setTimeout(() => { copyBtn.textContent = original; }, 1500);
+      } catch (_) { /* Clipboard API unavailable/denied — the URL is still selectable text. */ }
+    });
+  }
+
   function renderCloudSyncSection() {
     const backend = SLRData.getBackend();
     const { url: supabaseUrl, key: supabaseKey } = SLRDataCloud.getCredentials();
@@ -3133,10 +3217,14 @@ window.SLRViews = (() => {
       <div class="settings-section">
         <h3>Cloud Sync (Supabase)</h3>
         <p class="field-hint" style="margin-top:2px">
-          Optional: sync your projects through your own Supabase project instead
-          of a local folder — works on any browser or device, including mobile,
-          where the File System Access API isn't available.
+          Sign Up/Log In on the Home screen already connects through this app's
+          own Supabase project — works on any browser or device, including
+          mobile, where the File System Access API isn't available. The fields
+          below are only for pointing Cloud Sync at a <strong>different</strong>
+          Supabase project instead (e.g. self-hosting this app with your own).
         </p>
+
+        <div style="margin-top:14px">${renderRedirectUrlNotice('settings-supabase')}</div>
 
         <div class="form-field" style="margin-top:14px">
           <label>Active workspace</label>
@@ -3185,18 +3273,29 @@ window.SLRViews = (() => {
             <button class="btn-secondary" id="settings-supabase-signout-btn">Sign Out</button>
           </div>
         ` : `
-          <div class="form-field" style="margin-top:10px">
-            <label for="settings-supabase-email">Email</label>
-            <input class="form-input" id="settings-supabase-email" type="email" placeholder="you@example.com" autocomplete="email">
-          </div>
-          <div class="form-field">
-            <label for="settings-supabase-password">Password</label>
-            <input class="form-input" id="settings-supabase-password" type="password" placeholder="Password" autocomplete="current-password">
-          </div>
+          ${renderSupabaseDevNotice()}
+          <form id="settings-supabase-form" autocomplete="on">
+            <div class="form-field" style="margin-top:10px">
+              <label for="settings-supabase-email">Email</label>
+              <input class="form-input" id="settings-supabase-email" name="email" type="email" placeholder="you@example.com" autocomplete="email">
+            </div>
+            <div class="form-field">
+              <label for="settings-supabase-password">Password</label>
+              <div class="secret-input-row">
+                <input class="form-input" id="settings-supabase-password" name="password" type="password"
+                  placeholder="Password" autocomplete="current-password">
+                <button class="btn-secondary secret-toggle-btn" type="button" data-target="settings-supabase-password" aria-label="Show password" aria-pressed="false">
+                  <span class="secret-toggle-icon">${SLRIcons.eye}</span>
+                  <span class="secret-toggle-label">Show</span>
+                </button>
+              </div>
+            </div>
+          </form>
           <div class="settings-save-row">
-            <button class="btn-primary" id="settings-supabase-signin-btn">Sign In</button>
-            <button class="btn-secondary" id="settings-supabase-signup-btn">Sign Up</button>
-            <button class="btn-secondary" id="settings-supabase-magiclink-btn">Email me a magic link</button>
+            <button class="btn-primary" type="submit" form="settings-supabase-form" id="settings-supabase-signin-btn">Sign In</button>
+            <button class="btn-secondary" type="button" id="settings-supabase-signup-btn">Sign Up</button>
+            <button class="btn-secondary" type="button" id="settings-supabase-magiclink-btn">Email me a magic link</button>
+            <button type="button" class="link-btn" id="settings-supabase-resend-btn">Resend confirmation email</button>
           </div>
           <div id="settings-supabase-auth-result" class="scopus-test-result" hidden></div>
         `}
@@ -3204,6 +3303,8 @@ window.SLRViews = (() => {
   }
 
   function wireCloudSyncSection(container) {
+    wireRedirectUrlCopyButton(container, 'settings-supabase');
+
     container.querySelectorAll('input[name="backend-switch"]').forEach(radio => {
       radio.addEventListener('change', () => {
         if (radio.checked) SLRApp.switchBackend(radio.value);
@@ -3229,7 +3330,8 @@ window.SLRViews = (() => {
       signOutBtn.addEventListener('click', () => SLRApp.cloudSignOut());
     }
 
-    const resultEl = container.querySelector('#settings-supabase-auth-result');
+    const resultEl  = container.querySelector('#settings-supabase-auth-result');
+    const resendBtn = container.querySelector('#settings-supabase-resend-btn');
     function showAuthResult(message, isError) {
       if (!resultEl) return;
       resultEl.hidden = false;
@@ -3244,15 +3346,34 @@ window.SLRViews = (() => {
       };
     }
 
-    const signInBtn = container.querySelector('#settings-supabase-signin-btn');
-    if (signInBtn) {
-      signInBtn.addEventListener('click', async () => {
+    // Every auth action re-applies whatever is currently typed in the
+    // Project URL/key fields first — previously only the separate "Save
+    // Connection" button did this, so typing new/updated credentials and
+    // going straight to Sign In (the natural flow) silently authenticated
+    // against whatever was last saved (or nothing), not what was just
+    // typed. This is very likely the actual cause behind "the credentials
+    // are definitely correct but sign-in still fails."
+    function applyCurrentCredentials() {
+      const url = container.querySelector('#settings-supabase-url')?.value.trim() || '';
+      const key = container.querySelector('#settings-supabase-key')?.value.trim() || '';
+      if (url && key) SLRDataCloud.configure(url, key);
+    }
+
+    // Sign In is type="submit" (associated via form="settings-supabase-form"),
+    // so both a click and pressing Enter in either field route through this
+    // one submit handler — also the signal password managers watch for to
+    // offer saving the credentials just entered.
+    const signInForm = container.querySelector('#settings-supabase-form');
+    if (signInForm) {
+      signInForm.addEventListener('submit', async e => {
+        e.preventDefault();
         const { email, password } = readEmailPassword();
         if (!email || !password) { showAuthResult('Enter an email and password.', true); return; }
+        applyCurrentCredentials();
         try {
           await SLRApp.cloudAuth('signin', email, password);
         } catch (err) {
-          showAuthResult(err.message || String(err), true);
+          showAuthResult(describeAuthError(err, 'signin'), true);
         }
       });
     }
@@ -3262,10 +3383,14 @@ window.SLRViews = (() => {
       signUpBtn.addEventListener('click', async () => {
         const { email, password } = readEmailPassword();
         if (!email || !password) { showAuthResult('Enter an email and password.', true); return; }
+        applyCurrentCredentials();
         try {
-          await SLRApp.cloudAuth('signup', email, password);
+          const result = await SLRApp.cloudAuth('signup', email, password);
+          if (result && result.confirmed === false) {
+            showAuthResult('Account created — check your email to confirm it, then sign in above.', false);
+          }
         } catch (err) {
-          showAuthResult(err.message || String(err), true);
+          showAuthResult(describeAuthError(err, 'signup'), true);
         }
       });
     }
@@ -3275,11 +3400,29 @@ window.SLRViews = (() => {
       magicLinkBtn.addEventListener('click', async () => {
         const { email } = readEmailPassword();
         if (!email) { showAuthResult('Enter an email first.', true); return; }
+        applyCurrentCredentials();
         try {
           await SLRApp.cloudAuth('magiclink', email);
           showAuthResult('Magic link sent — check your email.', false);
         } catch (err) {
           showAuthResult(err.message || String(err), true);
+        }
+      });
+    }
+
+    if (resendBtn) {
+      resendBtn.addEventListener('click', async () => {
+        const { email } = readEmailPassword();
+        if (!email) { showAuthResult('Enter an email first.', true); return; }
+        applyCurrentCredentials();
+        resendBtn.disabled = true;
+        try {
+          await SLRDataCloud.resendConfirmation(email);
+          showAuthResult('Confirmation email resent — check your inbox.', false);
+        } catch (err) {
+          showAuthResult(err.message || String(err), true);
+        } finally {
+          resendBtn.disabled = false;
         }
       });
     }
@@ -3590,7 +3733,8 @@ window.SLRViews = (() => {
           </div>
           <ul class="about-feature-list">
             <li><span class="about-li-icon" aria-hidden="true">${SLRIcons.folderOpen}</span><span><strong>Browser-based</strong> &mdash; no installation, runs from <code>index.html</code> or a local server</span></li>
-            <li><span class="about-li-icon" aria-hidden="true">${SLRIcons.globe}</span><span><strong>Hosted on GitHub Pages</strong> &mdash; open <a href="https://socresearcher.github.io/slr-harvester/" target="_blank" rel="noopener">socresearcher.github.io/slr-harvester</a> directly, no download required; your project data still never leaves your device</span></li>
+            <li><span class="about-li-icon" aria-hidden="true">${SLRIcons.githubLogo}</span><span><strong>Hosted on GitHub Pages</strong> &mdash; open <a href="https://socresearcher.github.io/slr-harvester/" target="_blank" rel="noopener">socresearcher.github.io/slr-harvester</a> directly, no download required; your project data still never leaves your device</span></li>
+            <li><span class="about-li-icon" aria-hidden="true">${SLRIcons.supabaseLogo}</span><span><strong>Cloud Sync (Supabase)</strong> &mdash; optional: sync projects through your own Supabase project instead of a local folder, so any browser or device works, including mobile. <strong>Still being implemented</strong> &mdash; sign-in currently has known issues and is actively being worked on.</span></li>
             <li><span class="about-li-icon" aria-hidden="true">${SLRIcons.databases}</span><span><strong>Multi-database search</strong> &mdash; Scopus, PubMed and OpenAlex integrated directly in the Search view</span></li>
             <li><span class="about-li-icon" aria-hidden="true">${SLRIcons.refresh}</span><span><strong>Data enrichment via Crossref</strong> &mdash; fetch missing abstracts, full author lists and document types by DOI</span></li>
             <li><span class="about-li-icon" aria-hidden="true">${SLRIcons.search}</span><span><strong>Advanced article-list search</strong> &mdash; use semicolon-separated terms for AND logic (e.g., <code>companion; ethnography</code>) across title, abstract and journal fields</span></li>
@@ -3997,57 +4141,52 @@ window.SLRViews = (() => {
 
   //  Supabase sign-in modal
 
-  // Reachable directly from the Welcome screen's "Continue with Supabase"
-  // button, so first-time setup and every later sign-in happen on Home
-  // instead of requiring a trip to the bottom of Settings.
-  function renderSupabaseAuthModal(overlay) {
-    const { url, key } = SLRDataCloud.getCredentials();
+  // Reachable directly from the Welcome screen's Sign Up / Log In buttons,
+  // so account creation and every later login happen on Home instead of
+  // requiring a trip to Settings. Project URL/key are no longer entered
+  // here — this app's own Supabase project is the default (see
+  // data-supabase.js); Settings → Cloud Sync remains where that can be
+  // overridden for anyone self-hosting against their own project instead.
+  function renderSupabaseAuthModal(overlay, initialMode) {
+    let mode = initialMode === 'signup' ? 'signup' : 'signin';
+    const labelFor = m => m === 'signup' ? 'Sign Up' : 'Log In';
+
     overlay.classList.remove('hidden');
     overlay.innerHTML = `
       <div class="modal" role="dialog" aria-modal="true" aria-labelledby="supabase-modal-title">
         <div class="modal-header">
-          <h3 id="supabase-modal-title">Continue with Supabase</h3>
+          <h3 id="supabase-modal-title">${labelFor(mode)}</h3>
           <button class="icon-btn" id="supabase-modal-close" aria-label="Close">${SLRIcons.close}</button>
         </div>
         <div class="modal-body">
-          <p class="field-hint" style="margin:0 0 12px">
-            First time? Run <code>supabase/schema.sql</code> (in this app's repo) in your
-            Supabase project's SQL editor once, then enter its Project URL and key below.
-            Full steps in <button type="button" class="link-btn" id="supabase-modal-settings-link">Settings → Cloud Sync</button>.
-          </p>
-          <div class="form-field">
-            <label for="supabase-modal-url">Supabase Project URL</label>
-            <input class="form-input monospace" id="supabase-modal-url" type="text"
-              placeholder="https://xxxxxxxx.supabase.co" value="${esc(url)}" autofocus>
-          </div>
-          <div class="form-field">
-            <label for="supabase-modal-key">Supabase anon / publishable key</label>
-            <div class="secret-input-row">
-              <input class="form-input monospace" id="supabase-modal-key" type="password"
-                placeholder="anon public key or sb_publishable_..." value="${esc(key)}">
-              <button class="btn-secondary secret-toggle-btn" type="button" data-target="supabase-modal-key" aria-label="Show key" aria-pressed="false">
-                <span class="secret-toggle-icon">${SLRIcons.eye}</span>
-                <span class="secret-toggle-label">Show</span>
-              </button>
+          ${renderSupabaseDevNotice()}
+          <form id="supabase-modal-form" autocomplete="on">
+            <div class="form-field">
+              <label for="supabase-modal-email">Email</label>
+              <input class="form-input" id="supabase-modal-email" name="email" type="email" placeholder="you@example.com" autocomplete="email" autofocus>
             </div>
-            <p class="field-hint">From Project Settings → API. Both the legacy "anon public" key
-              and the newer <code>sb_publishable_...</code> key work here.</p>
+            <div class="form-field">
+              <label for="supabase-modal-password">Password</label>
+              <div class="secret-input-row">
+                <input class="form-input" id="supabase-modal-password" name="password" type="password"
+                  placeholder="Password" autocomplete="current-password">
+                <button class="btn-secondary secret-toggle-btn" type="button" data-target="supabase-modal-password" aria-label="Show password" aria-pressed="false">
+                  <span class="secret-toggle-icon">${SLRIcons.eye}</span>
+                  <span class="secret-toggle-label">Show</span>
+                </button>
+              </div>
+            </div>
+          </form>
+          <button type="button" class="link-btn" id="supabase-modal-switch-mode"></button>
+          <div style="display:flex;gap:16px;flex-wrap:wrap;margin-top:8px">
+            <button type="button" class="link-btn" id="supabase-modal-magiclink-btn">Email me a magic link instead</button>
+            <button type="button" class="link-btn" id="supabase-modal-resend-btn">Resend confirmation email</button>
           </div>
-          <div class="form-field">
-            <label for="supabase-modal-email">Email</label>
-            <input class="form-input" id="supabase-modal-email" type="email" placeholder="you@example.com" autocomplete="email">
-          </div>
-          <div class="form-field">
-            <label for="supabase-modal-password">Password</label>
-            <input class="form-input" id="supabase-modal-password" type="password" placeholder="Password" autocomplete="current-password">
-          </div>
-          <button type="button" class="link-btn" id="supabase-modal-magiclink-btn">Email me a magic link instead</button>
           <div id="supabase-modal-result" class="scopus-test-result" hidden></div>
         </div>
         <div class="modal-footer">
-          <button class="btn-secondary" id="supabase-modal-cancel">Cancel</button>
-          <button class="btn-secondary" id="supabase-modal-signup">Sign Up</button>
-          <button class="btn-primary" id="supabase-modal-signin">Sign In</button>
+          <button class="btn-secondary" type="button" id="supabase-modal-cancel">Cancel</button>
+          <button class="btn-primary" type="submit" form="supabase-modal-form" id="supabase-modal-submit">${labelFor(mode)}</button>
         </div>
       </div>`;
 
@@ -4060,11 +4199,6 @@ window.SLRViews = (() => {
     overlay.querySelector('#supabase-modal-cancel').addEventListener('click', closeModal);
     overlay.addEventListener('click', e => { if (e.target === overlay) closeModal(); });
 
-    overlay.querySelector('#supabase-modal-settings-link').addEventListener('click', () => {
-      closeModal();
-      SLRApp.navigate('settings');
-    });
-
     overlay.querySelectorAll('.secret-toggle-btn').forEach(btn => {
       btn.addEventListener('click', () => {
         const input = overlay.querySelector(`#${btn.dataset.target}`);
@@ -4072,7 +4206,7 @@ window.SLRViews = (() => {
         const visible = input.type === 'text';
         input.type = visible ? 'password' : 'text';
         btn.setAttribute('aria-pressed', visible ? 'false' : 'true');
-        btn.setAttribute('aria-label', visible ? 'Show key' : 'Hide key');
+        btn.setAttribute('aria-label', visible ? 'Show' : 'Hide');
         const icon = btn.querySelector('.secret-toggle-icon');
         const label = btn.querySelector('.secret-toggle-label');
         if (icon) icon.innerHTML = visible ? SLRIcons.eye : SLRIcons.eyeOff;
@@ -4080,7 +4214,8 @@ window.SLRViews = (() => {
       });
     });
 
-    const resultEl = overlay.querySelector('#supabase-modal-result');
+    const resultEl  = overlay.querySelector('#supabase-modal-result');
+    const resendBtn = overlay.querySelector('#supabase-modal-resend-btn');
     function showResult(message, isError) {
       resultEl.hidden = false;
       resultEl.textContent = message;
@@ -4088,19 +4223,29 @@ window.SLRViews = (() => {
       resultEl.classList.toggle('scopus-test-ok', !isError);
     }
 
-    const allButtons = () => overlay.querySelectorAll('.modal-footer button, #supabase-modal-magiclink-btn');
+    const titleEl  = overlay.querySelector('#supabase-modal-title');
+    const submitEl = overlay.querySelector('#supabase-modal-submit');
+    const switchEl = overlay.querySelector('#supabase-modal-switch-mode');
+    function updateModeUI() {
+      titleEl.textContent  = labelFor(mode);
+      submitEl.textContent = labelFor(mode);
+      switchEl.textContent = mode === 'signup' ? 'Already have an account? Log In' : "Don't have an account? Sign Up";
+    }
+    updateModeUI();
+    switchEl.addEventListener('click', () => {
+      mode = mode === 'signup' ? 'signin' : 'signup';
+      updateModeUI();
+      resultEl.hidden = true;
+    });
+
+    const allButtons = () => overlay.querySelectorAll('.modal-footer button, #supabase-modal-magiclink-btn, #supabase-modal-resend-btn');
 
     async function handleAuth(action) {
-      const urlVal = overlay.querySelector('#supabase-modal-url').value.trim();
-      const keyVal = overlay.querySelector('#supabase-modal-key').value.trim();
-      const email  = overlay.querySelector('#supabase-modal-email').value.trim();
+      const email = overlay.querySelector('#supabase-modal-email').value.trim();
       const password = overlay.querySelector('#supabase-modal-password').value;
 
-      if (!urlVal || !keyVal) { showResult('Enter your Supabase Project URL and anon/publishable key.', true); return; }
       if (!email) { showResult('Enter an email.', true); return; }
       if (action !== 'magiclink' && !password) { showResult('Enter a password.', true); return; }
-
-      SLRDataCloud.configure(urlVal, keyVal);
 
       const buttons = [...allButtons()];
       buttons.forEach(b => b.disabled = true);
@@ -4108,25 +4253,50 @@ window.SLRViews = (() => {
         if (action === 'magiclink') {
           await SLRDataCloud.signInWithMagicLink(email);
           showResult('Magic link sent — check your email.', false);
+        } else if (action === 'signup') {
+          const result = await SLRApp.cloudAuth('signup', email, password);
+          if (result && result.confirmed === false) {
+            showResult('Account created — check your email to confirm it, then log in.', false);
+          } else {
+            closeModal();
+            return;
+          }
         } else {
-          await SLRApp.cloudAuth(action, email, password);
+          await SLRApp.cloudAuth('signin', email, password);
           closeModal();
           return;
         }
       } catch (err) {
-        showResult(err.message || String(err), true);
+        showResult(describeAuthError(err, action === 'signup' ? 'signup' : 'signin'), true);
       } finally {
         buttons.forEach(b => b.disabled = false);
       }
     }
 
-    overlay.querySelector('#supabase-modal-signin').addEventListener('click', () => handleAuth('signin'));
-    overlay.querySelector('#supabase-modal-signup').addEventListener('click', () => handleAuth('signup'));
+    // Submit is type="submit" (associated via form="supabase-modal-form"),
+    // so both a click and pressing Enter in the email/password fields route
+    // through this one submit handler — which is also the signal password
+    // managers watch for to offer saving the credentials just entered.
+    overlay.querySelector('#supabase-modal-form').addEventListener('submit', e => {
+      e.preventDefault();
+      handleAuth(mode);
+    });
     overlay.querySelector('#supabase-modal-magiclink-btn').addEventListener('click', () => handleAuth('magiclink'));
 
-    overlay.querySelector('#supabase-modal-password').addEventListener('keydown', e => {
-      if (e.key === 'Enter') overlay.querySelector('#supabase-modal-signin').click();
+    resendBtn.addEventListener('click', async () => {
+      const email = overlay.querySelector('#supabase-modal-email').value.trim();
+      if (!email) { showResult('Enter an email first.', true); return; }
+      resendBtn.disabled = true;
+      try {
+        await SLRDataCloud.resendConfirmation(email);
+        showResult('Confirmation email resent — check your inbox.', false);
+      } catch (err) {
+        showResult(err.message || String(err), true);
+      } finally {
+        resendBtn.disabled = false;
+      }
     });
+
   }
 
   //  Module export

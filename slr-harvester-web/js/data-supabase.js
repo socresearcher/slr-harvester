@@ -13,15 +13,29 @@ window.SLRDataCloud = (() => {
   const URL_KEY = 'slr-supabase-url';
   const KEY_KEY = 'slr-supabase-anon-key';
 
+  // This app's own Supabase project — the anon/publishable key is designed
+  // to be public (safe to ship in client-side source); Row Level Security
+  // is what actually keeps one signed-in user's rows invisible to another.
+  // Settings → Cloud Sync can still override these (Save Connection) for
+  // anyone self-hosting this app against their own Supabase project instead.
+  const DEFAULT_URL = 'https://hxfhwljwsxugruedyvvd.supabase.co';
+  const DEFAULT_KEY = 'sb_publishable_YvAsQGyGdAYblXQnsCMEhw_PcgBqxgR';
+
   let _client = null;
   let _user   = null; // the signed-in Supabase auth user, once known
 
-  /** Returns a Supabase client for the stored project URL/anon key, or null
-   *  if either hasn't been configured yet in Settings. */
+  function resolveCredentials() {
+    return {
+      url: localStorage.getItem(URL_KEY) || DEFAULT_URL,
+      key: localStorage.getItem(KEY_KEY) || DEFAULT_KEY,
+    };
+  }
+
+  /** Returns a Supabase client for the configured (or default) project
+   *  URL/anon key, or null if somehow neither is available. */
   function getClient() {
     if (_client) return _client;
-    const url = localStorage.getItem(URL_KEY);
-    const key = localStorage.getItem(KEY_KEY);
+    const { url, key } = resolveCredentials();
     if (!url || !key) return null;
     if (!window.supabase || typeof window.supabase.createClient !== 'function') {
       throw new Error('Supabase SDK failed to load.');
@@ -30,8 +44,8 @@ window.SLRDataCloud = (() => {
     return _client;
   }
 
-  /** Store the Project URL + anon key (from Settings) and reset the client
-   *  so the next call picks them up. */
+  /** Store an override Project URL + anon key (Settings → Cloud Sync) and
+   *  reset the client so the next call picks them up. */
   function configure(url, key) {
     localStorage.setItem(URL_KEY, (url || '').trim());
     localStorage.setItem(KEY_KEY, (key || '').trim());
@@ -40,14 +54,11 @@ window.SLRDataCloud = (() => {
   }
 
   function getCredentials() {
-    return {
-      url: localStorage.getItem(URL_KEY) || '',
-      key: localStorage.getItem(KEY_KEY) || '',
-    };
+    return resolveCredentials();
   }
 
   function isConfigured() {
-    const { url, key } = getCredentials();
+    const { url, key } = resolveCredentials();
     return !!(url && key);
   }
 
@@ -65,12 +76,30 @@ window.SLRDataCloud = (() => {
 
   // ── Auth ──────────────────────────────────────────────────────────────────
 
+  // Confirmation and magic-link emails redirect here by default; Supabase's
+  // out-of-the-box "Site URL" is the placeholder http://localhost:3000,
+  // which almost never matches where this app actually runs. Pointing every
+  // auth email at the app's own current origin fixes that mismatch — but
+  // Supabase also only allows redirecting to URLs on the project's
+  // Authentication → URL Configuration → Redirect URLs allow-list, so that
+  // list still needs this exact URL added once, project-side.
+  function currentOrigin() {
+    return window.location.origin + window.location.pathname;
+  }
+
   async function signUp(email, password) {
     const client = requireClient();
-    const { data, error } = await client.auth.signUp({ email, password });
+    const { data, error } = await client.auth.signUp({
+      email, password,
+      options: { emailRedirectTo: currentOrigin() },
+    });
     if (error) throw error;
-    _user = data.user;
-    return data.user;
+    // No session yet means the project requires email confirmation — the
+    // account exists but can't do anything authenticated until that link is
+    // clicked. Only claim "signed in" once a session actually exists.
+    const confirmed = !!data.session;
+    if (confirmed) _user = data.user;
+    return { user: data.user, confirmed };
   }
 
   async function signIn(email, password) {
@@ -83,7 +112,20 @@ window.SLRDataCloud = (() => {
 
   async function signInWithMagicLink(email) {
     const client = requireClient();
-    const { error } = await client.auth.signInWithOtp({ email });
+    const { error } = await client.auth.signInWithOtp({
+      email,
+      options: { emailRedirectTo: currentOrigin() },
+    });
+    if (error) throw error;
+  }
+
+  async function resendConfirmation(email) {
+    const client = requireClient();
+    const { error } = await client.auth.resend({
+      type: 'signup',
+      email,
+      options: { emailRedirectTo: currentOrigin() },
+    });
     if (error) throw error;
   }
 
@@ -451,6 +493,7 @@ window.SLRDataCloud = (() => {
     signUp,
     signIn,
     signInWithMagicLink,
+    resendConfirmation,
     signOut,
     restoreSession,
     currentUser,
