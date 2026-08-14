@@ -279,10 +279,24 @@ window.SLRApp = (() => {
 	}
 
 	// ── First-run onboarding hints ──────────────────────────────────────────
-	// Guides a new user top-to-bottom through the sidebar: once a step is
-	// reached, the next step's nav item flashes turquoise twice. Progress is
-	// remembered per-browser so a step is only ever hinted once, lifetime.
-	const ONBOARDING_STEPS = ['welcome', 'databases', 'projects', 'search', 'history', 'articles', 'selected', 'corpus', 'visualizations'];
+	// Guides a new user through the sidebar in the logical order things
+	// unlock: once a step is reached, whichever nav item(s) make sense next
+	// flash turquoise twice. Some steps fan out to more than one next step
+	// (e.g. after running a Search, History/Articles/Tags are all sensible
+	// next stops). Progress is remembered per-browser so a step is only ever
+	// hinted once, lifetime.
+	const ONBOARDING_NEXT = {
+		welcome: ['databases'],
+		databases: ['projects'],
+		projects: ['search'],
+		search: ['history', 'articles', 'tags'],
+		history: [],
+		articles: ['selected'],
+		selected: ['corpus'],
+		corpus: [],
+		tags: ['visualizations'],
+		visualizations: [],
+	};
 	let onboardingDone;
 	try {
 		onboardingDone = new Set(JSON.parse(localStorage.getItem('slr-onboarding-done') || '[]'));
@@ -301,11 +315,10 @@ window.SLRApp = (() => {
 	}
 
 	function markOnboardingStep(step) {
-		if (!ONBOARDING_STEPS.includes(step) || onboardingDone.has(step)) return;
+		if (!(step in ONBOARDING_NEXT) || onboardingDone.has(step)) return;
 		onboardingDone.add(step);
 		localStorage.setItem('slr-onboarding-done', JSON.stringify([...onboardingDone]));
-		const next = ONBOARDING_STEPS[ONBOARDING_STEPS.indexOf(step) + 1];
-		if (next) pulseNavHint(next);
+		ONBOARDING_NEXT[step].forEach(pulseNavHint);
 	}
 
 	function stableStringList(values) {

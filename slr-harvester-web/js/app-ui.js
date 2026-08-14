@@ -17,6 +17,14 @@ window.SLRAppUI = (() => {
 
     const themeBtn = $('theme-toggle');
     if (themeBtn) themeBtn.classList.toggle('is-light', state.theme === 'light');
+
+    // Keep the browser chrome (status bar / safe-area fill) in sync with the
+    // app background so mobile browsers don't paint that area white.
+    const meta = $('theme-color-meta');
+    if (meta) {
+      const bg = getComputedStyle(document.documentElement).getPropertyValue('--bg').trim();
+      if (bg) meta.setAttribute('content', bg);
+    }
   }
 
   function toggleTheme(state, $) {
