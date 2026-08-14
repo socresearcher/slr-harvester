@@ -65,12 +65,30 @@ window.SLRDataCloud = (() => {
 
   // ── Auth ──────────────────────────────────────────────────────────────────
 
+  // Confirmation and magic-link emails redirect here by default; Supabase's
+  // out-of-the-box "Site URL" is the placeholder http://localhost:3000,
+  // which almost never matches where this app actually runs. Pointing every
+  // auth email at the app's own current origin fixes that mismatch — but
+  // Supabase also only allows redirecting to URLs on the project's
+  // Authentication → URL Configuration → Redirect URLs allow-list, so that
+  // list still needs this exact URL added once, project-side.
+  function currentOrigin() {
+    return window.location.origin + window.location.pathname;
+  }
+
   async function signUp(email, password) {
     const client = requireClient();
-    const { data, error } = await client.auth.signUp({ email, password });
+    const { data, error } = await client.auth.signUp({
+      email, password,
+      options: { emailRedirectTo: currentOrigin() },
+    });
     if (error) throw error;
-    _user = data.user;
-    return data.user;
+    // No session yet means the project requires email confirmation — the
+    // account exists but can't do anything authenticated until that link is
+    // clicked. Only claim "signed in" once a session actually exists.
+    const confirmed = !!data.session;
+    if (confirmed) _user = data.user;
+    return { user: data.user, confirmed };
   }
 
   async function signIn(email, password) {
@@ -83,7 +101,20 @@ window.SLRDataCloud = (() => {
 
   async function signInWithMagicLink(email) {
     const client = requireClient();
-    const { error } = await client.auth.signInWithOtp({ email });
+    const { error } = await client.auth.signInWithOtp({
+      email,
+      options: { emailRedirectTo: currentOrigin() },
+    });
+    if (error) throw error;
+  }
+
+  async function resendConfirmation(email) {
+    const client = requireClient();
+    const { error } = await client.auth.resend({
+      type: 'signup',
+      email,
+      options: { emailRedirectTo: currentOrigin() },
+    });
     if (error) throw error;
   }
 
@@ -451,6 +482,7 @@ window.SLRDataCloud = (() => {
     signUp,
     signIn,
     signInWithMagicLink,
+    resendConfirmation,
     signOut,
     restoreSession,
     currentUser,

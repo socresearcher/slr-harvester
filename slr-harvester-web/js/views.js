@@ -3124,6 +3124,28 @@ window.SLRViews = (() => {
     return lines.join('');
   }
 
+  // Supabase's own error messages, translated into what to actually do about
+  // them — "Invalid login credentials" in particular covers both a wrong
+  // password AND "no such account in this project", which trips people up
+  // on a first attempt far more often than a typo. Shared by the Settings
+  // Cloud Sync form and the Welcome-screen sign-in modal.
+  function describeAuthError(err, action) {
+    const msg = err && err.message ? err.message : String(err);
+    if (/invalid login credentials/i.test(msg) && action === 'signin') {
+      return {
+        text: 'Invalid login credentials. Either the password is wrong, or there’s no account with this email in this Supabase project yet — if this is your first time, use Sign Up instead.',
+        offerResend: false,
+      };
+    }
+    if (/email not confirmed/i.test(msg)) {
+      return {
+        text: 'This account’s email hasn’t been confirmed yet — check your inbox for the confirmation link, or resend it below.',
+        offerResend: true,
+      };
+    }
+    return { text: msg, offerResend: false };
+  }
+
   function renderCloudSyncSection() {
     const backend = SLRData.getBackend();
     const { url: supabaseUrl, key: supabaseKey } = SLRDataCloud.getCredentials();
@@ -3191,7 +3213,14 @@ window.SLRViews = (() => {
           </div>
           <div class="form-field">
             <label for="settings-supabase-password">Password</label>
-            <input class="form-input" id="settings-supabase-password" type="password" placeholder="Password" autocomplete="current-password">
+            <div class="secret-input-row">
+              <input class="form-input" id="settings-supabase-password" type="password"
+                placeholder="Password" autocomplete="current-password">
+              <button class="btn-secondary secret-toggle-btn" type="button" data-target="settings-supabase-password" aria-label="Show password" aria-pressed="false">
+                <span class="secret-toggle-icon">${SLRIcons.eye}</span>
+                <span class="secret-toggle-label">Show</span>
+              </button>
+            </div>
           </div>
           <div class="settings-save-row">
             <button class="btn-primary" id="settings-supabase-signin-btn">Sign In</button>
@@ -3199,6 +3228,7 @@ window.SLRViews = (() => {
             <button class="btn-secondary" id="settings-supabase-magiclink-btn">Email me a magic link</button>
           </div>
           <div id="settings-supabase-auth-result" class="scopus-test-result" hidden></div>
+          <button type="button" class="link-btn" id="settings-supabase-resend-btn" hidden style="margin-top:6px">Resend confirmation email</button>
         `}
       </div>`;
   }
@@ -3229,12 +3259,14 @@ window.SLRViews = (() => {
       signOutBtn.addEventListener('click', () => SLRApp.cloudSignOut());
     }
 
-    const resultEl = container.querySelector('#settings-supabase-auth-result');
-    function showAuthResult(message, isError) {
+    const resultEl  = container.querySelector('#settings-supabase-auth-result');
+    const resendBtn = container.querySelector('#settings-supabase-resend-btn');
+    function showAuthResult(message, isError, { offerResend } = {}) {
       if (!resultEl) return;
       resultEl.hidden = false;
       resultEl.textContent = message;
       resultEl.classList.toggle('scopus-test-fail', !!isError);
+      if (resendBtn) resendBtn.hidden = !offerResend;
     }
 
     function readEmailPassword() {
@@ -3252,7 +3284,8 @@ window.SLRViews = (() => {
         try {
           await SLRApp.cloudAuth('signin', email, password);
         } catch (err) {
-          showAuthResult(err.message || String(err), true);
+          const { text, offerResend } = describeAuthError(err, 'signin');
+          showAuthResult(text, true, { offerResend });
         }
       });
     }
@@ -3263,9 +3296,13 @@ window.SLRViews = (() => {
         const { email, password } = readEmailPassword();
         if (!email || !password) { showAuthResult('Enter an email and password.', true); return; }
         try {
-          await SLRApp.cloudAuth('signup', email, password);
+          const result = await SLRApp.cloudAuth('signup', email, password);
+          if (result && result.confirmed === false) {
+            showAuthResult('Account created — check your email to confirm it, then sign in above.', false);
+          }
         } catch (err) {
-          showAuthResult(err.message || String(err), true);
+          const { text, offerResend } = describeAuthError(err, 'signup');
+          showAuthResult(text, true, { offerResend });
         }
       });
     }
@@ -3280,6 +3317,22 @@ window.SLRViews = (() => {
           showAuthResult('Magic link sent — check your email.', false);
         } catch (err) {
           showAuthResult(err.message || String(err), true);
+        }
+      });
+    }
+
+    if (resendBtn) {
+      resendBtn.addEventListener('click', async () => {
+        const { email } = readEmailPassword();
+        if (!email) { showAuthResult('Enter an email first.', true); return; }
+        resendBtn.disabled = true;
+        try {
+          await SLRDataCloud.resendConfirmation(email);
+          showAuthResult('Confirmation email resent — check your inbox.', false);
+        } catch (err) {
+          showAuthResult(err.message || String(err), true);
+        } finally {
+          resendBtn.disabled = false;
         }
       });
     }
@@ -4039,10 +4092,18 @@ window.SLRViews = (() => {
           </div>
           <div class="form-field">
             <label for="supabase-modal-password">Password</label>
-            <input class="form-input" id="supabase-modal-password" type="password" placeholder="Password" autocomplete="current-password">
+            <div class="secret-input-row">
+              <input class="form-input" id="supabase-modal-password" type="password"
+                placeholder="Password" autocomplete="current-password">
+              <button class="btn-secondary secret-toggle-btn" type="button" data-target="supabase-modal-password" aria-label="Show password" aria-pressed="false">
+                <span class="secret-toggle-icon">${SLRIcons.eye}</span>
+                <span class="secret-toggle-label">Show</span>
+              </button>
+            </div>
           </div>
           <button type="button" class="link-btn" id="supabase-modal-magiclink-btn">Email me a magic link instead</button>
           <div id="supabase-modal-result" class="scopus-test-result" hidden></div>
+          <button type="button" class="link-btn" id="supabase-modal-resend-btn" hidden style="margin-top:8px">Resend confirmation email</button>
         </div>
         <div class="modal-footer">
           <button class="btn-secondary" id="supabase-modal-cancel">Cancel</button>
@@ -4072,7 +4133,7 @@ window.SLRViews = (() => {
         const visible = input.type === 'text';
         input.type = visible ? 'password' : 'text';
         btn.setAttribute('aria-pressed', visible ? 'false' : 'true');
-        btn.setAttribute('aria-label', visible ? 'Show key' : 'Hide key');
+        btn.setAttribute('aria-label', visible ? 'Show' : 'Hide');
         const icon = btn.querySelector('.secret-toggle-icon');
         const label = btn.querySelector('.secret-toggle-label');
         if (icon) icon.innerHTML = visible ? SLRIcons.eye : SLRIcons.eyeOff;
@@ -4080,15 +4141,17 @@ window.SLRViews = (() => {
       });
     });
 
-    const resultEl = overlay.querySelector('#supabase-modal-result');
-    function showResult(message, isError) {
+    const resultEl  = overlay.querySelector('#supabase-modal-result');
+    const resendBtn = overlay.querySelector('#supabase-modal-resend-btn');
+    function showResult(message, isError, { offerResend } = {}) {
       resultEl.hidden = false;
       resultEl.textContent = message;
       resultEl.classList.toggle('scopus-test-fail', !!isError);
       resultEl.classList.toggle('scopus-test-ok', !isError);
+      resendBtn.hidden = !offerResend;
     }
 
-    const allButtons = () => overlay.querySelectorAll('.modal-footer button, #supabase-modal-magiclink-btn');
+    const allButtons = () => overlay.querySelectorAll('.modal-footer button, #supabase-modal-magiclink-btn, #supabase-modal-resend-btn');
 
     async function handleAuth(action) {
       const urlVal = overlay.querySelector('#supabase-modal-url').value.trim();
@@ -4108,13 +4171,22 @@ window.SLRViews = (() => {
         if (action === 'magiclink') {
           await SLRDataCloud.signInWithMagicLink(email);
           showResult('Magic link sent — check your email.', false);
+        } else if (action === 'signup') {
+          const result = await SLRApp.cloudAuth(action, email, password);
+          if (result && result.confirmed === false) {
+            showResult('Account created — check your email to confirm it, then sign in above.', false);
+          } else {
+            closeModal();
+            return;
+          }
         } else {
           await SLRApp.cloudAuth(action, email, password);
           closeModal();
           return;
         }
       } catch (err) {
-        showResult(err.message || String(err), true);
+        const { text, offerResend } = describeAuthError(err, action);
+        showResult(text, true, { offerResend });
       } finally {
         buttons.forEach(b => b.disabled = false);
       }
@@ -4123,6 +4195,20 @@ window.SLRViews = (() => {
     overlay.querySelector('#supabase-modal-signin').addEventListener('click', () => handleAuth('signin'));
     overlay.querySelector('#supabase-modal-signup').addEventListener('click', () => handleAuth('signup'));
     overlay.querySelector('#supabase-modal-magiclink-btn').addEventListener('click', () => handleAuth('magiclink'));
+
+    resendBtn.addEventListener('click', async () => {
+      const email = overlay.querySelector('#supabase-modal-email').value.trim();
+      if (!email) { showResult('Enter an email first.', true); return; }
+      resendBtn.disabled = true;
+      try {
+        await SLRDataCloud.resendConfirmation(email);
+        showResult('Confirmation email resent — check your inbox.', false);
+      } catch (err) {
+        showResult(err.message || String(err), true);
+      } finally {
+        resendBtn.disabled = false;
+      }
+    });
 
     overlay.querySelector('#supabase-modal-password').addEventListener('keydown', e => {
       if (e.key === 'Enter') overlay.querySelector('#supabase-modal-signin').click();
