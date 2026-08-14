@@ -2322,7 +2322,6 @@ window.SLRApp = (() => {
 		$('theme-toggle')?.addEventListener('click', () => SLRAppUI.toggleTheme(state, $));
 		$('fullscreen-toggle')?.addEventListener('click', () => SLRAppUI.toggleFullscreen(showToast, $));
 		$('sidebar-toggle')?.addEventListener('click', () => SLRAppUI.toggleSidebar(state, _sidebar, $));
-		$('open-folder-btn')?.addEventListener('click', openFolder);
 		document.addEventListener('fullscreenchange', () => SLRAppUI.updateFullscreenButton($));
 
 		document.querySelectorAll('.nav-item[data-view]').forEach(btn => {
