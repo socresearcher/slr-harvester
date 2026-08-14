@@ -2391,12 +2391,10 @@ window.SLRApp = (() => {
 	}
 
 	// Lazily connects a workspace when an action needs one but none is open yet:
-	// the local backend's folder picker, or the cloud backend's sign-in screen.
+	// the local backend's folder picker, or the cloud backend's sign-in modal.
 	async function connectWorkspace() {
 		if (SLRData.getBackend() === 'cloud') {
-			state.view = 'settings';
-			renderCurrentView();
-			showToast('Sign in under Cloud Sync in Settings first.', true);
+			showSupabaseAuthModal();
 		} else {
 			await openFolder();
 		}
@@ -2420,11 +2418,18 @@ window.SLRApp = (() => {
 		SLRViews.renderNewProjectModal(overlay);
 	}
 
+	function showSupabaseAuthModal() {
+		const overlay = $('modal-overlay');
+		if (!overlay) return;
+		SLRViews.renderSupabaseAuthModal(overlay);
+	}
+
 	function bindEvents() {
 		$('theme-toggle')?.addEventListener('click', () => SLRAppUI.toggleTheme(state, $));
 		$('fullscreen-toggle')?.addEventListener('click', () => SLRAppUI.toggleFullscreen(showToast, $));
 		$('sidebar-toggle')?.addEventListener('click', () => SLRAppUI.toggleSidebar(state, _sidebar, $));
 		document.addEventListener('fullscreenchange', () => SLRAppUI.updateFullscreenButton($));
+		document.addEventListener('webkitfullscreenchange', () => SLRAppUI.updateFullscreenButton($));
 
 		document.querySelectorAll('.nav-item[data-view]').forEach(btn => {
 			btn.addEventListener('click', () => navigate(btn.dataset.view));
@@ -2483,6 +2488,7 @@ window.SLRApp = (() => {
 		updateAnnotation,
 		updateProjectMeta,
 		showNewProjectModal,
+		showSupabaseAuthModal,
 		createProject,
 		saveSettings,
 		testScopusApiKey,

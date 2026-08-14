@@ -202,18 +202,12 @@ window.SLRViews = (() => {
              Connect a workspace below to get started.</p>
         </div>
 
-        ${!supported ? `
-          <div class="welcome-compat-notice">
-            ${SLRIcons.warning}
-            <span>${compatMessage}</span>
-          </div>` : ''}
-
         <div class="welcome-actions">
           <button id="welcome-cloud-btn" class="btn-primary">
             ${SLRIcons.globe}
             Continue with Supabase
           </button>
-          <button id="welcome-open-btn" class="btn-secondary" ${!supported ? 'disabled' : ''}>
+          <button id="welcome-open-btn" class="btn-secondary">
             ${SLRIcons.folderOpen}
             Continue with Local Folder
           </button>
@@ -232,17 +226,24 @@ window.SLRViews = (() => {
           <code>projects.json</code> and the <code>projects/</code> directory - your existing
           SLR Harvester workspace. Works with local folders and cloud-synced drives
           (OneDrive, Google Drive) alike.</p>
+          <div class="welcome-compat-notice" id="welcome-compat-notice" hidden>
+            ${SLRIcons.warning}
+            <span>${compatMessage}</span>
+          </div>
         </div>
       </div>`;
 
-    if (supported) {
-      container.querySelector('#welcome-open-btn').addEventListener('click', () => {
+    container.querySelector('#welcome-open-btn').addEventListener('click', () => {
+      if (supported) {
         SLRApp.openFolder();
-      });
-    }
+      } else {
+        const notice = container.querySelector('#welcome-compat-notice');
+        if (notice) notice.hidden = false;
+      }
+    });
 
     container.querySelector('#welcome-cloud-btn').addEventListener('click', () => {
-      SLRApp.navigate('settings');
+      SLRApp.showSupabaseAuthModal();
     });
 
     initHeroParticles();
@@ -3157,18 +3158,20 @@ window.SLRViews = (() => {
             placeholder="https://xxxxxxxx.supabase.co" value="${esc(supabaseUrl)}">
         </div>
         <div class="form-field">
-          <label for="settings-supabase-key">Supabase anon public key</label>
+          <label for="settings-supabase-key">Supabase anon / publishable key</label>
           <div class="secret-input-row">
             <input class="form-input monospace" id="settings-supabase-key" type="password"
-              placeholder="Anon public API key" value="${esc(supabaseKey)}">
+              placeholder="anon public key or sb_publishable_..." value="${esc(supabaseKey)}">
             <button class="btn-secondary secret-toggle-btn" type="button" data-target="settings-supabase-key" aria-label="Show key" aria-pressed="false">
               <span class="secret-toggle-icon">${SLRIcons.eye}</span>
               <span class="secret-toggle-label">Show</span>
             </button>
           </div>
-          <p class="field-hint">From your Supabase project's API settings. Safe to use client-side —
-            Row Level Security is the real access gate. Run <code>supabase/schema.sql</code>
-            (in this app's repo) once in your project's SQL editor before connecting.</p>
+          <p class="field-hint">From Project Settings → API in your Supabase dashboard. Both the
+            legacy "anon public" key and the newer <code>sb_publishable_...</code> key work here.
+            Safe to use client-side — Row Level Security is the real access gate. Run
+            <code>supabase/schema.sql</code> (in this app's repo) once in your project's SQL
+            editor before connecting.</p>
         </div>
         <div class="settings-save-row">
           <button class="btn-secondary" id="settings-supabase-save-creds-btn">Save Connection</button>
@@ -3992,7 +3995,141 @@ window.SLRViews = (() => {
     });
   }
 
-  //  Module export 
+  //  Supabase sign-in modal
+
+  // Reachable directly from the Welcome screen's "Continue with Supabase"
+  // button, so first-time setup and every later sign-in happen on Home
+  // instead of requiring a trip to the bottom of Settings.
+  function renderSupabaseAuthModal(overlay) {
+    const { url, key } = SLRDataCloud.getCredentials();
+    overlay.classList.remove('hidden');
+    overlay.innerHTML = `
+      <div class="modal" role="dialog" aria-modal="true" aria-labelledby="supabase-modal-title">
+        <div class="modal-header">
+          <h3 id="supabase-modal-title">Continue with Supabase</h3>
+          <button class="icon-btn" id="supabase-modal-close" aria-label="Close">${SLRIcons.close}</button>
+        </div>
+        <div class="modal-body">
+          <p class="field-hint" style="margin:0 0 12px">
+            First time? Run <code>supabase/schema.sql</code> (in this app's repo) in your
+            Supabase project's SQL editor once, then enter its Project URL and key below.
+            Full steps in <button type="button" class="link-btn" id="supabase-modal-settings-link">Settings → Cloud Sync</button>.
+          </p>
+          <div class="form-field">
+            <label for="supabase-modal-url">Supabase Project URL</label>
+            <input class="form-input monospace" id="supabase-modal-url" type="text"
+              placeholder="https://xxxxxxxx.supabase.co" value="${esc(url)}" autofocus>
+          </div>
+          <div class="form-field">
+            <label for="supabase-modal-key">Supabase anon / publishable key</label>
+            <div class="secret-input-row">
+              <input class="form-input monospace" id="supabase-modal-key" type="password"
+                placeholder="anon public key or sb_publishable_..." value="${esc(key)}">
+              <button class="btn-secondary secret-toggle-btn" type="button" data-target="supabase-modal-key" aria-label="Show key" aria-pressed="false">
+                <span class="secret-toggle-icon">${SLRIcons.eye}</span>
+                <span class="secret-toggle-label">Show</span>
+              </button>
+            </div>
+            <p class="field-hint">From Project Settings → API. Both the legacy "anon public" key
+              and the newer <code>sb_publishable_...</code> key work here.</p>
+          </div>
+          <div class="form-field">
+            <label for="supabase-modal-email">Email</label>
+            <input class="form-input" id="supabase-modal-email" type="email" placeholder="you@example.com" autocomplete="email">
+          </div>
+          <div class="form-field">
+            <label for="supabase-modal-password">Password</label>
+            <input class="form-input" id="supabase-modal-password" type="password" placeholder="Password" autocomplete="current-password">
+          </div>
+          <button type="button" class="link-btn" id="supabase-modal-magiclink-btn">Email me a magic link instead</button>
+          <div id="supabase-modal-result" class="scopus-test-result" hidden></div>
+        </div>
+        <div class="modal-footer">
+          <button class="btn-secondary" id="supabase-modal-cancel">Cancel</button>
+          <button class="btn-secondary" id="supabase-modal-signup">Sign Up</button>
+          <button class="btn-primary" id="supabase-modal-signin">Sign In</button>
+        </div>
+      </div>`;
+
+    const closeModal = () => {
+      overlay.classList.add('hidden');
+      overlay.innerHTML = '';
+    };
+
+    overlay.querySelector('#supabase-modal-close').addEventListener('click', closeModal);
+    overlay.querySelector('#supabase-modal-cancel').addEventListener('click', closeModal);
+    overlay.addEventListener('click', e => { if (e.target === overlay) closeModal(); });
+
+    overlay.querySelector('#supabase-modal-settings-link').addEventListener('click', () => {
+      closeModal();
+      SLRApp.navigate('settings');
+    });
+
+    overlay.querySelectorAll('.secret-toggle-btn').forEach(btn => {
+      btn.addEventListener('click', () => {
+        const input = overlay.querySelector(`#${btn.dataset.target}`);
+        if (!input) return;
+        const visible = input.type === 'text';
+        input.type = visible ? 'password' : 'text';
+        btn.setAttribute('aria-pressed', visible ? 'false' : 'true');
+        btn.setAttribute('aria-label', visible ? 'Show key' : 'Hide key');
+        const icon = btn.querySelector('.secret-toggle-icon');
+        const label = btn.querySelector('.secret-toggle-label');
+        if (icon) icon.innerHTML = visible ? SLRIcons.eye : SLRIcons.eyeOff;
+        if (label) label.textContent = visible ? 'Show' : 'Hide';
+      });
+    });
+
+    const resultEl = overlay.querySelector('#supabase-modal-result');
+    function showResult(message, isError) {
+      resultEl.hidden = false;
+      resultEl.textContent = message;
+      resultEl.classList.toggle('scopus-test-fail', !!isError);
+      resultEl.classList.toggle('scopus-test-ok', !isError);
+    }
+
+    const allButtons = () => overlay.querySelectorAll('.modal-footer button, #supabase-modal-magiclink-btn');
+
+    async function handleAuth(action) {
+      const urlVal = overlay.querySelector('#supabase-modal-url').value.trim();
+      const keyVal = overlay.querySelector('#supabase-modal-key').value.trim();
+      const email  = overlay.querySelector('#supabase-modal-email').value.trim();
+      const password = overlay.querySelector('#supabase-modal-password').value;
+
+      if (!urlVal || !keyVal) { showResult('Enter your Supabase Project URL and anon/publishable key.', true); return; }
+      if (!email) { showResult('Enter an email.', true); return; }
+      if (action !== 'magiclink' && !password) { showResult('Enter a password.', true); return; }
+
+      SLRDataCloud.configure(urlVal, keyVal);
+
+      const buttons = [...allButtons()];
+      buttons.forEach(b => b.disabled = true);
+      try {
+        if (action === 'magiclink') {
+          await SLRDataCloud.signInWithMagicLink(email);
+          showResult('Magic link sent — check your email.', false);
+        } else {
+          await SLRApp.cloudAuth(action, email, password);
+          closeModal();
+          return;
+        }
+      } catch (err) {
+        showResult(err.message || String(err), true);
+      } finally {
+        buttons.forEach(b => b.disabled = false);
+      }
+    }
+
+    overlay.querySelector('#supabase-modal-signin').addEventListener('click', () => handleAuth('signin'));
+    overlay.querySelector('#supabase-modal-signup').addEventListener('click', () => handleAuth('signup'));
+    overlay.querySelector('#supabase-modal-magiclink-btn').addEventListener('click', () => handleAuth('magiclink'));
+
+    overlay.querySelector('#supabase-modal-password').addEventListener('keydown', e => {
+      if (e.key === 'Enter') overlay.querySelector('#supabase-modal-signin').click();
+    });
+  }
+
+  //  Module export
 
   return {
     renderWelcome,
@@ -4011,6 +4148,7 @@ window.SLRViews = (() => {
     renderAbout,
     renderTags,
     renderNewProjectModal,
+    renderSupabaseAuthModal,
   };
 
 })();

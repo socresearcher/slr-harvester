@@ -12,11 +12,12 @@
 --      Authentication → Settings if you want sign-up to work immediately
 --      without a confirmation email, or left on for a real deployment.
 --   4. Project Settings → API → copy the "Project URL" and the "anon
---      public" key.
---   5. In SLR Harvester Web, go to Settings → Cloud Sync, paste both in,
---      click "Save Connection", then sign up.
+--      public" key (or, on newer projects, the "Publishable key" —
+--      sb_publishable_... — which replaces it and works the same way here).
+--   5. In SLR Harvester Web, click "Continue with Supabase" on the Home
+--      screen (or Settings → Cloud Sync), paste both in, then sign up.
 --
--- The anon key is safe to use client-side — it's designed to be public.
+-- The anon/publishable key is safe to use client-side — it's designed to be public.
 -- Row Level Security (enabled below) is what actually protects the data:
 -- every policy is scoped to auth.uid(), so signed-in users can only ever
 -- see or change their own rows.

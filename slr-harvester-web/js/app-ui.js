@@ -100,8 +100,28 @@ window.SLRAppUI = (() => {
     });
   }
 
+  // Only Safari (desktop + iOS) still needs the -webkit- prefix for the
+  // Fullscreen API; every other current browser (including Edge) supports
+  // the unprefixed one. Checked in this order so unprefixed always wins
+  // where both happen to exist.
+  function fullscreenEnabled() {
+    return !!(document.fullscreenEnabled || document.webkitFullscreenEnabled);
+  }
+
   function isFullscreen() {
-    return !!document.fullscreenElement;
+    return !!(document.fullscreenElement || document.webkitFullscreenElement);
+  }
+
+  function requestFullscreen(el) {
+    if (el.requestFullscreen) return el.requestFullscreen();
+    if (el.webkitRequestFullscreen) return el.webkitRequestFullscreen();
+    return Promise.reject(new Error('Fullscreen API not available.'));
+  }
+
+  function exitFullscreen() {
+    if (document.exitFullscreen) return document.exitFullscreen();
+    if (document.webkitExitFullscreen) return document.webkitExitFullscreen();
+    return Promise.reject(new Error('Fullscreen API not available.'));
   }
 
   function updateFullscreenButton($) {
@@ -117,16 +137,21 @@ window.SLRAppUI = (() => {
   }
 
   async function toggleFullscreen(showToast, $) {
-    if (!document.fullscreenEnabled) {
-      showToast('Fullscreen is not supported by this browser.', true);
+    // Genuinely unsupported (no Fullscreen API at all) is different from
+    // blocked-in-this-context (e.g. loaded inside an iframe without an
+    // `allow="fullscreen"` attribute, or disabled by an OS/enterprise
+    // policy) — both report fullscreenEnabled:false, and no client-side
+    // code can work around either, so this stays a plain notice either way.
+    if (!fullscreenEnabled()) {
+      showToast('Fullscreen is not supported (or is blocked) in this browser context.', true);
       return;
     }
 
     try {
       if (isFullscreen()) {
-        await document.exitFullscreen();
+        await exitFullscreen();
       } else {
-        await document.documentElement.requestFullscreen();
+        await requestFullscreen(document.documentElement);
       }
     } catch (err) {
       showToast(`Unable to toggle fullscreen: ${err?.message || err}`, true);
