@@ -36,7 +36,7 @@
      more visually prominent, not as invisible-dark-on-dark. */
   --heat-low:     #17322e;
   --heat-high:    #5ff0e0;
-  --sidebar-w:    236px;
+  --sidebar-w:    256px;
   --sidebar-collapsed-w: 56px;
   --topbar-h:     52px;
   /* Shared left inset for the sidebar's icon column (logo, nav icons,
@@ -177,6 +177,14 @@ a:hover {
      particle canvas instead of the other way around. */
   position: relative;
   z-index: 100;
+  /* Promotes the sidebar to its own compositing layer, isolated from the
+     Home view's continuously-animating position:fixed particle canvas next
+     to it. Without this, observed on Edge: the flex-stretched sidebar-nav
+     goes stale and leaves a gap under the footer that only clears on a
+     forced reflow (e.g. toggling fullscreen) — a compositor invalidation
+     bug where an adjacent animating fixed layer prevents this one from
+     repainting at its correct height. */
+  transform: translateZ(0);
 }
 
 @media (prefers-reduced-motion: no-preference) {
@@ -594,7 +602,7 @@ a:hover {
 /* Mobile baseline hardening (iOS-first) */
 @media (max-width: 900px) {
   :root {
-    --sidebar-w: 200px;
+    --sidebar-w: 216px;
   }
 
   #topbar {
@@ -860,6 +868,10 @@ a:hover {
   height: 16px;
 }
 
+.welcome-compat-notice[hidden] {
+  display: none;
+}
+
 .welcome-compat-notice {
   display: flex;
   align-items: flex-start;
@@ -869,6 +881,7 @@ a:hover {
   border-radius: var(--radius);
   padding: 12px 16px;
   max-width: 460px;
+  margin-top: 14px;
   color: var(--danger);
   font-size: 13px;
   text-align: left;

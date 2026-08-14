@@ -53,7 +53,7 @@ window.SLRDataCloud = (() => {
 
   function requireClient() {
     const client = getClient();
-    if (!client) throw new Error('Enter your Supabase Project URL and anon key in Settings first.');
+    if (!client) throw new Error('Enter your Supabase Project URL and anon/publishable key first.');
     return client;
   }
 
