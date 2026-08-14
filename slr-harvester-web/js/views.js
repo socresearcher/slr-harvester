@@ -33,6 +33,20 @@ window.SLRViews = (() => {
     return projectData.tagsConfig[colorName] || '';
   }
 
+  /** Same text, same top-left placement, same "go to Projects" button —
+   *  used by every view's empty state for "no project is open yet" instead
+   *  of each view inventing its own wording/position. The button's click is
+   *  wired once, generically, in app.js (bindEvents), not per view. */
+  function renderNoProjectNotice() {
+    return `
+      <div class="no-project-notice">
+        <p>No project selected. Open a project from the Projects view.</p>
+        <button class="btn-secondary" data-action="goto-projects">
+          ${SLRIcons.projects} Go to Projects
+        </button>
+      </div>`;
+  }
+
   function normalizeDocTypeKey(docType, source) {
     const raw = String(docType || '').trim().toLowerCase();
     if (!raw) return source === 'arxiv' ? 'preprint' : null;
@@ -169,10 +183,13 @@ window.SLRViews = (() => {
     const supported = typeof window.showDirectoryPicker === 'function';
 
     // Same message everywhere the File System Access API is missing — mobile
-    // browsers included, since none of them implement it either.
-    const compatMessage = `<strong>Browser not supported.</strong>
-         SLR Harvester Web requires <strong>Chrome 86+ or Edge 86+ on desktop</strong>
-         for the File System Access API. Firefox and Safari (desktop) don't support it.`;
+    // browsers included, since none of them implement it either. Local
+    // Folder specifically; Supabase works regardless.
+    const compatMessage = `<strong>Local Folder isn't supported in this browser.</strong>
+         It requires <strong>Chrome 86+ or Edge 86+ on desktop</strong> for the File
+         System Access API — Firefox and Safari (desktop) don't support it, and
+         neither does any mobile browser. Use <strong>Continue with Supabase</strong>
+         below instead.`;
 
     container.innerHTML = `
       <div class="welcome-view" id="home">
@@ -180,41 +197,54 @@ window.SLRViews = (() => {
         <div class="welcome-hero">
           <div class="welcome-logo">${SLRIcons.logo}</div>
           <h1>SLR Harvester <span class="title-web">Web</span></h1>
-          <p>A local browser tool for managing Systematic
-             <span style="white-space:nowrap">Literature Reviews</span>.<br>
-             Open your SLR Harvester data folder to get started.</p>
+          <p>A browser tool for managing
+             <span style="white-space:nowrap">Systematic Literature Reviews</span>.<br>
+             Connect a workspace below to get started.</p>
         </div>
 
-        ${!supported ? `
-          <div class="welcome-compat-notice">
-            ${SLRIcons.warning}
-            <span>${compatMessage}</span>
-          </div>` : ''}
-
         <div class="welcome-actions">
-          <button id="welcome-open-btn" class="btn-primary" ${!supported ? 'disabled' : ''}>
+          <button id="welcome-cloud-btn" class="btn-primary">
+            ${SLRIcons.globe}
+            Continue with Supabase
+          </button>
+          <button id="welcome-open-btn" class="btn-secondary">
             ${SLRIcons.folderOpen}
-            Open SLR Harvester Folder
+            Continue with Local Folder
           </button>
         </div>
 
         <div class="welcome-tips">
-          <p><strong>First time here?</strong> Click the button above, then create a new,
-          empty folder in the picker dialog (any name works, e.g.
-          <code>SLR-Harvester-Data</code>) and select it. The app sets everything up the
-          moment you create your first project — nothing is written until then.</p>
-          <p><strong>Already have data?</strong> Select the folder that contains
+          <p><strong>On mobile, or Firefox/Safari?</strong> Local Folder needs the
+          File System Access API, which isn't available there — use
+          <strong>Supabase</strong> instead: it syncs your projects through your own
+          Supabase project and works in any browser.</p>
+          <p><strong>First time with Local Folder?</strong> Click the button above,
+          then create a new, empty folder in the picker dialog (any name works, e.g.
+          <code>SLR-Harvester-Data</code>) and select it. The app sets everything up
+          the moment you create your first project — nothing is written until then.</p>
+          <p><strong>Already have local data?</strong> Select the folder that contains
           <code>projects.json</code> and the <code>projects/</code> directory - your existing
           SLR Harvester workspace. Works with local folders and cloud-synced drives
           (OneDrive, Google Drive) alike.</p>
+          <div class="welcome-compat-notice" id="welcome-compat-notice" hidden>
+            ${SLRIcons.warning}
+            <span>${compatMessage}</span>
+          </div>
         </div>
       </div>`;
 
-    if (supported) {
-      container.querySelector('#welcome-open-btn').addEventListener('click', () => {
+    container.querySelector('#welcome-open-btn').addEventListener('click', () => {
+      if (supported) {
         SLRApp.openFolder();
-      });
-    }
+      } else {
+        const notice = container.querySelector('#welcome-compat-notice');
+        if (notice) notice.hidden = false;
+      }
+    });
+
+    container.querySelector('#welcome-cloud-btn').addEventListener('click', () => {
+      SLRApp.showSupabaseAuthModal();
+    });
 
     initHeroParticles();
   }
@@ -246,10 +276,13 @@ window.SLRViews = (() => {
       return isDark() ? `rgba(51, 230, 212, ${alpha})` : `rgba(23, 169, 156, ${alpha})`;
     }
 
+    // Sized to the viewport, not to #home's own box — the canvas is
+    // position:fixed (see .hero-particles-canvas) specifically so toggling
+    // the sidebar (which changes #home's width, not the viewport's) can
+    // never stretch/reflow the already-placed particles.
     function resize() {
-      const rect = hero.getBoundingClientRect();
-      W = canvas.width  = rect.width;
-      H = canvas.height = rect.height;
+      W = canvas.width  = document.documentElement.clientWidth;
+      H = canvas.height = document.documentElement.clientHeight;
     }
 
     // state: 'alive' (normal), 'dissolving' (löst sich auf), 'spawning' (kommt neu hinzu)
@@ -528,10 +561,12 @@ window.SLRViews = (() => {
     const tagBreakdownHTML = buildTagBreakdownHTML(articles, projectData, filter.tag);
 
     // Build article HTML
-    const listHTML = filtered.length === 0
+    const listHTML = !projectData
+      ? renderNoProjectNotice()
+      : filtered.length === 0
       ? `<div class="article-list-empty">
            ${SLRIcons.articles}
-           <p>${projectData ? 'No articles match the current filters.' : 'No project loaded. Open a project from Projects first.'}</p>
+           <p>No articles match the current filters.</p>
          </div>`
       : filtered.map(a => articleItemHTML(a, projectData)).join('');
 
@@ -709,23 +744,36 @@ window.SLRViews = (() => {
               <span>${a.citedby || 0} cited</span>
             </div>
             <div class="article-tag-row">
-              <span class="abstract-indicator ${a.abstract ? 'has-abstract' : 'no-abstract'}"
-                    title="${a.abstract ? 'Abstract available' : 'No abstract'}">
-                ${a.abstract ? SLRIcons.eye : SLRIcons.eyeOff}
+              <span class="article-tag-row-indicators">
+                <span class="abstract-indicator ${a.abstract ? 'has-abstract' : 'no-abstract'}"
+                      title="${a.abstract ? 'Abstract available' : 'No abstract'}">
+                  ${a.abstract ? SLRIcons.eye : SLRIcons.eyeOff}
+                </span>
+                ${affiliationBadge}
               </span>
-              ${affiliationBadge}
-              <button class="article-tag-pill ${tagName ? 'tag-pill-set' : 'tag-pill-unset'}"
-                      data-action="open-tag-picker"
-                      title="${tagName ? 'Change tag: ' + tagName : 'Set tag'}"
-                      ${hex ? `style="--tag-pill-color:${esc(hex)}"` : ''}>
-                ${tagName ? `<span class="tag-dot" ${hex ? `style="background:${esc(hex)}"` : ''}></span>${esc(tagName)}` : `<span class="tag-dot tag-dot-empty"></span>No tag`}
-              </button>
+              <span class="article-tag-row-actions">
+                <button class="badge badge-toggle ${a.selected ? 'badge-selected' : 'badge-dim'}"
+                        data-action="toggle-selected"
+                        title="${a.selected ? 'Remove from Selected' : 'Mark as Selected'}"
+                        aria-label="${a.selected ? 'Remove from Selected' : 'Mark as Selected'}">${SLRIcons.selected}</button>
+                <button class="badge badge-toggle ${a.corpus ? 'badge-corpus' : 'badge-dim'}"
+                        data-action="toggle-corpus"
+                        title="${a.corpus ? 'Remove from Corpus' : 'Add to Corpus'}"
+                        aria-label="${a.corpus ? 'Remove from Corpus' : 'Add to Corpus'}">${SLRIcons.corpus}</button>
+              </span>
             </div>
           </div>
           <div class="article-badges">
             <div class="article-badges-row">
               ${sourceBadge}
               ${docTypeBadge}
+            </div>
+            <div class="article-badges-row">
+              <button class="article-tag-pill ${tagName ? 'tag-pill-set' : 'tag-pill-unset'}"
+                      data-action="open-tag-picker"
+                      title="${tagName ? 'Change tag: ' + tagName : 'Set tag'}">
+                ${tagName ? `<span class="tag-dot" ${hex ? `style="background:${esc(hex)}"` : ''}></span>${esc(tagName)}` : `<span class="tag-dot tag-dot-empty"></span>No tag`}
+              </button>
             </div>
           </div>
         </div>
@@ -735,17 +783,6 @@ window.SLRViews = (() => {
           ${affiliationCountryDetail}
           ${idRow}
           ${comment}
-        </div>
-
-        <div class="article-toggle-row">
-          <button class="badge badge-toggle ${a.selected ? 'badge-selected' : 'badge-dim'}"
-                  data-action="toggle-selected"
-                  title="${a.selected ? 'Remove from Selected' : 'Mark as Selected'}"
-                  aria-label="${a.selected ? 'Remove from Selected' : 'Mark as Selected'}">${SLRIcons.selected}</button>
-          <button class="badge badge-toggle ${a.corpus ? 'badge-corpus' : 'badge-dim'}"
-                  data-action="toggle-corpus"
-                  title="${a.corpus ? 'Remove from Corpus' : 'Add to Corpus'}"
-                  aria-label="${a.corpus ? 'Remove from Corpus' : 'Add to Corpus'}">${SLRIcons.corpus}</button>
         </div>
       </div>`;
   }
@@ -1342,6 +1379,10 @@ window.SLRViews = (() => {
   //  History view
 
   function renderHistory(container, searchLog, projectData) {
+    if (!projectData) {
+      container.innerHTML = `<div class="history-view" style="padding:0">${renderNoProjectNotice()}</div>`;
+      return;
+    }
     if (!searchLog || searchLog.length === 0) {
       container.innerHTML = `
         <div class="history-view">
@@ -1470,10 +1511,7 @@ window.SLRViews = (() => {
 
   function renderProjectInfo(container, project, projectData) {
     if (!project) {
-      container.innerHTML = `
-        <div class="project-info-view">
-          <p style="color:var(--text-faint)">No project selected. Open a project from the Projects view.</p>
-        </div>`;
+      container.innerHTML = `<div class="project-info-view" style="padding:0">${renderNoProjectNotice()}</div>`;
       return;
     }
 
@@ -1592,8 +1630,10 @@ window.SLRViews = (() => {
     const tagBreakdownHTML = buildTagBreakdownHTML(corpusArticles, projectData, filter.tag);
 
     const filtered = applyFilter(corpusArticles, Object.assign({}, filter, { mode: 'corpus' }), projectData);
-    const listHTML = filtered.length === 0
-      ? `<div class="article-list-empty">${SLRIcons.corpus}<p>${projectData ? 'No corpus articles match the current filters.' : 'No project loaded. Open a project from Projects first.'}</p></div>`
+    const listHTML = !projectData
+      ? renderNoProjectNotice()
+      : filtered.length === 0
+      ? `<div class="article-list-empty">${SLRIcons.corpus}<p>No corpus articles match the current filters.</p></div>`
       : filtered.map(a => articleItemHTML(a, projectData)).join('');
 
     container.innerHTML = `
@@ -1674,8 +1714,10 @@ window.SLRViews = (() => {
     const selectedTagBreakdownHTML = buildTagBreakdownHTML(selectedArticles, projectData, filter.tag);
 
     const filtered = applyFilter(selectedArticles, Object.assign({}, filter, { mode: 'selected' }), projectData);
-    const listHTML = filtered.length === 0
-      ? `<div class="article-list-empty">${SLRIcons.selected}<p>${projectData ? 'No selected articles match the current filters.' : 'No project loaded. Open a project from Projects first.'}</p></div>`
+    const listHTML = !projectData
+      ? renderNoProjectNotice()
+      : filtered.length === 0
+      ? `<div class="article-list-empty">${SLRIcons.selected}<p>No selected articles match the current filters.</p></div>`
       : filtered.map(a => articleItemHTML(a, projectData)).join('');
 
     container.innerHTML = `
@@ -1959,9 +2001,12 @@ window.SLRViews = (() => {
   }
 
   function renderVisualizations(container, articles, projectData) {
-    if (!projectData || !articles || articles.length === 0) {
-      const msg = projectData ? 'No articles in this project yet.' : 'No project loaded. Open a project from Projects first.';
-      container.innerHTML = `<div class="viz-view"><p style="color:var(--text-faint);padding:20px">${msg}</p></div>`;
+    if (!projectData) {
+      container.innerHTML = `<div class="viz-view" style="padding:0">${renderNoProjectNotice()}</div>`;
+      return;
+    }
+    if (!articles || articles.length === 0) {
+      container.innerHTML = `<div class="viz-view"><p style="color:var(--text-faint);padding:20px">No articles in this project yet.</p></div>`;
       return;
     }
     const stats = SLRData.getStats(articles);
@@ -3079,6 +3124,167 @@ window.SLRViews = (() => {
     return lines.join('');
   }
 
+  function renderCloudSyncSection() {
+    const backend = SLRData.getBackend();
+    const { url: supabaseUrl, key: supabaseKey } = SLRDataCloud.getCredentials();
+    const cloudUser = SLRDataCloud.currentUser();
+
+    return `
+      <div class="settings-section">
+        <h3>Cloud Sync (Supabase)</h3>
+        <p class="field-hint" style="margin-top:2px">
+          Optional: sync your projects through your own Supabase project instead
+          of a local folder — works on any browser or device, including mobile,
+          where the File System Access API isn't available.
+        </p>
+
+        <div class="form-field" style="margin-top:14px">
+          <label>Active workspace</label>
+          <div class="backend-switch-row">
+            <label class="backend-switch-option">
+              <input type="radio" name="backend-switch" value="local" ${backend === 'local' ? 'checked' : ''}>
+              Local Folder
+            </label>
+            <label class="backend-switch-option">
+              <input type="radio" name="backend-switch" value="cloud" ${backend === 'cloud' ? 'checked' : ''}>
+              Cloud Sync
+            </label>
+          </div>
+        </div>
+
+        <div class="form-field">
+          <label for="settings-supabase-url">Supabase Project URL</label>
+          <input class="form-input monospace" id="settings-supabase-url" type="text"
+            placeholder="https://xxxxxxxx.supabase.co" value="${esc(supabaseUrl)}">
+        </div>
+        <div class="form-field">
+          <label for="settings-supabase-key">Supabase anon / publishable key</label>
+          <div class="secret-input-row">
+            <input class="form-input monospace" id="settings-supabase-key" type="password"
+              placeholder="anon public key or sb_publishable_..." value="${esc(supabaseKey)}">
+            <button class="btn-secondary secret-toggle-btn" type="button" data-target="settings-supabase-key" aria-label="Show key" aria-pressed="false">
+              <span class="secret-toggle-icon">${SLRIcons.eye}</span>
+              <span class="secret-toggle-label">Show</span>
+            </button>
+          </div>
+          <p class="field-hint">From Project Settings → API in your Supabase dashboard. Both the
+            legacy "anon public" key and the newer <code>sb_publishable_...</code> key work here.
+            Safe to use client-side — Row Level Security is the real access gate. Run
+            <code>supabase/schema.sql</code> (in this app's repo) once in your project's SQL
+            editor before connecting.</p>
+        </div>
+        <div class="settings-save-row">
+          <button class="btn-secondary" id="settings-supabase-save-creds-btn">Save Connection</button>
+          <span class="settings-saved-msg" id="settings-supabase-creds-saved-msg">Saved!</span>
+        </div>
+
+        ${cloudUser ? `
+          <div class="cloud-auth-status">
+            ${SLRIcons.check}
+            <span>Signed in as <strong>${esc(cloudUser.email)}</strong></span>
+            <button class="btn-secondary" id="settings-supabase-signout-btn">Sign Out</button>
+          </div>
+        ` : `
+          <div class="form-field" style="margin-top:10px">
+            <label for="settings-supabase-email">Email</label>
+            <input class="form-input" id="settings-supabase-email" type="email" placeholder="you@example.com" autocomplete="email">
+          </div>
+          <div class="form-field">
+            <label for="settings-supabase-password">Password</label>
+            <input class="form-input" id="settings-supabase-password" type="password" placeholder="Password" autocomplete="current-password">
+          </div>
+          <div class="settings-save-row">
+            <button class="btn-primary" id="settings-supabase-signin-btn">Sign In</button>
+            <button class="btn-secondary" id="settings-supabase-signup-btn">Sign Up</button>
+            <button class="btn-secondary" id="settings-supabase-magiclink-btn">Email me a magic link</button>
+          </div>
+          <div id="settings-supabase-auth-result" class="scopus-test-result" hidden></div>
+        `}
+      </div>`;
+  }
+
+  function wireCloudSyncSection(container) {
+    container.querySelectorAll('input[name="backend-switch"]').forEach(radio => {
+      radio.addEventListener('change', () => {
+        if (radio.checked) SLRApp.switchBackend(radio.value);
+      });
+    });
+
+    const saveCredsBtn = container.querySelector('#settings-supabase-save-creds-btn');
+    if (saveCredsBtn) {
+      saveCredsBtn.addEventListener('click', () => {
+        const url = container.querySelector('#settings-supabase-url').value.trim();
+        const key = container.querySelector('#settings-supabase-key').value.trim();
+        SLRApp.saveCloudCredentials(url, key);
+        const msg = container.querySelector('#settings-supabase-creds-saved-msg');
+        if (msg) {
+          msg.classList.add('visible');
+          setTimeout(() => msg.classList.remove('visible'), 2000);
+        }
+      });
+    }
+
+    const signOutBtn = container.querySelector('#settings-supabase-signout-btn');
+    if (signOutBtn) {
+      signOutBtn.addEventListener('click', () => SLRApp.cloudSignOut());
+    }
+
+    const resultEl = container.querySelector('#settings-supabase-auth-result');
+    function showAuthResult(message, isError) {
+      if (!resultEl) return;
+      resultEl.hidden = false;
+      resultEl.textContent = message;
+      resultEl.classList.toggle('scopus-test-fail', !!isError);
+    }
+
+    function readEmailPassword() {
+      return {
+        email: (container.querySelector('#settings-supabase-email')?.value || '').trim(),
+        password: container.querySelector('#settings-supabase-password')?.value || '',
+      };
+    }
+
+    const signInBtn = container.querySelector('#settings-supabase-signin-btn');
+    if (signInBtn) {
+      signInBtn.addEventListener('click', async () => {
+        const { email, password } = readEmailPassword();
+        if (!email || !password) { showAuthResult('Enter an email and password.', true); return; }
+        try {
+          await SLRApp.cloudAuth('signin', email, password);
+        } catch (err) {
+          showAuthResult(err.message || String(err), true);
+        }
+      });
+    }
+
+    const signUpBtn = container.querySelector('#settings-supabase-signup-btn');
+    if (signUpBtn) {
+      signUpBtn.addEventListener('click', async () => {
+        const { email, password } = readEmailPassword();
+        if (!email || !password) { showAuthResult('Enter an email and password.', true); return; }
+        try {
+          await SLRApp.cloudAuth('signup', email, password);
+        } catch (err) {
+          showAuthResult(err.message || String(err), true);
+        }
+      });
+    }
+
+    const magicLinkBtn = container.querySelector('#settings-supabase-magiclink-btn');
+    if (magicLinkBtn) {
+      magicLinkBtn.addEventListener('click', async () => {
+        const { email } = readEmailPassword();
+        if (!email) { showAuthResult('Enter an email first.', true); return; }
+        try {
+          await SLRApp.cloudAuth('magiclink', email);
+          showAuthResult('Magic link sent — check your email.', false);
+        } catch (err) {
+          showAuthResult(err.message || String(err), true);
+        }
+      });
+    }
+  }
+
   function renderSettings(container, { apiKey, instToken, openAlexKey, openAlexEmail, autoFetchEnabled, fetchMode, autoTagEnabled, autoRunScope, autoTagCategories, allTagCategories, folderName }) {
     const categories = Array.isArray(allTagCategories) ? allTagCategories : [];
     const enabledCategorySet = new Set(Array.isArray(autoTagCategories) && autoTagCategories.length ? autoTagCategories : categories);
@@ -3253,6 +3459,8 @@ window.SLRViews = (() => {
             </button>
           </div>
         </div>
+
+        ${renderCloudSyncSection()}
       </div>`;
 
     function collectSettingsFromForm() {
@@ -3333,6 +3541,8 @@ window.SLRViews = (() => {
     container.querySelector('#settings-open-folder').addEventListener('click', () => {
       SLRApp.openFolder();
     });
+
+    wireCloudSyncSection(container);
 
     container.querySelectorAll('.secret-toggle-btn').forEach(btn => {
       btn.addEventListener('click', () => {
@@ -3466,16 +3676,19 @@ window.SLRViews = (() => {
         <div class="settings-section">
           <h3>Compatibility</h3>
           <p style="font-size:13px;color:var(--text-muted);line-height:1.7">
-            Requires <strong>Chrome 86+</strong> or <strong>Edge 86+</strong> on
-            <strong>desktop</strong> for the File System Access API
-            (<code>showDirectoryPicker</code>). Desktop Firefox and Safari don't
-            support it, and neither does any mobile browser yet (Chrome, Edge, or
+            <strong>Local Folder</strong> mode requires <strong>Chrome 86+</strong> or
+            <strong>Edge 86+</strong> on <strong>desktop</strong> for the File System
+            Access API (<code>showDirectoryPicker</code>). Desktop Firefox and Safari
+            don't support it, and neither does any mobile browser (Chrome, Edge, or
             Safari on phone/tablet) &mdash; this API isn't implemented on mobile at all
-            regardless of vendor.
+            regardless of vendor. <strong>Cloud Sync</strong> (Settings &rarr; Cloud Sync)
+            works in any modern browser, including mobile, as an alternative.
           </p>
           <p style="font-size:13px;color:var(--text-muted);margin-top:8px;line-height:1.7">
-            The app works entirely offline &mdash; no data is sent to any server.
-            All API requests go directly from your browser to the respective academic API.
+            In <strong>Local Folder</strong> mode the app works entirely offline &mdash;
+            no project data is sent to any server, only direct API requests from your
+            browser to the respective academic databases. In <strong>Cloud Sync</strong>
+            mode, project data is stored in the Supabase project you connect in Settings.
           </p>
         </div>
 
@@ -3514,7 +3727,7 @@ window.SLRViews = (() => {
 
   function renderTags(container, articles, projectData) {
     if (!projectData) {
-      container.innerHTML = `<div class="tags-view"><p style="color:var(--text-faint)">No project loaded.</p></div>`;
+      container.innerHTML = `<div class="tags-view" style="padding:0">${renderNoProjectNotice()}</div>`;
       return;
     }
 
@@ -3782,7 +3995,141 @@ window.SLRViews = (() => {
     });
   }
 
-  //  Module export 
+  //  Supabase sign-in modal
+
+  // Reachable directly from the Welcome screen's "Continue with Supabase"
+  // button, so first-time setup and every later sign-in happen on Home
+  // instead of requiring a trip to the bottom of Settings.
+  function renderSupabaseAuthModal(overlay) {
+    const { url, key } = SLRDataCloud.getCredentials();
+    overlay.classList.remove('hidden');
+    overlay.innerHTML = `
+      <div class="modal" role="dialog" aria-modal="true" aria-labelledby="supabase-modal-title">
+        <div class="modal-header">
+          <h3 id="supabase-modal-title">Continue with Supabase</h3>
+          <button class="icon-btn" id="supabase-modal-close" aria-label="Close">${SLRIcons.close}</button>
+        </div>
+        <div class="modal-body">
+          <p class="field-hint" style="margin:0 0 12px">
+            First time? Run <code>supabase/schema.sql</code> (in this app's repo) in your
+            Supabase project's SQL editor once, then enter its Project URL and key below.
+            Full steps in <button type="button" class="link-btn" id="supabase-modal-settings-link">Settings → Cloud Sync</button>.
+          </p>
+          <div class="form-field">
+            <label for="supabase-modal-url">Supabase Project URL</label>
+            <input class="form-input monospace" id="supabase-modal-url" type="text"
+              placeholder="https://xxxxxxxx.supabase.co" value="${esc(url)}" autofocus>
+          </div>
+          <div class="form-field">
+            <label for="supabase-modal-key">Supabase anon / publishable key</label>
+            <div class="secret-input-row">
+              <input class="form-input monospace" id="supabase-modal-key" type="password"
+                placeholder="anon public key or sb_publishable_..." value="${esc(key)}">
+              <button class="btn-secondary secret-toggle-btn" type="button" data-target="supabase-modal-key" aria-label="Show key" aria-pressed="false">
+                <span class="secret-toggle-icon">${SLRIcons.eye}</span>
+                <span class="secret-toggle-label">Show</span>
+              </button>
+            </div>
+            <p class="field-hint">From Project Settings → API. Both the legacy "anon public" key
+              and the newer <code>sb_publishable_...</code> key work here.</p>
+          </div>
+          <div class="form-field">
+            <label for="supabase-modal-email">Email</label>
+            <input class="form-input" id="supabase-modal-email" type="email" placeholder="you@example.com" autocomplete="email">
+          </div>
+          <div class="form-field">
+            <label for="supabase-modal-password">Password</label>
+            <input class="form-input" id="supabase-modal-password" type="password" placeholder="Password" autocomplete="current-password">
+          </div>
+          <button type="button" class="link-btn" id="supabase-modal-magiclink-btn">Email me a magic link instead</button>
+          <div id="supabase-modal-result" class="scopus-test-result" hidden></div>
+        </div>
+        <div class="modal-footer">
+          <button class="btn-secondary" id="supabase-modal-cancel">Cancel</button>
+          <button class="btn-secondary" id="supabase-modal-signup">Sign Up</button>
+          <button class="btn-primary" id="supabase-modal-signin">Sign In</button>
+        </div>
+      </div>`;
+
+    const closeModal = () => {
+      overlay.classList.add('hidden');
+      overlay.innerHTML = '';
+    };
+
+    overlay.querySelector('#supabase-modal-close').addEventListener('click', closeModal);
+    overlay.querySelector('#supabase-modal-cancel').addEventListener('click', closeModal);
+    overlay.addEventListener('click', e => { if (e.target === overlay) closeModal(); });
+
+    overlay.querySelector('#supabase-modal-settings-link').addEventListener('click', () => {
+      closeModal();
+      SLRApp.navigate('settings');
+    });
+
+    overlay.querySelectorAll('.secret-toggle-btn').forEach(btn => {
+      btn.addEventListener('click', () => {
+        const input = overlay.querySelector(`#${btn.dataset.target}`);
+        if (!input) return;
+        const visible = input.type === 'text';
+        input.type = visible ? 'password' : 'text';
+        btn.setAttribute('aria-pressed', visible ? 'false' : 'true');
+        btn.setAttribute('aria-label', visible ? 'Show key' : 'Hide key');
+        const icon = btn.querySelector('.secret-toggle-icon');
+        const label = btn.querySelector('.secret-toggle-label');
+        if (icon) icon.innerHTML = visible ? SLRIcons.eye : SLRIcons.eyeOff;
+        if (label) label.textContent = visible ? 'Show' : 'Hide';
+      });
+    });
+
+    const resultEl = overlay.querySelector('#supabase-modal-result');
+    function showResult(message, isError) {
+      resultEl.hidden = false;
+      resultEl.textContent = message;
+      resultEl.classList.toggle('scopus-test-fail', !!isError);
+      resultEl.classList.toggle('scopus-test-ok', !isError);
+    }
+
+    const allButtons = () => overlay.querySelectorAll('.modal-footer button, #supabase-modal-magiclink-btn');
+
+    async function handleAuth(action) {
+      const urlVal = overlay.querySelector('#supabase-modal-url').value.trim();
+      const keyVal = overlay.querySelector('#supabase-modal-key').value.trim();
+      const email  = overlay.querySelector('#supabase-modal-email').value.trim();
+      const password = overlay.querySelector('#supabase-modal-password').value;
+
+      if (!urlVal || !keyVal) { showResult('Enter your Supabase Project URL and anon/publishable key.', true); return; }
+      if (!email) { showResult('Enter an email.', true); return; }
+      if (action !== 'magiclink' && !password) { showResult('Enter a password.', true); return; }
+
+      SLRDataCloud.configure(urlVal, keyVal);
+
+      const buttons = [...allButtons()];
+      buttons.forEach(b => b.disabled = true);
+      try {
+        if (action === 'magiclink') {
+          await SLRDataCloud.signInWithMagicLink(email);
+          showResult('Magic link sent — check your email.', false);
+        } else {
+          await SLRApp.cloudAuth(action, email, password);
+          closeModal();
+          return;
+        }
+      } catch (err) {
+        showResult(err.message || String(err), true);
+      } finally {
+        buttons.forEach(b => b.disabled = false);
+      }
+    }
+
+    overlay.querySelector('#supabase-modal-signin').addEventListener('click', () => handleAuth('signin'));
+    overlay.querySelector('#supabase-modal-signup').addEventListener('click', () => handleAuth('signup'));
+    overlay.querySelector('#supabase-modal-magiclink-btn').addEventListener('click', () => handleAuth('magiclink'));
+
+    overlay.querySelector('#supabase-modal-password').addEventListener('keydown', e => {
+      if (e.key === 'Enter') overlay.querySelector('#supabase-modal-signin').click();
+    });
+  }
+
+  //  Module export
 
   return {
     renderWelcome,
@@ -3801,6 +4148,7 @@ window.SLRViews = (() => {
     renderAbout,
     renderTags,
     renderNewProjectModal,
+    renderSupabaseAuthModal,
   };
 
 })();
