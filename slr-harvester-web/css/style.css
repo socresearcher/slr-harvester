@@ -813,6 +813,23 @@ a:hover {
   height: 16px;
 }
 
+/* The Supabase mark's hardcoded brand green nearly disappears against this
+   button's turquoise background (the two hues sit right next to each
+   other). Recolor to --accent-ink — the same color already used for this
+   button's own text — instead of hardcoding white: dark theme's accent-ink
+   is actually dark (the button background is the bright one there), so a
+   flat white would look wrong/low-contrast in that theme specifically.
+   Sized slightly larger than the other primary-button icons since a solid
+   bolt glyph reads smaller than the stroke-based ones at the same box size. */
+#welcome-cloud-btn svg {
+  width: 18px;
+  height: 18px;
+}
+
+#welcome-cloud-btn svg path {
+  fill: var(--accent-ink);
+}
+
 .btn-secondary {
   display: inline-flex;
   align-items: center;
