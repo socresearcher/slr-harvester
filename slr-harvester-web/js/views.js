@@ -185,10 +185,11 @@ window.SLRViews = (() => {
          for the File System Access API. Firefox and Safari (desktop) don't support it.`;
 
     container.innerHTML = `
-      <div class="welcome-view">
+      <div class="welcome-view" id="home">
+        <canvas id="heroParticles" class="hero-particles-canvas" aria-hidden="true"></canvas>
         <div class="welcome-hero">
           <div class="welcome-logo">${SLRIcons.logo}</div>
-          <h1>SLR Harvester Web</h1>
+          <h1>SLR Harvester <span class="title-web">Web</span></h1>
           <p>A local browser tool for managing Systematic Literature Reviews.<br>
              Open your SLR Harvester data folder to get started.</p>
         </div>
@@ -223,9 +224,164 @@ window.SLRViews = (() => {
         SLRApp.openFolder();
       });
     }
+
+    initHeroParticles();
   }
 
-  //  Projects view 
+  // Particle network background (Home)
+  function initHeroParticles() {
+    const canvas = document.getElementById('heroParticles');
+    const hero = document.getElementById('home');
+    if (!canvas || !hero) return;
+    if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) return;
+
+    const ctx = canvas.getContext('2d');
+    const COUNT       = 55;    // Anzahl Punkte
+    const SPEED       = 0.45;  // max. Pixel/Frame
+    const CONNECT     = 140;   // max. Verbindungsdistanz (px)
+    const R           = 2.2;   // Grund-Punktradius
+    const MAX_GROWTH  = 4;     // ab so vielen Verbindungen ist das Wachstum gedeckelt
+    const GROWTH_STEP = R * 0.32; // Radiuszuwachs pro Verbindung
+    const EASE        = 0.06;  // wie schnell der Radius dem Ziel folgt
+    const DISSOLVE_CHANCE = 0.0009; // Wahrscheinlichkeit pro Punkt & Frame, sich aufzulösen
+    const FADE_STEP    = 0.02; // Alpha-Änderung pro Frame beim Auflösen/Erscheinen
+
+    let W, H, particles = [];
+
+    function isDark() {
+      return document.documentElement.getAttribute('data-theme') === 'dark';
+    }
+    function turquoiseColor(alpha) {
+      return isDark() ? `rgba(51, 230, 212, ${alpha})` : `rgba(23, 169, 156, ${alpha})`;
+    }
+
+    function resize() {
+      const rect = hero.getBoundingClientRect();
+      W = canvas.width  = rect.width;
+      H = canvas.height = rect.height;
+    }
+
+    // state: 'alive' (normal), 'dissolving' (löst sich auf), 'spawning' (kommt neu hinzu)
+    function makeParticle(spawning) {
+      const baseR = R * (0.75 + Math.random() * 0.5);
+      return {
+        x:  Math.random() * W,
+        y:  Math.random() * H,
+        vx: (Math.random() - 0.5) * SPEED * 2,
+        vy: (Math.random() - 0.5) * SPEED * 2,
+        baseR,
+        r: spawning ? 0 : baseR,
+        targetR: baseR,
+        alpha: spawning ? 0 : 1,
+        state: spawning ? 'spawning' : 'alive',
+      };
+    }
+
+    function createParticles() {
+      particles = [];
+      for (let i = 0; i < COUNT; i++) particles.push(makeParticle(false));
+    }
+
+    function updateLifecycle(p) {
+      if (p.state === 'alive') {
+        if (Math.random() < DISSOLVE_CHANCE) p.state = 'dissolving';
+      } else if (p.state === 'dissolving') {
+        p.alpha = Math.max(0, p.alpha - FADE_STEP);
+        p.r += (0 - p.r) * 0.1;
+        if (p.alpha <= 0) Object.assign(p, makeParticle(true));
+      } else if (p.state === 'spawning') {
+        p.alpha = Math.min(1, p.alpha + FADE_STEP);
+        if (p.alpha >= 1) p.state = 'alive';
+      }
+    }
+
+    function step() {
+      // View was re-rendered (canvas detached) — stop this loop.
+      if (!canvas.isConnected) return;
+
+      ctx.clearRect(0, 0, W, H);
+
+      for (const p of particles) {
+        updateLifecycle(p);
+        p.x += p.vx;
+        p.y += p.vy;
+        if (p.x < 0 || p.x > W) p.vx *= -1;
+        if (p.y < 0 || p.y > H) p.vy *= -1;
+      }
+
+      // Verbindungen ermitteln + je Punkt zählen, wie viele er gerade hat
+      const links = [];
+      const connCount = new Array(particles.length).fill(0);
+      for (let i = 0; i < particles.length; i++) {
+        if (particles[i].alpha <= 0) continue;
+        for (let j = i + 1; j < particles.length; j++) {
+          if (particles[j].alpha <= 0) continue;
+          const dx = particles[i].x - particles[j].x;
+          const dy = particles[i].y - particles[j].y;
+          const dist = Math.sqrt(dx * dx + dy * dy);
+          if (dist < CONNECT) {
+            links.push(i, j, dist);
+            connCount[i]++;
+            connCount[j]++;
+          }
+        }
+      }
+
+      // Radius wächst/schrumpft mit der Anzahl aktueller Verbindungen
+      for (let i = 0; i < particles.length; i++) {
+        const p = particles[i];
+        if (p.state === 'dissolving') continue;
+        p.targetR = p.baseR + Math.min(connCount[i], MAX_GROWTH) * GROWTH_STEP;
+        p.r += (p.targetR - p.r) * EASE;
+      }
+
+      for (let k = 0; k < links.length; k += 3) {
+        const i = links[k], j = links[k + 1], dist = links[k + 2];
+        const alpha = (1 - dist / CONNECT) * (isDark() ? 0.28 : 0.18) * particles[i].alpha * particles[j].alpha;
+        ctx.beginPath();
+        ctx.moveTo(particles[i].x, particles[i].y);
+        ctx.lineTo(particles[j].x, particles[j].y);
+        ctx.strokeStyle = turquoiseColor(alpha);
+        ctx.lineWidth = 0.8;
+        ctx.stroke();
+      }
+
+      for (const p of particles) {
+        if (p.alpha <= 0) continue;
+        ctx.beginPath();
+        ctx.arc(p.x, p.y, Math.max(p.r, 0.3), 0, Math.PI * 2);
+        ctx.fillStyle = turquoiseColor((isDark() ? 0.55 : 0.38) * p.alpha);
+        ctx.fill();
+      }
+
+      requestAnimationFrame(step);
+    }
+
+    function onResize() {
+      // View was re-rendered (canvas detached) — drop this listener.
+      if (!canvas.isConnected) {
+        window.removeEventListener('resize', onResize);
+        return;
+      }
+      resize();
+    }
+
+    let resizeTicking = false;
+    window.addEventListener('resize', () => {
+      if (resizeTicking) return;
+      resizeTicking = true;
+      requestAnimationFrame(() => {
+        onResize();
+        resizeTicking = false;
+      });
+    });
+
+    resize();
+    createParticles();
+    step();
+  }
+
+  //  Projects view
 
   function renderProjects(container, projects, currentFolder, allProjectData) {
     if (!projects || projects.length === 0) {
@@ -330,12 +486,16 @@ window.SLRViews = (() => {
   //  Articles view 
 
   function renderArticles(container, articles, filter, projectData) {
-    // Apply filters
-    let filtered = applyFilter(articles, filter, projectData);
+    // Apply filters (Articles always operates on the full list — the old
+    // All/Selected/Corpus mode switch was removed in favor of separate tabs)
+    let filtered = applyFilter(articles, Object.assign({}, filter, { mode: 'all' }), projectData);
     const totalAll      = articles.length;
     const totalSelected = articles.filter(a => a.selected).length;
     const totalCorpus   = articles.filter(a => a.corpus).length;
     const totalTagged   = new Set(articles.filter(a => a.color && a.color !== 'None').map(a => a.color)).size;
+    const actionsVisible = !!SLRApp.state.actionsBarVisible;
+
+    const tagBreakdownHTML = buildTagBreakdownHTML(articles, projectData, filter.tag);
 
     // Build article HTML
     const listHTML = filtered.length === 0
@@ -367,90 +527,18 @@ window.SLRViews = (() => {
           </span>
         </div>
 
-        <div class="articles-filterbar">
-          <div class="mode-tabs" role="group" aria-label="Filter by inclusion">
-            <button class="mode-tab ${filter.mode==='all'?'active':''}"      data-mode="all">All</button>
-            <button class="mode-tab ${filter.mode==='selected'?'active':''}" data-mode="selected">Selected</button>
-            <button class="mode-tab ${filter.mode==='corpus'?'active':''}"   data-mode="corpus">Corpus</button>
-          </div>
+        ${tagBreakdownHTML ? `<div class="corpus-tag-breakdown">${tagBreakdownHTML}</div>` : ''}
 
-          <div class="search-input-wrap">
-            ${SLRIcons.search}
-            <input class="search-input" id="article-search"
-                   type="text" placeholder="Search title, abstract, journal (use ; for AND)"
-                   value="${esc(filter.search)}" autocomplete="off">
-          </div>
-
-          <select class="filter-select" id="tag-filter" title="Filter by tag">
-            <option value="">All tags</option>
-            ${buildTagOptions(articles, projectData, filter.tag)}
-          </select>
-
-          <select class="filter-select" id="sort-order" title="Sort order">
-            <option value="newest" ${filter.sort==='newest'?'selected':''}>Newest first</option>
-            <option value="oldest" ${filter.sort==='oldest'?'selected':''}>Oldest first</option>
-            <option value="cited"  ${filter.sort==='cited' ?'selected':''}>Most cited</option>
-            <option value="title"  ${filter.sort==='title' ?'selected':''}>Title A-Z</option>
-          </select>
-
-          <div class="filter-year-wrap">
-            <input class="year-input" id="year-from" type="number"
-                   placeholder="From" min="1900" max="2100"
-                   value="${esc(filter.yearFrom)}">
-                 <span>-</span>
-            <input class="year-input" id="year-to" type="number"
-                   placeholder="To" min="1900" max="2100"
-                   value="${esc(filter.yearTo)}">
-          </div>
-
-          <button class="articles-action-btn" id="autotag-btn"
-                  title="Auto-tag untagged articles by journal name">
-            ${SLRIcons.tag}
-            Auto-tag
-          </button>
-
-          <button class="articles-action-btn articles-action-btn--warn" id="force-autotag-btn"
-                  title="Reset all tags and re-run auto-tag on every article">
-            ${SLRIcons.tag}
-            Force Auto-tag
-          </button>
-
-          <button class="articles-action-btn" id="fetch-abstracts-btn"
-                  title="Fetch missing abstracts via DOI (Crossref)">
-            ${SLRIcons.eye}
-            Fetch Abstracts
-          </button>
-
-          <button class="articles-action-btn" id="fetch-authors-btn"
-              title="Fetch full author lists via DOI (Crossref) - Scopus only delivers the first author by default">
-            ${SLRIcons.user}
-            Fetch Authors
-          </button>
-
-          <button class="articles-action-btn" id="fetch-types-btn"
-              title="Fetch missing document types via DOI (Crossref) - e.g. Article, Chapter, Dataset, Preprint">
-            ${SLRIcons.tag}
-            Fetch Types
-          </button>
-
-          <button class="articles-action-btn" id="fetch-affiliations-btn"
-              title="Fetch affiliation names and country data via DOI / OpenAlex / PMID">
-            ${SLRIcons.globe}
-            Fetch Affiliations
-          </button>
-
-          <button class="articles-action-btn" id="fetch-all-btn"
-              title="Fetch abstracts, authors, document types, and affiliations in one run">
-            ${SLRIcons.refresh}
-            Fetch All
-          </button>
-
-          <button class="articles-action-btn" id="export-list-btn"
-              title="Download current list as .bib, .ris, or .csv">
-            ${SLRIcons.download}
-            Export
-          </button>
-        </div>
+        ${buildListToolbarHTML({
+          searchId: 'list-search', searchValue: filter.search,
+          sortId: 'list-sort', sortValue: filter.sort,
+          yearFromId: 'list-year-from', yearFromValue: filter.yearFrom,
+          yearToId: 'list-year-to', yearToValue: filter.yearTo,
+          tagFilterId: 'list-tag-filter', tagFilterValue: filter.tag,
+          tagOptionsHTML: buildTagOptions(articles, projectData, filter.tag),
+          actionsVisible,
+          exportTitle: 'Download current list as .bib, .ris, or .csv',
+        })}
 
         <div class="articles-stats">
           <span>Showing <strong>${filtered.length}</strong> of <strong>${totalAll}</strong></span>
@@ -465,111 +553,21 @@ window.SLRViews = (() => {
         </div>
       </div>`;
 
-    // Attach filter events
-    container.querySelector('.mode-tabs').addEventListener('click', e => {
-      const btn = e.target.closest('.mode-tab');
-      if (btn) SLRApp.setFilter({ mode: btn.dataset.mode });
+    // Tag chip filter
+    container.querySelectorAll('.corpus-tag-breakdown .corpus-tag-chip').forEach(btn => {
+      btn.addEventListener('click', () => {
+        const t = btn.dataset.tag;
+        SLRApp.setFilter({ tag: filter.tag === t ? null : t });
+      });
     });
 
-    const searchInput = container.querySelector('#article-search');
-    let searchTimer;
-    searchInput.addEventListener('input', () => {
-      clearTimeout(searchTimer);
-      searchTimer = setTimeout(() => {
-        SLRApp.setFilter({ search: searchInput.value });
-      }, 220);
+    wireListToolbar(container, {
+      onFilter: patch => SLRApp.setFilter(patch),
+      onExport: () => {
+        const exportBtn = container.querySelector('#export-list-btn');
+        openExportMenu(exportBtn, filtered, 'articles');
+      },
     });
-
-    container.querySelector('#tag-filter').addEventListener('change', e => {
-      SLRApp.setFilter({ tag: e.target.value || null });
-    });
-
-    container.querySelector('#sort-order').addEventListener('change', e => {
-      SLRApp.setFilter({ sort: e.target.value });
-    });
-
-    const yearFrom = container.querySelector('#year-from');
-    const yearTo   = container.querySelector('#year-to');
-    let yearTimer;
-    function onYearChange() {
-      clearTimeout(yearTimer);
-      yearTimer = setTimeout(() => {
-        SLRApp.setFilter({ yearFrom: yearFrom.value, yearTo: yearTo.value });
-      }, 400);
-    }
-    yearFrom.addEventListener('input', onYearChange);
-    yearTo.addEventListener('input', onYearChange);
-
-    const autoTagBtn = container.querySelector('#autotag-btn');
-    if (autoTagBtn) {
-      autoTagBtn.addEventListener('click', () => {
-        void SLRApp.autoTagByJournal(false).catch(err => {
-          SLRApp.showToast('Auto-tag failed: ' + (err?.message || String(err)), true);
-        });
-      });
-    }
-
-    const forceAutoTagBtn = container.querySelector('#force-autotag-btn');
-    if (forceAutoTagBtn) {
-      forceAutoTagBtn.addEventListener('click', () => {
-        void SLRApp.autoTagByJournal(true).catch(err => {
-          SLRApp.showToast('Auto-tag failed: ' + (err?.message || String(err)), true);
-        });
-      });
-    }
-
-    const fetchAbstractsBtn = container.querySelector('#fetch-abstracts-btn');
-    if (fetchAbstractsBtn) {
-      fetchAbstractsBtn.addEventListener('click', () => {
-        void SLRApp.fetchAbstractsViaDOI().catch(err => {
-          SLRApp.showToast('Fetch abstracts failed: ' + (err?.message || String(err)), true);
-        });
-      });
-    }
-
-    const fetchAuthorsBtn = container.querySelector('#fetch-authors-btn');
-    if (fetchAuthorsBtn) {
-      fetchAuthorsBtn.addEventListener('click', () => {
-        void SLRApp.fetchAuthorsViaDOI().catch(err => {
-          SLRApp.showToast('Fetch authors failed: ' + (err?.message || String(err)), true);
-        });
-      });
-    }
-
-    const fetchTypesBtn = container.querySelector('#fetch-types-btn');
-    if (fetchTypesBtn) {
-      fetchTypesBtn.addEventListener('click', () => {
-        void SLRApp.fetchTypesViaDOI().catch(err => {
-          SLRApp.showToast('Fetch types failed: ' + (err?.message || String(err)), true);
-        });
-      });
-    }
-
-    const fetchAffiliationsBtn = container.querySelector('#fetch-affiliations-btn');
-    if (fetchAffiliationsBtn) {
-      fetchAffiliationsBtn.addEventListener('click', () => {
-        void SLRApp.fetchAffiliationsViaIdentifier().catch(err => {
-          SLRApp.showToast('Fetch affiliations failed: ' + (err?.message || String(err)), true);
-        });
-      });
-    }
-
-    const fetchAllBtn = container.querySelector('#fetch-all-btn');
-    if (fetchAllBtn) {
-      fetchAllBtn.addEventListener('click', () => {
-        void SLRApp.fetchAllMetadata({ mode: SLRApp.state.fetchMode }).catch(err => {
-          SLRApp.showToast('Fetch all metadata failed: ' + (err?.message || String(err)), true);
-        });
-      });
-    }
-
-    const exportListBtn = container.querySelector('#export-list-btn');
-    if (exportListBtn) {
-      exportListBtn.addEventListener('click', ev => {
-        ev.stopPropagation();
-        openExportMenu(exportListBtn, filtered, 'articles');
-      });
-    }
 
     // Expand/collapse articles
     container.querySelector('#article-list').addEventListener('click', e => {
@@ -1114,7 +1112,204 @@ window.SLRViews = (() => {
     return list;
   }
 
-  //  History view 
+  // Tag chips-with-counts row, shared by Articles / Selected / Corpus
+  function buildTagBreakdownHTML(list, projectData, activeTag) {
+    const tagMap = new Map();
+    for (const a of list) {
+      const label = (a.tag && a.tag !== 'None') ? a.tag : null;
+      if (!label) continue;
+      if (!tagMap.has(label)) tagMap.set(label, { count: 0, hex: tagColor(projectData, a.color) || '' });
+      tagMap.get(label).count++;
+    }
+    const chips = [...tagMap.entries()]
+      .sort((a, b) => b[1].count - a[1].count)
+      .map(([t, { count: n, hex: hexVal }]) => {
+        const active = activeTag === t ? 'active' : '';
+        return `<button class="corpus-tag-chip ${active}" data-tag="${esc(t)}"
+                        ${hexVal ? `style="--tag-color:${esc(hexVal)}"` : ''}>
+                  <span class="tag-dot" ${hexVal ? `style="background:${esc(hexVal)}"` : ''}></span>
+                  ${esc(t)}
+                  <span class="chip-count">${n}</span>
+                </button>`;
+      }).join('');
+
+    const untaggedCount = list.filter(a => !a.tag || a.tag === 'None').length;
+    const noneChip = untaggedCount > 0
+      ? `<button class="corpus-tag-chip ${activeTag === TAG_FILTER_NONE ? 'active' : ''}" data-tag="${TAG_FILTER_NONE}">
+           <span class="tag-dot tag-dot-empty"></span>
+           None
+           <span class="chip-count">${untaggedCount}</span>
+         </button>`
+      : '';
+
+    return [noneChip, chips].filter(Boolean).join('');
+  }
+
+  // Toolbar markup shared by Articles / Selected / Corpus: a search row, a
+  // sort/year/tag-filter row, and a hideable row of bulk-action buttons.
+  function buildListToolbarHTML(opts) {
+    const {
+      searchId, searchValue,
+      sortId, sortValue,
+      yearFromId, yearFromValue, yearToId, yearToValue,
+      tagFilterId, tagFilterValue, tagOptionsHTML,
+      actionsVisible, exportTitle,
+    } = opts;
+
+    return `
+      <div class="list-toolbar">
+        <div class="list-toolbar-row">
+          <div class="search-input-wrap">
+            ${SLRIcons.search}
+            <input class="search-input" id="${searchId}"
+                   type="text" placeholder="Search title, abstract, journal (use ; for AND)"
+                   value="${esc(searchValue)}" autocomplete="off">
+          </div>
+          <button class="list-toolbar-toggle ${actionsVisible ? 'active' : ''}" id="list-actions-toggle"
+                  title="Show/hide action buttons" aria-label="Toggle action buttons" aria-expanded="${actionsVisible ? 'true' : 'false'}">
+            ${SLRIcons.menu}
+          </button>
+        </div>
+
+        <div class="list-toolbar-row">
+          <select class="filter-select" id="${sortId}" title="Sort order">
+            <option value="newest" ${sortValue==='newest'?'selected':''}>Newest first</option>
+            <option value="oldest" ${sortValue==='oldest'?'selected':''}>Oldest first</option>
+            <option value="cited"  ${sortValue==='cited' ?'selected':''}>Most cited</option>
+            <option value="title"  ${sortValue==='title' ?'selected':''}>Title A-Z</option>
+          </select>
+
+          <div class="filter-year-wrap">
+            <input class="year-input" id="${yearFromId}" type="number"
+                   placeholder="From" min="1900" max="2100" value="${esc(yearFromValue)}">
+                 <span>-</span>
+            <input class="year-input" id="${yearToId}" type="number"
+                   placeholder="To" min="1900" max="2100" value="${esc(yearToValue)}">
+          </div>
+
+          <select class="filter-select" id="${tagFilterId}" title="Filter by tag">
+            <option value="">All tags</option>
+            ${tagOptionsHTML}
+          </select>
+        </div>
+
+        <div class="list-toolbar-actions${actionsVisible ? '' : ' hidden'}" id="list-actions-panel">
+          <button class="articles-action-btn" id="autotag-btn"
+                  title="Auto-tag untagged articles by journal name">
+            ${SLRIcons.tag} Auto-tag
+          </button>
+          <button class="articles-action-btn articles-action-btn--warn" id="force-autotag-btn"
+                  title="Reset all tags and re-run auto-tag on every article">
+            ${SLRIcons.tag} Force Auto-tag
+          </button>
+          <button class="articles-action-btn" id="fetch-abstracts-btn"
+                  title="Fetch missing abstracts via DOI (Crossref)">
+            ${SLRIcons.eye} Fetch Abstracts
+          </button>
+          <button class="articles-action-btn" id="fetch-authors-btn"
+              title="Fetch full author lists via DOI (Crossref) - Scopus only delivers the first author by default">
+            ${SLRIcons.user} Fetch Authors
+          </button>
+          <button class="articles-action-btn" id="fetch-types-btn"
+              title="Fetch missing document types via DOI (Crossref) - e.g. Article, Chapter, Dataset, Preprint">
+            ${SLRIcons.tag} Fetch Types
+          </button>
+          <button class="articles-action-btn" id="fetch-affiliations-btn"
+              title="Fetch affiliation names and country data via DOI / OpenAlex / PMID">
+            ${SLRIcons.globe} Fetch Affiliations
+          </button>
+          <button class="articles-action-btn" id="fetch-all-btn"
+              title="Fetch abstracts, authors, document types, and affiliations in one run">
+            ${SLRIcons.refresh} Fetch All
+          </button>
+          <button class="articles-action-btn" id="export-list-btn"
+              title="${esc(exportTitle || 'Download current list as .bib, .ris, or .csv')}">
+            ${SLRIcons.download} Export
+          </button>
+        </div>
+      </div>`;
+  }
+
+  // Wires the shared toolbar's controls. `onFilter` receives a state patch
+  // for the view's own setXFilter; `onExport` receives no args (the caller
+  // closes over the current filtered list).
+  function wireListToolbar(container, { onFilter, onExport }) {
+    const toggleBtn = container.querySelector('#list-actions-toggle');
+    if (toggleBtn) toggleBtn.addEventListener('click', () => SLRApp.toggleActionsBar());
+
+    const searchInput = container.querySelector('#list-search');
+    if (searchInput) {
+      let searchTimer;
+      searchInput.addEventListener('input', () => {
+        clearTimeout(searchTimer);
+        searchTimer = setTimeout(() => onFilter({ search: searchInput.value }), 220);
+      });
+    }
+
+    const sortSelect = container.querySelector('#list-sort');
+    if (sortSelect) sortSelect.addEventListener('change', e => onFilter({ sort: e.target.value }));
+
+    const tagSelect = container.querySelector('#list-tag-filter');
+    if (tagSelect) tagSelect.addEventListener('change', e => onFilter({ tag: e.target.value || null }));
+
+    const yearFrom = container.querySelector('#list-year-from');
+    const yearTo   = container.querySelector('#list-year-to');
+    if (yearFrom && yearTo) {
+      let yearTimer;
+      const onYearChange = () => {
+        clearTimeout(yearTimer);
+        yearTimer = setTimeout(() => onFilter({ yearFrom: yearFrom.value, yearTo: yearTo.value }), 400);
+      };
+      yearFrom.addEventListener('input', onYearChange);
+      yearTo.addEventListener('input', onYearChange);
+    }
+
+    const bind = (id, handler) => {
+      const el = container.querySelector('#' + id);
+      if (el) el.addEventListener('click', handler);
+    };
+    bind('autotag-btn', () => {
+      void SLRApp.autoTagByJournal(false).catch(err => {
+        SLRApp.showToast('Auto-tag failed: ' + (err?.message || String(err)), true);
+      });
+    });
+    bind('force-autotag-btn', () => {
+      void SLRApp.autoTagByJournal(true).catch(err => {
+        SLRApp.showToast('Auto-tag failed: ' + (err?.message || String(err)), true);
+      });
+    });
+    bind('fetch-abstracts-btn', () => {
+      void SLRApp.fetchAbstractsViaDOI().catch(err => {
+        SLRApp.showToast('Fetch abstracts failed: ' + (err?.message || String(err)), true);
+      });
+    });
+    bind('fetch-authors-btn', () => {
+      void SLRApp.fetchAuthorsViaDOI().catch(err => {
+        SLRApp.showToast('Fetch authors failed: ' + (err?.message || String(err)), true);
+      });
+    });
+    bind('fetch-types-btn', () => {
+      void SLRApp.fetchTypesViaDOI().catch(err => {
+        SLRApp.showToast('Fetch types failed: ' + (err?.message || String(err)), true);
+      });
+    });
+    bind('fetch-affiliations-btn', () => {
+      void SLRApp.fetchAffiliationsViaIdentifier().catch(err => {
+        SLRApp.showToast('Fetch affiliations failed: ' + (err?.message || String(err)), true);
+      });
+    });
+    bind('fetch-all-btn', () => {
+      void SLRApp.fetchAllMetadata({ mode: SLRApp.state.fetchMode }).catch(err => {
+        SLRApp.showToast('Fetch all metadata failed: ' + (err?.message || String(err)), true);
+      });
+    });
+    bind('export-list-btn', ev => {
+      ev.stopPropagation();
+      onExport(ev);
+    });
+  }
+
+  //  History view
 
   function renderHistory(container, searchLog, projectData) {
     if (!searchLog || searchLog.length === 0) {
@@ -1359,37 +1554,9 @@ window.SLRViews = (() => {
   function renderCorpus(container, articles, filter, projectData) {
     const corpusArticles = articles.filter(a => a.corpus);
     const stats          = SLRData.getStats(corpusArticles);
+    const actionsVisible = !!SLRApp.state.actionsBarVisible;
 
-    // Tag breakdown chips (only tags present in corpus)
-    // Build from articles so hex comes from a.color  tagsConfig, not from display label
-    const corpusTagMap = new Map();
-    for (const a of corpusArticles) {
-      const label = (a.tag && a.tag !== 'None') ? a.tag : null;
-      if (!label) continue;
-      if (!corpusTagMap.has(label)) corpusTagMap.set(label, { count: 0, hex: tagColor(projectData, a.color) || '' });
-      corpusTagMap.get(label).count++;
-    }
-    const tagBreakdown = [...corpusTagMap.entries()]
-      .sort((a, b) => b[1].count - a[1].count)
-      .map(([t, { count: n, hex: hexVal }]) => {
-        const active = filter.tag === t ? 'active' : '';
-        return `<button class="corpus-tag-chip ${active}" data-tag="${esc(t)}"
-                        ${hexVal ? `style="--tag-color:${esc(hexVal)}"` : ''}>
-                  <span class="tag-dot" ${hexVal ? `style="background:${esc(hexVal)}"` : ''}></span>
-                  ${esc(t)}
-                  <span class="chip-count">${n}</span>
-                </button>`;
-      }).join('');
-
-    const corpusUntaggedCount = corpusArticles.filter(a => !a.tag || a.tag === 'None').length;
-    const noneChip = corpusUntaggedCount > 0
-      ? `<button class="corpus-tag-chip ${filter.tag === TAG_FILTER_NONE ? 'active' : ''}" data-tag="${TAG_FILTER_NONE}">
-           <span class="tag-dot tag-dot-empty"></span>
-           None
-           <span class="chip-count">${corpusUntaggedCount}</span>
-         </button>`
-      : '';
-    const tagBreakdownHTML = [noneChip, tagBreakdown].filter(Boolean).join('');
+    const tagBreakdownHTML = buildTagBreakdownHTML(corpusArticles, projectData, filter.tag);
 
     const filtered = applyFilter(corpusArticles, Object.assign({}, filter, { mode: 'corpus' }), projectData);
     const listHTML = filtered.length === 0
@@ -1416,27 +1583,16 @@ window.SLRViews = (() => {
 
         ${tagBreakdownHTML ? `<div class="corpus-tag-breakdown">${tagBreakdownHTML}</div>` : ''}
 
-        <div class="articles-filterbar">
-          <div class="search-input-wrap">
-            ${SLRIcons.search}
-            <input class="search-input" id="corpus-search"
-                   type="text" placeholder="Search title, abstract, journal (use ; for AND)"
-                   value="${esc(filter.search)}" autocomplete="off">
-          </div>
-
-          <select class="filter-select" id="corpus-sort" title="Sort order">
-            <option value="newest" ${filter.sort==='newest'?'selected':''}>Newest first</option>
-            <option value="oldest" ${filter.sort==='oldest'?'selected':''}>Oldest first</option>
-            <option value="cited"  ${filter.sort==='cited' ?'selected':''}>Most cited</option>
-            <option value="title"  ${filter.sort==='title' ?'selected':''}>Title A-Z</option>
-          </select>
-
-          <button class="articles-action-btn" id="export-corpus-btn"
-                  title="Download current list as .bib, .ris, or .csv">
-            ${SLRIcons.download}
-            Export
-          </button>
-        </div>
+        ${buildListToolbarHTML({
+          searchId: 'list-search', searchValue: filter.search,
+          sortId: 'list-sort', sortValue: filter.sort,
+          yearFromId: 'list-year-from', yearFromValue: filter.yearFrom,
+          yearToId: 'list-year-to', yearToValue: filter.yearTo,
+          tagFilterId: 'list-tag-filter', tagFilterValue: filter.tag,
+          tagOptionsHTML: buildTagOptions(corpusArticles, projectData, filter.tag),
+          actionsVisible,
+          exportTitle: 'Download current list as .bib, .ris, or .csv',
+        })}
 
         <div class="articles-stats">
           <span>Showing <strong>${filtered.length}</strong> of <strong>${stats.corpus}</strong> corpus articles</span>
@@ -1450,31 +1606,20 @@ window.SLRViews = (() => {
       </div>`;
 
     // Tag chip filter
-    container.querySelectorAll('.corpus-tag-chip').forEach(btn => {
+    container.querySelectorAll('.corpus-tag-breakdown .corpus-tag-chip').forEach(btn => {
       btn.addEventListener('click', () => {
         const t = btn.dataset.tag;
         SLRApp.setCorpusFilter({ tag: filter.tag === t ? null : t });
       });
     });
 
-    const searchEl = container.querySelector('#corpus-search');
-    let timer;
-    searchEl.addEventListener('input', () => {
-      clearTimeout(timer);
-      timer = setTimeout(() => SLRApp.setCorpusFilter({ search: searchEl.value }), 220);
+    wireListToolbar(container, {
+      onFilter: patch => SLRApp.setCorpusFilter(patch),
+      onExport: () => {
+        const exportBtn = container.querySelector('#export-list-btn');
+        openExportMenu(exportBtn, filtered, 'corpus');
+      },
     });
-
-    container.querySelector('#corpus-sort').addEventListener('change', e => {
-      SLRApp.setCorpusFilter({ sort: e.target.value });
-    });
-
-    const exportCorpusBtn = container.querySelector('#export-corpus-btn');
-    if (exportCorpusBtn) {
-      exportCorpusBtn.addEventListener('click', ev => {
-        ev.stopPropagation();
-        openExportMenu(exportCorpusBtn, filtered, 'corpus');
-      });
-    }
 
     container.querySelector('#corpus-list').addEventListener('click', e => {
       const item = e.target.closest('.article-item');
@@ -1495,36 +1640,9 @@ window.SLRViews = (() => {
     }
     const selectedArticles = articles.filter(a => a.selected);
     const stats = SLRData.getStats(selectedArticles);
+    const actionsVisible = !!SLRApp.state.actionsBarVisible;
 
-    // Build from articles so hex comes from a.color  tagsConfig, not from display label
-    const selTagMap = new Map();
-    for (const a of selectedArticles) {
-      const label = (a.tag && a.tag !== 'None') ? a.tag : null;
-      if (!label) continue;
-      if (!selTagMap.has(label)) selTagMap.set(label, { count: 0, hex: tagColor(projectData, a.color) || '' });
-      selTagMap.get(label).count++;
-    }
-    const selTagBreakdown = [...selTagMap.entries()]
-      .sort((a, b) => b[1].count - a[1].count)
-      .map(([t, { count: n, hex: hexVal }]) => {
-        const active = filter.tag === t ? 'active' : '';
-        return `<button class="corpus-tag-chip ${active}" data-tag="${esc(t)}"
-                        ${hexVal ? `style="--tag-color:${esc(hexVal)}"` : ''}>
-                  <span class="tag-dot" ${hexVal ? `style="background:${esc(hexVal)}"` : ''}></span>
-                  ${esc(t)}
-                  <span class="chip-count">${n}</span>
-                </button>`;
-      }).join('');
-
-    const selectedUntaggedCount = selectedArticles.filter(a => !a.tag || a.tag === 'None').length;
-    const selectedNoneChip = selectedUntaggedCount > 0
-      ? `<button class="corpus-tag-chip ${filter.tag === TAG_FILTER_NONE ? 'active' : ''}" data-tag="${TAG_FILTER_NONE}">
-           <span class="tag-dot tag-dot-empty"></span>
-           None
-           <span class="chip-count">${selectedUntaggedCount}</span>
-         </button>`
-      : '';
-    const selectedTagBreakdownHTML = [selectedNoneChip, selTagBreakdown].filter(Boolean).join('');
+    const selectedTagBreakdownHTML = buildTagBreakdownHTML(selectedArticles, projectData, filter.tag);
 
     const filtered = applyFilter(selectedArticles, Object.assign({}, filter, { mode: 'selected' }), projectData);
     const listHTML = filtered.length === 0
@@ -1554,26 +1672,16 @@ window.SLRViews = (() => {
 
         ${selectedTagBreakdownHTML ? `<div class="corpus-tag-breakdown">${selectedTagBreakdownHTML}</div>` : ''}
 
-        <div class="articles-filterbar">
-          <div class="search-input-wrap">
-            ${SLRIcons.search}
-            <input class="search-input" id="selected-search"
-                   type="text" placeholder="Search title, abstract, journal (use ; for AND)"
-                   value="${esc(filter.search)}" autocomplete="off">
-          </div>
-          <select class="filter-select" id="selected-sort" title="Sort order">
-            <option value="newest" ${filter.sort==='newest'?'selected':''}>Newest first</option>
-            <option value="oldest" ${filter.sort==='oldest'?'selected':''}>Oldest first</option>
-            <option value="cited"  ${filter.sort==='cited' ?'selected':''}>Most cited</option>
-            <option value="title"  ${filter.sort==='title' ?'selected':''}>Title A-Z</option>
-          </select>
-
-          <button class="articles-action-btn" id="export-selected-btn"
-                  title="Download current list as .bib, .ris, or .csv">
-            ${SLRIcons.download}
-            Export
-          </button>
-        </div>
+        ${buildListToolbarHTML({
+          searchId: 'list-search', searchValue: filter.search,
+          sortId: 'list-sort', sortValue: filter.sort,
+          yearFromId: 'list-year-from', yearFromValue: filter.yearFrom,
+          yearToId: 'list-year-to', yearToValue: filter.yearTo,
+          tagFilterId: 'list-tag-filter', tagFilterValue: filter.tag,
+          tagOptionsHTML: buildTagOptions(selectedArticles, projectData, filter.tag),
+          actionsVisible,
+          exportTitle: 'Download current list as .bib, .ris, or .csv',
+        })}
 
         <div class="articles-stats">
           <span>Showing <strong>${filtered.length}</strong> of <strong>${selectedArticles.length}</strong> selected articles</span>
@@ -1584,29 +1692,21 @@ window.SLRViews = (() => {
         <div class="article-list" id="selected-list">${listHTML}</div>
       </div>`;
 
-    container.querySelectorAll('.corpus-tag-chip').forEach(btn => {
+    container.querySelectorAll('.corpus-tag-breakdown .corpus-tag-chip').forEach(btn => {
       btn.addEventListener('click', () => {
         const t = btn.dataset.tag;
         SLRApp.setSelectedFilter({ tag: filter.tag === t ? null : t });
       });
     });
-    const searchEl = container.querySelector('#selected-search');
-    let timer;
-    searchEl.addEventListener('input', () => {
-      clearTimeout(timer);
-      timer = setTimeout(() => SLRApp.setSelectedFilter({ search: searchEl.value }), 220);
-    });
-    container.querySelector('#selected-sort').addEventListener('change', e => {
-      SLRApp.setSelectedFilter({ sort: e.target.value });
+
+    wireListToolbar(container, {
+      onFilter: patch => SLRApp.setSelectedFilter(patch),
+      onExport: () => {
+        const exportBtn = container.querySelector('#export-list-btn');
+        openExportMenu(exportBtn, filtered, 'selected');
+      },
     });
 
-    const exportSelectedBtn = container.querySelector('#export-selected-btn');
-    if (exportSelectedBtn) {
-      exportSelectedBtn.addEventListener('click', ev => {
-        ev.stopPropagation();
-        openExportMenu(exportSelectedBtn, filtered, 'selected');
-      });
-    }
     container.querySelector('#selected-list').addEventListener('click', e => {
       const item = e.target.closest('.article-item');
       if (!item || e.target.tagName === 'A') return;
@@ -3225,7 +3325,7 @@ window.SLRViews = (() => {
   function renderAbout(container) {
     container.innerHTML = `
       <div class="settings-view">
-        <h2>About SLR Harvester Web</h2>
+        <h2>About SLR Harvester <span class="title-web">Web</span></h2>
         <p class="settings-subtitle">A project-based workflow tool for conducting Systematic Literature Reviews.</p>
 
         <div class="about-links-row">
