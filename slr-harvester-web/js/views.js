@@ -3160,6 +3160,19 @@ window.SLRViews = (() => {
     return window.location.origin + window.location.pathname;
   }
 
+  // Shown wherever the Supabase email/password fields themselves appear —
+  // the modal and Settings' "not signed in" state — since sign-in is the
+  // part that's currently unreliable, not Cloud Sync as a whole.
+  function renderSupabaseDevNotice() {
+    return `
+      <div class="scopus-api-notice scopus-api-notice-caution" style="margin-bottom:14px">
+        <span class="scopus-api-notice-icon">${SLRIcons.warning}</span>
+        <div><strong>Cloud Sync sign-in is still being implemented</strong> and currently
+          doesn't work reliably, or only works partially. <strong>Local Folder</strong> is
+          the dependable option for now.</div>
+      </div>`;
+  }
+
   function renderRedirectUrlNotice(idPrefix) {
     return `
       <div class="scopus-api-notice" style="margin-bottom:14px">
@@ -3257,6 +3270,7 @@ window.SLRViews = (() => {
             <button class="btn-secondary" id="settings-supabase-signout-btn">Sign Out</button>
           </div>
         ` : `
+          ${renderSupabaseDevNotice()}
           <form id="settings-supabase-form" autocomplete="on">
             <div class="form-field" style="margin-top:10px">
               <label for="settings-supabase-email">Email</label>
@@ -3716,7 +3730,7 @@ window.SLRViews = (() => {
           </div>
           <ul class="about-feature-list">
             <li><span class="about-li-icon" aria-hidden="true">${SLRIcons.folderOpen}</span><span><strong>Browser-based</strong> &mdash; no installation, runs from <code>index.html</code> or a local server</span></li>
-            <li><span class="about-li-icon" aria-hidden="true">${SLRIcons.globe}</span><span><strong>Hosted on GitHub Pages</strong> &mdash; open <a href="https://socresearcher.github.io/slr-harvester/" target="_blank" rel="noopener">socresearcher.github.io/slr-harvester</a> directly, no download required; your project data still never leaves your device</span></li>
+            <li><span class="about-li-icon" aria-hidden="true">${SLRIcons.githubLogo}</span><span><strong>Hosted on GitHub Pages</strong> &mdash; open <a href="https://socresearcher.github.io/slr-harvester/" target="_blank" rel="noopener">socresearcher.github.io/slr-harvester</a> directly, no download required; your project data still never leaves your device</span></li>
             <li><span class="about-li-icon" aria-hidden="true">${SLRIcons.supabaseLogo}</span><span><strong>Cloud Sync (Supabase)</strong> &mdash; optional: sync projects through your own Supabase project instead of a local folder, so any browser or device works, including mobile. <strong>Still being implemented</strong> &mdash; sign-in currently has known issues and is actively being worked on.</span></li>
             <li><span class="about-li-icon" aria-hidden="true">${SLRIcons.databases}</span><span><strong>Multi-database search</strong> &mdash; Scopus, PubMed and OpenAlex integrated directly in the Search view</span></li>
             <li><span class="about-li-icon" aria-hidden="true">${SLRIcons.refresh}</span><span><strong>Data enrichment via Crossref</strong> &mdash; fetch missing abstracts, full author lists and document types by DOI</span></li>
@@ -4137,6 +4151,7 @@ window.SLRViews = (() => {
           <button class="icon-btn" id="supabase-modal-close" aria-label="Close">${SLRIcons.close}</button>
         </div>
         <div class="modal-body">
+          ${renderSupabaseDevNotice()}
           <p class="field-hint" style="margin:0 0 12px">
             First time? Run <code>supabase/schema.sql</code> (in this app's repo) in your
             Supabase project's SQL editor once, then enter its Project URL and key below.

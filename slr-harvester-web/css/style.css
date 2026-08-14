@@ -813,21 +813,14 @@ a:hover {
   height: 16px;
 }
 
-/* The Supabase mark's hardcoded brand green nearly disappears against this
-   button's turquoise background (the two hues sit right next to each
-   other). Recolor to --accent-ink — the same color already used for this
-   button's own text — instead of hardcoding white: dark theme's accent-ink
-   is actually dark (the button background is the bright one there), so a
-   flat white would look wrong/low-contrast in that theme specifically.
-   Sized slightly larger than the other primary-button icons since a solid
-   bolt glyph reads smaller than the stroke-based ones at the same box size. */
+/* Supabase icon now fills with currentColor (see icons.js), so it already
+   inherits --accent-ink from .btn-primary automatically — correct contrast
+   in both themes with no color override needed here. Sized slightly larger
+   than the other primary-button icons since a solid bolt glyph reads
+   smaller than the stroke-based ones at the same box size. */
 #welcome-cloud-btn svg {
   width: 18px;
   height: 18px;
-}
-
-#welcome-cloud-btn svg path {
-  fill: var(--accent-ink);
 }
 
 .btn-secondary {
@@ -2976,6 +2969,15 @@ a.db-link:visited {
 
 .scopus-api-notice-warn .scopus-api-notice-icon {
   color: var(--danger);
+}
+
+.scopus-api-notice-caution {
+  background: color-mix(in srgb, var(--warning) 12%, transparent);
+  border-color: var(--warning);
+}
+
+.scopus-api-notice-caution .scopus-api-notice-icon {
+  color: var(--warning);
 }
 
 .scopus-api-notice-icon {
