@@ -11,10 +11,16 @@
 --      (it's on by default). Email confirmation can be turned off in
 --      Authentication → Settings if you want sign-up to work immediately
 --      without a confirmation email, or left on for a real deployment.
---   4. Project Settings → API → copy the "Project URL" and the "anon
+--   4. Authentication → URL Configuration → add the exact URL this app is
+--      served from (e.g. http://localhost:8765/, or your deployed URL) to
+--      "Redirect URLs", and set it as the "Site URL" too. Confirmation and
+--      magic-link emails are rejected/redirected to Supabase's placeholder
+--      http://localhost:3000 otherwise — the #1 cause of "this site can't
+--      be reached" after clicking one of those emails.
+--   5. Project Settings → API → copy the "Project URL" and the "anon
 --      public" key (or, on newer projects, the "Publishable key" —
 --      sb_publishable_... — which replaces it and works the same way here).
---   5. In SLR Harvester Web, click "Continue with Supabase" on the Home
+--   6. In SLR Harvester Web, click "Continue with Supabase" on the Home
 --      screen (or Settings → Cloud Sync), paste both in, then sign up.
 --
 -- The anon/publishable key is safe to use client-side — it's designed to be public.
