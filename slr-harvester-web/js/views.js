@@ -163,24 +163,14 @@ window.SLRViews = (() => {
     };
   }
 
-  //  Welcome view 
-
-  function isMobileDevice() {
-    return /Mobi|Android|iPhone|iPad|iPod/i.test(navigator.userAgent || '');
-  }
+  //  Welcome view
 
   function renderWelcome(container) {
     const supported = typeof window.showDirectoryPicker === 'function';
-    const mobile = isMobileDevice();
 
-    const compatMessage = mobile
-      ? `<strong>Mobile browsers aren't supported yet.</strong>
-         SLR Harvester Web needs the File System Access API for local folder access,
-         and no mobile browser currently implements it — not Chrome, not Edge, not
-         Safari, regardless of phone/tablet. This is a platform limitation, not
-         something this app can work around. Please open this page in <strong>Chrome
-         or Edge on a desktop or laptop computer</strong> instead.`
-      : `<strong>Browser not supported.</strong>
+    // Same message everywhere the File System Access API is missing — mobile
+    // browsers included, since none of them implement it either.
+    const compatMessage = `<strong>Browser not supported.</strong>
          SLR Harvester Web requires <strong>Chrome 86+ or Edge 86+ on desktop</strong>
          for the File System Access API. Firefox and Safari (desktop) don't support it.`;
 
@@ -190,7 +180,8 @@ window.SLRViews = (() => {
         <div class="welcome-hero">
           <div class="welcome-logo">${SLRIcons.logo}</div>
           <h1>SLR Harvester <span class="title-web">Web</span></h1>
-          <p>A local browser tool for managing Systematic Literature Reviews.<br>
+          <p>A local browser tool for managing Systematic
+             <span style="white-space:nowrap">Literature Reviews</span>.<br>
              Open your SLR Harvester data folder to get started.</p>
         </div>
 
@@ -383,12 +374,24 @@ window.SLRViews = (() => {
 
   //  Projects view
 
-  function renderProjects(container, projects, currentFolder, allProjectData) {
-    if (!projects || projects.length === 0) {
+  function sortProjectsList(projects, sort) {
+    const list = projects.slice();
+    switch (sort) {
+      case 'oldest': return list.sort((a, b) => String(a.created).localeCompare(String(b.created)));
+      case 'az':     return list.sort((a, b) => String(a.name).localeCompare(String(b.name)));
+      case 'za':     return list.sort((a, b) => String(b.name).localeCompare(String(a.name)));
+      case 'newest':
+      default:       return list.sort((a, b) => String(b.created).localeCompare(String(a.created)));
+    }
+  }
+
+  function renderProjects(container, projectsIn, currentFolder, allProjectData, sort) {
+    if (!projectsIn || projectsIn.length === 0) {
       container.innerHTML = `
         <div class="projects-view">
           <div class="projects-header">
-              <button class="btn-secondary projects-add-btn" id="new-project-btn">
+            <div></div>
+            <button class="btn-primary projects-add-btn projects-add-btn--emphasize" id="new-project-btn">
               ${SLRIcons.plus} New Project
             </button>
           </div>
@@ -400,6 +403,9 @@ window.SLRViews = (() => {
       return;
     }
 
+    const projects = sortProjectsList(projectsIn, sort || 'newest');
+    const pinned = SLRApp.state.pinnedProjects;
+
     const cards = projects.map(p => {
       const data    = allProjectData[p.workspace_folder];
       const stats   = data ? SLRData.getStats(SLRData.getArticles(data)) : null;
@@ -409,6 +415,7 @@ window.SLRViews = (() => {
       const nQueries = data ? (data.searchLog || []).length : 0;
       const nTerms   = data ? new Set((data.queryHistory && data.queryHistory.terms || [])).size : 0;
       const active = p.workspace_folder === currentFolder;
+      const isPinned = pinned.has(p.workspace_folder);
 
       return `
         <div class="project-card ${active ? 'active' : ''}"
@@ -418,6 +425,10 @@ window.SLRViews = (() => {
               <div class="project-card-name">${esc(p.name)}</div>
               <div class="project-card-date">Created ${esc(p.created)}</div>
             </div>
+            <button class="project-pin-dot ${isPinned ? 'pinned' : ''}"
+                    data-pin-folder="${esc(p.workspace_folder)}"
+                    title="${isPinned ? 'Marked as in progress — click to unmark' : 'Mark as currently in progress'}"
+                    aria-label="Toggle in-progress marker" aria-pressed="${isPinned ? 'true' : 'false'}"></button>
           </div>
 
           ${p.description && p.description !== 'No description' ? `
@@ -467,12 +478,31 @@ window.SLRViews = (() => {
           <div>
             <p class="projects-subtitle">${projects.length} project${projects.length !== 1 ? 's' : ''} found</p>
           </div>
-            <button class="btn-secondary projects-add-btn" id="new-project-btn">${SLRIcons.plus} New Project</button>
+          <div class="projects-header-actions">
+            <select class="filter-select" id="projects-sort" title="Sort projects">
+              <option value="newest" ${sort==='newest'?'selected':''}>Newest first</option>
+              <option value="oldest" ${sort==='oldest'?'selected':''}>Oldest first</option>
+              <option value="az"     ${sort==='az'    ?'selected':''}>Name A-Z</option>
+              <option value="za"     ${sort==='za'    ?'selected':''}>Name Z-A</option>
+            </select>
+            <button class="btn-primary projects-add-btn" id="new-project-btn">${SLRIcons.plus} New Project</button>
+          </div>
         </div>
         <div class="projects-grid">${cards}</div>
       </div>`;
 
     container.querySelector('#new-project-btn').addEventListener('click', () => SLRApp.showNewProjectModal());
+
+    container.querySelector('#projects-sort').addEventListener('change', e => {
+      SLRApp.setProjectsSort(e.target.value);
+    });
+
+    container.querySelectorAll('.project-pin-dot').forEach(dot => {
+      dot.addEventListener('click', e => {
+        e.stopPropagation();
+        SLRApp.toggleProjectPin(dot.dataset.pinFolder);
+      });
+    });
 
     container.querySelectorAll('[data-folder]').forEach(el => {
       el.addEventListener('click', (e) => {
@@ -501,7 +531,7 @@ window.SLRViews = (() => {
     const listHTML = filtered.length === 0
       ? `<div class="article-list-empty">
            ${SLRIcons.articles}
-           <p>No articles match the current filters.</p>
+           <p>${projectData ? 'No articles match the current filters.' : 'No project loaded. Open a project from Projects first.'}</p>
          </div>`
       : filtered.map(a => articleItemHTML(a, projectData)).join('');
 
@@ -1563,7 +1593,7 @@ window.SLRViews = (() => {
 
     const filtered = applyFilter(corpusArticles, Object.assign({}, filter, { mode: 'corpus' }), projectData);
     const listHTML = filtered.length === 0
-      ? `<div class="article-list-empty">${SLRIcons.corpus}<p>No corpus articles match the current filters.</p></div>`
+      ? `<div class="article-list-empty">${SLRIcons.corpus}<p>${projectData ? 'No corpus articles match the current filters.' : 'No project loaded. Open a project from Projects first.'}</p></div>`
       : filtered.map(a => articleItemHTML(a, projectData)).join('');
 
     container.innerHTML = `
@@ -1637,10 +1667,6 @@ window.SLRViews = (() => {
   //  Selected view 
 
   function renderSelected(container, articles, filter, projectData) {
-    if (!projectData) {
-      container.innerHTML = `<div class="articles-view"><p style="color:var(--text-faint);padding:20px">No project loaded.</p></div>`;
-      return;
-    }
     const selectedArticles = articles.filter(a => a.selected);
     const stats = SLRData.getStats(selectedArticles);
     const actionsVisible = !!SLRApp.state.actionsBarVisible;
@@ -1649,7 +1675,7 @@ window.SLRViews = (() => {
 
     const filtered = applyFilter(selectedArticles, Object.assign({}, filter, { mode: 'selected' }), projectData);
     const listHTML = filtered.length === 0
-      ? `<div class="article-list-empty">${SLRIcons.selected}<p>No selected articles match the current filters.</p></div>`
+      ? `<div class="article-list-empty">${SLRIcons.selected}<p>${projectData ? 'No selected articles match the current filters.' : 'No project loaded. Open a project from Projects first.'}</p></div>`
       : filtered.map(a => articleItemHTML(a, projectData)).join('');
 
     container.innerHTML = `
@@ -1934,7 +1960,8 @@ window.SLRViews = (() => {
 
   function renderVisualizations(container, articles, projectData) {
     if (!projectData || !articles || articles.length === 0) {
-      container.innerHTML = `<div class="viz-view"><p style="color:var(--text-faint);padding:20px">No articles in this project yet.</p></div>`;
+      const msg = projectData ? 'No articles in this project yet.' : 'No project loaded. Open a project from Projects first.';
+      container.innerHTML = `<div class="viz-view"><p style="color:var(--text-faint);padding:20px">${msg}</p></div>`;
       return;
     }
     const stats = SLRData.getStats(articles);
