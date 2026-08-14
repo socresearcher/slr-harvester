@@ -196,6 +196,10 @@ window.SLRViews = (() => {
             ${SLRIcons.folderOpen}
             Open SLR Harvester Folder
           </button>
+          <button id="welcome-cloud-btn" class="btn-secondary">
+            ${SLRIcons.globe}
+            Continue with Cloud Sync
+          </button>
         </div>
 
         <div class="welcome-tips">
@@ -207,6 +211,9 @@ window.SLRViews = (() => {
           <code>projects.json</code> and the <code>projects/</code> directory - your existing
           SLR Harvester workspace. Works with local folders and cloud-synced drives
           (OneDrive, Google Drive) alike.</p>
+          <p><strong>On mobile, or Firefox/Safari?</strong> The File System Access API
+          above isn't available there — use <strong>Cloud Sync</strong> instead: it syncs
+          your projects through your own Supabase project and works in any browser.</p>
         </div>
       </div>`;
 
@@ -215,6 +222,10 @@ window.SLRViews = (() => {
         SLRApp.openFolder();
       });
     }
+
+    container.querySelector('#welcome-cloud-btn').addEventListener('click', () => {
+      SLRApp.navigate('settings');
+    });
 
     initHeroParticles();
   }
@@ -3079,6 +3090,165 @@ window.SLRViews = (() => {
     return lines.join('');
   }
 
+  function renderCloudSyncSection() {
+    const backend = SLRData.getBackend();
+    const { url: supabaseUrl, key: supabaseKey } = SLRDataCloud.getCredentials();
+    const cloudUser = SLRDataCloud.currentUser();
+
+    return `
+      <div class="settings-section">
+        <h3>Cloud Sync (Supabase)</h3>
+        <p class="field-hint" style="margin-top:2px">
+          Optional: sync your projects through your own Supabase project instead
+          of a local folder — works on any browser or device, including mobile,
+          where the File System Access API isn't available.
+        </p>
+
+        <div class="form-field" style="margin-top:14px">
+          <label>Active workspace</label>
+          <div class="backend-switch-row">
+            <label class="backend-switch-option">
+              <input type="radio" name="backend-switch" value="local" ${backend === 'local' ? 'checked' : ''}>
+              Local Folder
+            </label>
+            <label class="backend-switch-option">
+              <input type="radio" name="backend-switch" value="cloud" ${backend === 'cloud' ? 'checked' : ''}>
+              Cloud Sync
+            </label>
+          </div>
+        </div>
+
+        <div class="form-field">
+          <label for="settings-supabase-url">Supabase Project URL</label>
+          <input class="form-input monospace" id="settings-supabase-url" type="text"
+            placeholder="https://xxxxxxxx.supabase.co" value="${esc(supabaseUrl)}">
+        </div>
+        <div class="form-field">
+          <label for="settings-supabase-key">Supabase anon public key</label>
+          <div class="secret-input-row">
+            <input class="form-input monospace" id="settings-supabase-key" type="password"
+              placeholder="Anon public API key" value="${esc(supabaseKey)}">
+            <button class="btn-secondary secret-toggle-btn" type="button" data-target="settings-supabase-key" aria-label="Show key" aria-pressed="false">
+              <span class="secret-toggle-icon">${SLRIcons.eye}</span>
+              <span class="secret-toggle-label">Show</span>
+            </button>
+          </div>
+          <p class="field-hint">From your Supabase project's API settings. Safe to use client-side —
+            Row Level Security is the real access gate. Run <code>supabase/schema.sql</code>
+            (in this app's repo) once in your project's SQL editor before connecting.</p>
+        </div>
+        <div class="settings-save-row">
+          <button class="btn-secondary" id="settings-supabase-save-creds-btn">Save Connection</button>
+          <span class="settings-saved-msg" id="settings-supabase-creds-saved-msg">Saved!</span>
+        </div>
+
+        ${cloudUser ? `
+          <div class="cloud-auth-status">
+            ${SLRIcons.check}
+            <span>Signed in as <strong>${esc(cloudUser.email)}</strong></span>
+            <button class="btn-secondary" id="settings-supabase-signout-btn">Sign Out</button>
+          </div>
+        ` : `
+          <div class="form-field" style="margin-top:10px">
+            <label for="settings-supabase-email">Email</label>
+            <input class="form-input" id="settings-supabase-email" type="email" placeholder="you@example.com" autocomplete="email">
+          </div>
+          <div class="form-field">
+            <label for="settings-supabase-password">Password</label>
+            <input class="form-input" id="settings-supabase-password" type="password" placeholder="Password" autocomplete="current-password">
+          </div>
+          <div class="settings-save-row">
+            <button class="btn-primary" id="settings-supabase-signin-btn">Sign In</button>
+            <button class="btn-secondary" id="settings-supabase-signup-btn">Sign Up</button>
+            <button class="btn-secondary" id="settings-supabase-magiclink-btn">Email me a magic link</button>
+          </div>
+          <div id="settings-supabase-auth-result" class="scopus-test-result" hidden></div>
+        `}
+      </div>`;
+  }
+
+  function wireCloudSyncSection(container) {
+    container.querySelectorAll('input[name="backend-switch"]').forEach(radio => {
+      radio.addEventListener('change', () => {
+        if (radio.checked) SLRApp.switchBackend(radio.value);
+      });
+    });
+
+    const saveCredsBtn = container.querySelector('#settings-supabase-save-creds-btn');
+    if (saveCredsBtn) {
+      saveCredsBtn.addEventListener('click', () => {
+        const url = container.querySelector('#settings-supabase-url').value.trim();
+        const key = container.querySelector('#settings-supabase-key').value.trim();
+        SLRApp.saveCloudCredentials(url, key);
+        const msg = container.querySelector('#settings-supabase-creds-saved-msg');
+        if (msg) {
+          msg.classList.add('visible');
+          setTimeout(() => msg.classList.remove('visible'), 2000);
+        }
+      });
+    }
+
+    const signOutBtn = container.querySelector('#settings-supabase-signout-btn');
+    if (signOutBtn) {
+      signOutBtn.addEventListener('click', () => SLRApp.cloudSignOut());
+    }
+
+    const resultEl = container.querySelector('#settings-supabase-auth-result');
+    function showAuthResult(message, isError) {
+      if (!resultEl) return;
+      resultEl.hidden = false;
+      resultEl.textContent = message;
+      resultEl.classList.toggle('scopus-test-fail', !!isError);
+    }
+
+    function readEmailPassword() {
+      return {
+        email: (container.querySelector('#settings-supabase-email')?.value || '').trim(),
+        password: container.querySelector('#settings-supabase-password')?.value || '',
+      };
+    }
+
+    const signInBtn = container.querySelector('#settings-supabase-signin-btn');
+    if (signInBtn) {
+      signInBtn.addEventListener('click', async () => {
+        const { email, password } = readEmailPassword();
+        if (!email || !password) { showAuthResult('Enter an email and password.', true); return; }
+        try {
+          await SLRApp.cloudAuth('signin', email, password);
+        } catch (err) {
+          showAuthResult(err.message || String(err), true);
+        }
+      });
+    }
+
+    const signUpBtn = container.querySelector('#settings-supabase-signup-btn');
+    if (signUpBtn) {
+      signUpBtn.addEventListener('click', async () => {
+        const { email, password } = readEmailPassword();
+        if (!email || !password) { showAuthResult('Enter an email and password.', true); return; }
+        try {
+          await SLRApp.cloudAuth('signup', email, password);
+        } catch (err) {
+          showAuthResult(err.message || String(err), true);
+        }
+      });
+    }
+
+    const magicLinkBtn = container.querySelector('#settings-supabase-magiclink-btn');
+    if (magicLinkBtn) {
+      magicLinkBtn.addEventListener('click', async () => {
+        const { email } = readEmailPassword();
+        if (!email) { showAuthResult('Enter an email first.', true); return; }
+        try {
+          await SLRApp.cloudAuth('magiclink', email);
+          showAuthResult('Magic link sent — check your email.', false);
+        } catch (err) {
+          showAuthResult(err.message || String(err), true);
+        }
+      });
+    }
+  }
+
   function renderSettings(container, { apiKey, instToken, openAlexKey, openAlexEmail, autoFetchEnabled, fetchMode, autoTagEnabled, autoRunScope, autoTagCategories, allTagCategories, folderName }) {
     const categories = Array.isArray(allTagCategories) ? allTagCategories : [];
     const enabledCategorySet = new Set(Array.isArray(autoTagCategories) && autoTagCategories.length ? autoTagCategories : categories);
@@ -3253,6 +3423,8 @@ window.SLRViews = (() => {
             </button>
           </div>
         </div>
+
+        ${renderCloudSyncSection()}
       </div>`;
 
     function collectSettingsFromForm() {
@@ -3333,6 +3505,8 @@ window.SLRViews = (() => {
     container.querySelector('#settings-open-folder').addEventListener('click', () => {
       SLRApp.openFolder();
     });
+
+    wireCloudSyncSection(container);
 
     container.querySelectorAll('.secret-toggle-btn').forEach(btn => {
       btn.addEventListener('click', () => {
@@ -3466,16 +3640,19 @@ window.SLRViews = (() => {
         <div class="settings-section">
           <h3>Compatibility</h3>
           <p style="font-size:13px;color:var(--text-muted);line-height:1.7">
-            Requires <strong>Chrome 86+</strong> or <strong>Edge 86+</strong> on
-            <strong>desktop</strong> for the File System Access API
-            (<code>showDirectoryPicker</code>). Desktop Firefox and Safari don't
-            support it, and neither does any mobile browser yet (Chrome, Edge, or
+            <strong>Local Folder</strong> mode requires <strong>Chrome 86+</strong> or
+            <strong>Edge 86+</strong> on <strong>desktop</strong> for the File System
+            Access API (<code>showDirectoryPicker</code>). Desktop Firefox and Safari
+            don't support it, and neither does any mobile browser (Chrome, Edge, or
             Safari on phone/tablet) &mdash; this API isn't implemented on mobile at all
-            regardless of vendor.
+            regardless of vendor. <strong>Cloud Sync</strong> (Settings &rarr; Cloud Sync)
+            works in any modern browser, including mobile, as an alternative.
           </p>
           <p style="font-size:13px;color:var(--text-muted);margin-top:8px;line-height:1.7">
-            The app works entirely offline &mdash; no data is sent to any server.
-            All API requests go directly from your browser to the respective academic API.
+            In <strong>Local Folder</strong> mode the app works entirely offline &mdash;
+            no project data is sent to any server, only direct API requests from your
+            browser to the respective academic databases. In <strong>Cloud Sync</strong>
+            mode, project data is stored in the Supabase project you connect in Settings.
           </p>
         </div>
 
