@@ -12,6 +12,7 @@ window.SLRApp = (() => {
 		theme: localStorage.getItem('slr-theme') || 'dark',
 		sidebarCollapsed: localStorage.getItem('slr-sidebar-collapsed') === '1',
 		folderName: '',
+		actionsBarVisible: localStorage.getItem('slr-actions-visible') === '1',
 
 		projects: [],
 		currentFolder: null,
@@ -31,12 +32,16 @@ window.SLRApp = (() => {
 
 		corpusFilter: {
 			tag: null,
+			yearFrom: '',
+			yearTo: '',
 			sort: 'newest',
 			search: '',
 		},
 
 		selectedFilter: {
 			tag: null,
+			yearFrom: '',
+			yearTo: '',
 			sort: 'newest',
 			search: '',
 		},
@@ -87,12 +92,11 @@ window.SLRApp = (() => {
 	let _sidebar;
 	let _viewTitle;
 	let _projectBadge;
-	let _folderPath;
 
 	const VIEW_UI_STATE_MAP = {
-		articles: { searchInputId: 'article-search', listId: 'article-list' },
-		selected: { searchInputId: 'selected-search', listId: 'selected-list' },
-		corpus: { searchInputId: 'corpus-search', listId: 'corpus-list' },
+		articles: { searchInputId: 'list-search', listId: 'article-list' },
+		selected: { searchInputId: 'list-search', listId: 'selected-list' },
+		corpus: { searchInputId: 'list-search', listId: 'corpus-list' },
 	};
 
 	function getViewUiStateConfig(view) {
@@ -248,6 +252,7 @@ window.SLRApp = (() => {
 							<span class="fpo-label"></span>
 							<span class="fpo-count"></span>
 						</div>
+						<div class="fpo-track"><div class="fpo-bar"></div></div>
 					</div>
 				</div>`;
 			document.body.appendChild(overlay);
@@ -264,11 +269,43 @@ window.SLRApp = (() => {
 		if (circleText) circleText.textContent = `${pct}%`;
 		overlay.querySelector('.fpo-label').textContent = label;
 		overlay.querySelector('.fpo-count').textContent = `${done}/${total} (${pct}%)`;
+		const bar = overlay.querySelector('.fpo-bar');
+		if (bar) bar.style.width = `${pct}%`;
 		overlay.classList.add('visible');
 	}
 
 	function hideFetchProgress() {
 		document.querySelector('.fetch-progress-overlay')?.remove();
+	}
+
+	// ── First-run onboarding hints ──────────────────────────────────────────
+	// Guides a new user top-to-bottom through the sidebar: once a step is
+	// reached, the next step's nav item flashes turquoise twice. Progress is
+	// remembered per-browser so a step is only ever hinted once, lifetime.
+	const ONBOARDING_STEPS = ['welcome', 'databases', 'projects', 'search', 'history', 'articles', 'selected', 'corpus', 'visualizations'];
+	let onboardingDone;
+	try {
+		onboardingDone = new Set(JSON.parse(localStorage.getItem('slr-onboarding-done') || '[]'));
+	} catch (_) {
+		onboardingDone = new Set();
+	}
+
+	function pulseNavHint(view) {
+		const btn = document.querySelector(`.nav-item[data-view="${view}"]`);
+		if (!btn) return;
+		if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) return;
+		btn.classList.remove('nav-hint-pulse');
+		void btn.offsetWidth; // restart the animation if it's already mid-pulse
+		btn.classList.add('nav-hint-pulse');
+		btn.addEventListener('animationend', () => btn.classList.remove('nav-hint-pulse'), { once: true });
+	}
+
+	function markOnboardingStep(step) {
+		if (!ONBOARDING_STEPS.includes(step) || onboardingDone.has(step)) return;
+		onboardingDone.add(step);
+		localStorage.setItem('slr-onboarding-done', JSON.stringify([...onboardingDone]));
+		const next = ONBOARDING_STEPS[ONBOARDING_STEPS.indexOf(step) + 1];
+		if (next) pulseNavHint(next);
 	}
 
 	function stableStringList(values) {
@@ -367,7 +404,6 @@ window.SLRApp = (() => {
 		SLRAppUI.updateTopbar(state, {
 			viewTitle: _viewTitle,
 			projectBadge: _projectBadge,
-			folderPath: _folderPath,
 		});
 
 		if (requireProjectForView(state.view) && !state.projectData) {
@@ -378,6 +414,7 @@ window.SLRApp = (() => {
 		switch (state.view) {
 			case 'welcome':
 				SLRViews.renderWelcome(_container);
+				markOnboardingStep('welcome');
 				break;
 			case 'projects':
 				SLRViews.renderProjects(_container, state.projects, state.currentFolder, state.allProjectData);
@@ -438,6 +475,9 @@ window.SLRApp = (() => {
 	function navigate(view) {
 		state.view = view;
 		renderCurrentView();
+		// 'projects' and 'search' complete on a meaningful action (opening a
+		// project / running a search), not merely on visiting the tab.
+		if (view !== 'projects' && view !== 'search') markOnboardingStep(view);
 	}
 
 	async function hydrateProject(folderName) {
@@ -460,6 +500,7 @@ window.SLRApp = (() => {
 				state.view = 'articles';
 			}
 			renderCurrentView();
+			markOnboardingStep('projects');
 		} catch (err) {
 			SLRViews.renderError(_container, err.message || String(err));
 		}
@@ -555,6 +596,12 @@ window.SLRApp = (() => {
 
 	function setSelectedFilter(patch) {
 		state.selectedFilter = { ...state.selectedFilter, ...patch };
+		renderCurrentView();
+	}
+
+	function toggleActionsBar() {
+		state.actionsBarVisible = !state.actionsBarVisible;
+		localStorage.setItem('slr-actions-visible', state.actionsBarVisible ? '1' : '0');
 		renderCurrentView();
 	}
 
@@ -1279,6 +1326,7 @@ window.SLRApp = (() => {
 			setSearchProgress(100, 'Done.');
 			state.search.lastCount = results.length;
 			showToast(`Search saved: ${results.length} result${results.length !== 1 ? 's' : ''}.`, false);
+			markOnboardingStep('search');
 		} catch (err) {
 			if (err && err.name === 'AbortError') {
 				state.search.error = 'Search cancelled.';
@@ -2050,7 +2098,12 @@ window.SLRApp = (() => {
 		const updates = {};
 		let matched = 0;
 
-		for (const article of toProcess) {
+		// Matching is pure local computation (no network I/O), so we chunk it
+		// and yield periodically purely to let the progress overlay paint —
+		// without a yield the whole loop runs in one uninterrupted frame.
+		const CHUNK = 25;
+		for (let i = 0; i < toProcess.length; i++) {
+			const article = toProcess[i];
 			const result = matchRules(article);
 			if (result) {
 				const articleId = article.eid || article._id || article.doi;
@@ -2059,14 +2112,20 @@ window.SLRApp = (() => {
 					matched++;
 				}
 			}
+			if (i % CHUNK === 0 || i === toProcess.length - 1) {
+				showFetchProgress('Auto-tagging articles', i + 1, toProcess.length);
+				await new Promise(resolve => setTimeout(resolve, 0));
+			}
 		}
 
 		if (!matched) {
+			hideFetchProgress();
 			showToast('No auto-tag matches found.', false);
 			return;
 		}
 
 		try {
+			showFetchProgress('Saving tags', toProcess.length, toProcess.length);
 			const allTags = await SLRData.bulkUpdateAnnotations(state.currentFolder, updates);
 			state.projectData.globalTags = allTags;
 
@@ -2079,9 +2138,11 @@ window.SLRApp = (() => {
 			state.projectData.tagAliases = aliases;
 
 			state.articles = SLRData.getArticles(state.projectData);
+			hideFetchProgress();
 			renderCurrentView();
 			showToast(`Auto-tagged ${matched} article${matched !== 1 ? 's' : ''}.`, false);
 		} catch (err) {
+			hideFetchProgress();
 			showToast('Auto-tag failed: ' + (err.message || String(err)), true);
 		}
 	}
@@ -2274,7 +2335,6 @@ window.SLRApp = (() => {
 		_sidebar = $('sidebar');
 		_viewTitle = $('view-title');
 		_projectBadge = $('project-badge');
-		_folderPath = $('folder-path');
 
 		SLRAppUI.injectIcons(state, $);
 		SLRAppUI.applyTheme(state, $);
@@ -2305,6 +2365,7 @@ window.SLRApp = (() => {
 		setFetchMode,
 		setCorpusFilter,
 		setSelectedFilter,
+		toggleActionsBar,
 		updateAnnotation,
 		updateProjectMeta,
 		showNewProjectModal,

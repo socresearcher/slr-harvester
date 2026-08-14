@@ -21,6 +21,12 @@ window.SLRIcons = (() => {
        <path d="M22 3h-6a4 4 0 0 0-4 4v14a3 3 0 0 1 3-3h7z"/>`
     ),
 
+    // Home — house
+    home: base(
+      `<path d="M3 11.5L12 4l9 7.5"/>
+       <path d="M5 9.5V20a1 1 0 0 0 1 1h4v-6h4v6h4a1 1 0 0 0 1-1V9.5"/>`
+    ),
+
     // Projects — grid of squares
     projects: base(
       `<rect x="3" y="3" width="7" height="7" rx="1"/>

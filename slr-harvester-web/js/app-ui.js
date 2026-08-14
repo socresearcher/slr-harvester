@@ -43,6 +43,7 @@ window.SLRAppUI = (() => {
     if (logoEl) logoEl.innerHTML = SLRIcons.logo;
 
     const map = {
+      home: SLRIcons.home,
       databases: SLRIcons.databases,
       projects: SLRIcons.projects,
       search: SLRIcons.search,
@@ -86,7 +87,6 @@ window.SLRAppUI = (() => {
 
     if (refs.viewTitle) refs.viewTitle.textContent = titles[state.view] || 'SLR Harvester Web';
     if (refs.projectBadge) refs.projectBadge.textContent = state.currentProject ? state.currentProject.name : '';
-    if (refs.folderPath) refs.folderPath.textContent = state.folderName || '';
 
     document.querySelectorAll('.nav-item[data-view]').forEach(btn => {
       btn.classList.toggle('active', btn.dataset.view === state.view);
