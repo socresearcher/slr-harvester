@@ -3146,6 +3146,52 @@ window.SLRViews = (() => {
     return { text: msg, offerResend: false };
   }
 
+  // The exact URL Supabase must be told to redirect confirmation/magic-link
+  // emails back to. Supabase ignores emailRedirectTo for any URL not on the
+  // project's own Authentication → URL Configuration allow-list and falls
+  // back to its placeholder http://localhost:3000 instead — silently, with
+  // no client-visible error — which is the #1 cause of "the confirmation/
+  // magic-link email goes nowhere". This can only be fixed in the Supabase
+  // dashboard itself, so the app's job is to make the exact value to paste
+  // there impossible to miss.
+  function currentAppUrl() {
+    return window.location.origin + window.location.pathname;
+  }
+
+  function renderRedirectUrlNotice(idPrefix) {
+    return `
+      <div class="scopus-api-notice" style="margin-bottom:14px">
+        <span class="scopus-api-notice-icon">${SLRIcons.info}</span>
+        <div>
+          <strong>Confirmation or magic-link email not arriving / leads nowhere?</strong>
+          In your Supabase project, go to <strong>Authentication → URL Configuration</strong>
+          and add this exact URL as both the <strong>Site URL</strong> and a
+          <strong>Redirect URL</strong>:
+          <div style="display:flex;align-items:center;gap:8px;margin:8px 0;flex-wrap:wrap">
+            <code id="${idPrefix}-redirect-url" style="word-break:break-all">${esc(currentAppUrl())}</code>
+            <button type="button" class="btn-secondary" id="${idPrefix}-copy-url-btn" style="flex-shrink:0">Copy</button>
+          </div>
+          Without this, those emails point at Supabase's placeholder
+          <code>localhost:3000</code> instead, which is why the link "can't be reached".
+          Fastest fix to test right now: turn <strong>Confirm email</strong> off in
+          <strong>Authentication → Settings</strong> — Sign Up then works instantly, no email needed.
+        </div>
+      </div>`;
+  }
+
+  function wireRedirectUrlCopyButton(container, idPrefix) {
+    const copyBtn = container.querySelector(`#${idPrefix}-copy-url-btn`);
+    if (!copyBtn) return;
+    copyBtn.addEventListener('click', async () => {
+      try {
+        await navigator.clipboard.writeText(currentAppUrl());
+        const original = copyBtn.textContent;
+        copyBtn.textContent = 'Copied!';
+        setTimeout(() => { copyBtn.textContent = original; }, 1500);
+      } catch (_) { /* Clipboard API unavailable/denied — the URL is still selectable text. */ }
+    });
+  }
+
   function renderCloudSyncSection() {
     const backend = SLRData.getBackend();
     const { url: supabaseUrl, key: supabaseKey } = SLRDataCloud.getCredentials();
@@ -3159,6 +3205,8 @@ window.SLRViews = (() => {
           of a local folder — works on any browser or device, including mobile,
           where the File System Access API isn't available.
         </p>
+
+        <div style="margin-top:14px">${renderRedirectUrlNotice('settings-supabase')}</div>
 
         <div class="form-field" style="margin-top:14px">
           <label>Active workspace</label>
@@ -3234,6 +3282,8 @@ window.SLRViews = (() => {
   }
 
   function wireCloudSyncSection(container) {
+    wireRedirectUrlCopyButton(container, 'settings-supabase');
+
     container.querySelectorAll('input[name="backend-switch"]').forEach(radio => {
       radio.addEventListener('change', () => {
         if (radio.checked) SLRApp.switchBackend(radio.value);
@@ -4068,6 +4118,7 @@ window.SLRViews = (() => {
             Supabase project's SQL editor once, then enter its Project URL and key below.
             Full steps in <button type="button" class="link-btn" id="supabase-modal-settings-link">Settings → Cloud Sync</button>.
           </p>
+          ${renderRedirectUrlNotice('supabase-modal')}
           <div class="form-field">
             <label for="supabase-modal-url">Supabase Project URL</label>
             <input class="form-input monospace" id="supabase-modal-url" type="text"
@@ -4125,6 +4176,8 @@ window.SLRViews = (() => {
       closeModal();
       SLRApp.navigate('settings');
     });
+
+    wireRedirectUrlCopyButton(overlay, 'supabase-modal');
 
     overlay.querySelectorAll('.secret-toggle-btn').forEach(btn => {
       btn.addEventListener('click', () => {
