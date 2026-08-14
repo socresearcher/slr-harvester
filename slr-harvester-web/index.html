@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>SLR Harvester Web</title>
   <link rel="icon" type="image/svg+xml" href="favicon.svg">
-  <link rel="stylesheet" href="css/style.css?v=20260814a">
+  <link rel="stylesheet" href="css/style.css?v=20260814d">
 </head>
 <body>
 
@@ -16,7 +16,7 @@
       <div class="sidebar-header">
         <div class="app-logo">
           <span class="logo-icon" id="logo-icon"></span>
-          <span class="app-name sidebar-label">SLR Harvester Web</span>
+          <span class="app-name sidebar-label">SLR Harvester <span class="title-web">Web</span></span>
         </div>
         <button id="sidebar-toggle" class="icon-btn" title="Collapse sidebar" aria-label="Toggle sidebar">
           <span id="sidebar-toggle-icon"></span>
@@ -24,6 +24,12 @@
       </div>
 
       <nav class="sidebar-nav" role="navigation" aria-label="Main navigation">
+
+        <!-- Home / welcome screen -->
+        <button class="nav-item" data-view="welcome" title="Home" aria-label="Home">
+          <span class="nav-icon" data-icon="home"></span>
+          <span class="nav-label sidebar-label">Home</span>
+        </button>
 
         <!-- Databases view shortcut -->
         <button class="nav-item" data-view="databases" title="Databases" aria-label="Databases">
@@ -97,7 +103,6 @@
           <span id="project-badge" class="project-badge"></span>
         </div>
         <div class="topbar-right">
-          <span id="folder-path" class="folder-path"></span>
           <button id="fullscreen-toggle" class="theme-switch fullscreen-switch" title="Toggle fullscreen" aria-label="Toggle fullscreen">
             <span class="theme-switch-knob">
               <span id="fullscreen-icon" class="theme-switch-icon"></span>
@@ -121,15 +126,15 @@
   <!-- Modal overlay (rendered dynamically) -->
   <div id="modal-overlay" class="modal-overlay hidden" role="dialog" aria-modal="true"></div>
 
-  <script src="js/icons.js?v=20260814a"></script>
-  <script src="js/data.js?v=20260814a"></script>
-  <script src="js/world-map-data.js?v=20260814a"></script>
-  <script src="js/world-map-outline-data.js?v=20260814a"></script>
-  <script src="js/world-map-paths-data.js?v=20260814a"></script>
-  <script src="js/world-map.js?v=20260814a"></script>
-  <script src="js/views.js?v=20260814a"></script>
-  <script src="js/app-ui.js?v=20260814a"></script>
-  <script src="js/app.js?v=20260814a"></script>
+  <script src="js/icons.js?v=20260814d"></script>
+  <script src="js/data.js?v=20260814d"></script>
+  <script src="js/world-map-data.js?v=20260814d"></script>
+  <script src="js/world-map-outline-data.js?v=20260814d"></script>
+  <script src="js/world-map-paths-data.js?v=20260814d"></script>
+  <script src="js/world-map.js?v=20260814d"></script>
+  <script src="js/views.js?v=20260814d"></script>
+  <script src="js/app-ui.js?v=20260814d"></script>
+  <script src="js/app.js?v=20260814d"></script>
 
 </body>
 </html>
