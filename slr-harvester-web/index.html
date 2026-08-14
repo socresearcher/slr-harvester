@@ -127,10 +127,17 @@
   <div id="modal-overlay" class="modal-overlay hidden" role="dialog" aria-modal="true"></div>
 
   <script src="js/icons.js?v=20260814ae"></script>
-  <!-- Cloud sync (optional): Supabase JS SDK, pinned to major v2 so an upstream
-       CDN update can't silently break the app. Only used if a user configures
-       Cloud Sync in Settings; local-folder mode never touches it. -->
-  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.js"></script>
+  <!-- Cloud sync (optional): Supabase JS SDK v2.112.3, vendored locally
+       (js/vendor/supabase.js) rather than loaded from a CDN. This used to
+       be cdn.jsdelivr.net, which browser tracking-prevention features
+       (observed: Edge) and ad-blockers/network-level filters flag as a
+       third-party origin and sometimes block outright — the likely cause
+       of intermittent "Failed to fetch" during sign-in on some desktop
+       setups even though the exact same request worked fine elsewhere.
+       Same-origin now, so that entire class of blocking can't happen.
+       To update: download a newer dist/umd/supabase.js build and replace
+       the vendored file; nothing else needs to change. -->
+  <script src="js/vendor/supabase.js?v=20260814ae"></script>
   <script src="js/data-local.js?v=20260814ae"></script>
   <script src="js/data-supabase.js?v=20260814ae"></script>
   <script src="js/data.js?v=20260814ae"></script>
