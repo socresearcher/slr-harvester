@@ -72,6 +72,13 @@ window.SLRApp = (() => {
 		},
 
 		fetchMode: localStorage.getItem('slr-fetch-mode') === 'all' ? 'all' : 'missing',
+		projectsSort: localStorage.getItem('slr-projects-sort') || 'newest',
+		pinnedProjects: (() => {
+			try {
+				const raw = JSON.parse(localStorage.getItem('slr-pinned-projects') || '[]');
+				return new Set(Array.isArray(raw) ? raw : []);
+			} catch (_) { return new Set(); }
+		})(),
 
 		search: {
 			query: '',
@@ -407,10 +414,6 @@ window.SLRApp = (() => {
 		showToast(`${summary}${skippedText}`, false);
 	}
 
-	function requireProjectForView(view) {
-		return !['welcome', 'projects', 'settings', 'about', 'databases'].includes(view);
-	}
-
 	function renderCurrentView() {
 		if (!_container) return;
 		const uiStateSnapshot = captureViewUiState();
@@ -419,24 +422,24 @@ window.SLRApp = (() => {
 			projectBadge: _projectBadge,
 		});
 
-		if (requireProjectForView(state.view) && !state.projectData) {
-			SLRViews.renderError(_container, 'No project loaded. Open a project from Projects first.');
-			return;
-		}
-
+		// Every case below renders its own chrome (toolbar/header/menu structure)
+		// and substitutes a "No project loaded" placeholder for just the data
+		// portion when state.projectData is null — this keeps the app's layout
+		// visible on browsers that can never load a project (e.g. mobile, which
+		// lacks the File System Access API) instead of blanking the whole view.
 		switch (state.view) {
 			case 'welcome':
 				SLRViews.renderWelcome(_container);
 				markOnboardingStep('welcome');
 				break;
 			case 'projects':
-				SLRViews.renderProjects(_container, state.projects, state.currentFolder, state.allProjectData);
+				SLRViews.renderProjects(_container, state.projects, state.currentFolder, state.allProjectData, state.projectsSort);
 				break;
 			case 'articles':
 				SLRViews.renderArticles(_container, state.articles, state.filter, state.projectData);
 				break;
 			case 'history':
-				SLRViews.renderHistory(_container, state.projectData.searchLog || [], state.projectData);
+				SLRViews.renderHistory(_container, (state.projectData && state.projectData.searchLog) || [], state.projectData);
 				break;
 			case 'project':
 				SLRViews.renderProjectInfo(_container, state.currentProject, state.projectData);
@@ -599,6 +602,24 @@ window.SLRApp = (() => {
 		const normalized = mode === 'all' ? 'all' : 'missing';
 		state.fetchMode = normalized;
 		localStorage.setItem('slr-fetch-mode', normalized);
+		renderCurrentView();
+	}
+
+	function setProjectsSort(sort) {
+		const valid = ['newest', 'oldest', 'az', 'za'];
+		state.projectsSort = valid.includes(sort) ? sort : 'newest';
+		localStorage.setItem('slr-projects-sort', state.projectsSort);
+		renderCurrentView();
+	}
+
+	function toggleProjectPin(folder) {
+		if (!folder) return;
+		if (state.pinnedProjects.has(folder)) {
+			state.pinnedProjects.delete(folder);
+		} else {
+			state.pinnedProjects.add(folder);
+		}
+		localStorage.setItem('slr-pinned-projects', JSON.stringify([...state.pinnedProjects]));
 		renderCurrentView();
 	}
 
@@ -2375,6 +2396,8 @@ window.SLRApp = (() => {
 		openProject,
 		setFilter,
 		setFetchMode,
+		setProjectsSort,
+		toggleProjectPin,
 		setCorpusFilter,
 		setSelectedFilter,
 		toggleActionsBar,

@@ -779,11 +779,22 @@ a:hover {
   padding: 7px 14px;
   font-size: 13px;
   font-weight: 500;
+}
+
+/* Add Tag (Tags view) reuses this class for sizing only — keep it muted,
+   unlike the turquoise New Project button below. */
+.projects-add-btn.tag-add-btn {
   color: var(--text-muted);
 }
 
-.projects-add-btn:hover {
+.projects-add-btn.tag-add-btn:hover {
   color: var(--text);
+}
+
+/* New Project, empty-projects state: extra emphasis so it's unmissable
+   the first time a folder has no projects yet. */
+.projects-add-btn--emphasize {
+  box-shadow: 0 0 0 4px var(--accent-subtle), var(--shadow);
 }
 
 .btn-danger {
@@ -912,6 +923,28 @@ a:hover {
   color: var(--text-faint);
   white-space: nowrap;
   margin-top: 2px;
+}
+
+/* Top-right dot on a project card: marks it as "currently in progress" */
+.project-pin-dot {
+  width: 13px;
+  height: 13px;
+  border-radius: 50%;
+  border: 2px solid var(--border);
+  background: transparent;
+  flex-shrink: 0;
+  margin-top: 2px;
+  transition: background var(--transition), border-color var(--transition), transform var(--transition);
+}
+
+.project-pin-dot:hover {
+  border-color: var(--accent);
+  transform: scale(1.15);
+}
+
+.project-pin-dot.pinned {
+  background: var(--accent);
+  border-color: var(--accent);
 }
 
 .project-card-stats {
@@ -2624,6 +2657,12 @@ a.db-link:visited {
 
 .projects-header .projects-subtitle {
   margin: 0;
+}
+
+.projects-header-actions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
 }
 
 /* ----------------------------------------------------------
