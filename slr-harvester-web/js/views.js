@@ -3151,21 +3151,9 @@ window.SLRViews = (() => {
     return msg;
   }
 
-  // The exact URL Supabase must be told to redirect confirmation/magic-link
-  // emails back to. Supabase ignores emailRedirectTo for any URL not on the
-  // project's own Authentication → URL Configuration allow-list and falls
-  // back to its placeholder http://localhost:3000 instead — silently, with
-  // no client-visible error — which is the #1 cause of "the confirmation/
-  // magic-link email goes nowhere". This can only be fixed in the Supabase
-  // dashboard itself, so the app's job is to make the exact value to paste
-  // there impossible to miss.
-  function currentAppUrl() {
-    return window.location.origin + window.location.pathname;
-  }
-
-  // Shown wherever the Supabase email/password fields themselves appear —
-  // the modal and Settings' "not signed in" state — since sign-in is the
-  // part that's currently unreliable, not Cloud Sync as a whole.
+  // Shown wherever the Supabase email/password fields themselves appear
+  // (currently just the Home modal) — sign-in is the part that's currently
+  // unreliable, not Cloud Sync as a whole.
   function renderSupabaseDevNotice() {
     return `
       <div class="scopus-api-notice scopus-api-notice-caution" style="margin-bottom:14px">
@@ -3176,55 +3164,24 @@ window.SLRViews = (() => {
       </div>`;
   }
 
-  function renderRedirectUrlNotice(idPrefix) {
-    return `
-      <div class="scopus-api-notice" style="margin-bottom:14px">
-        <span class="scopus-api-notice-icon">${SLRIcons.info}</span>
-        <div>
-          <strong>Confirmation or magic-link email not arriving / leads nowhere?</strong>
-          In your Supabase project, go to <strong>Authentication → URL Configuration</strong>
-          and add this exact URL as both the <strong>Site URL</strong> and a
-          <strong>Redirect URL</strong>:
-          <div style="display:flex;align-items:center;gap:8px;margin:8px 0;flex-wrap:wrap">
-            <code id="${idPrefix}-redirect-url" style="word-break:break-all">${esc(currentAppUrl())}</code>
-            <button type="button" class="btn-secondary" id="${idPrefix}-copy-url-btn" style="flex-shrink:0">Copy</button>
-          </div>
-          Without this, those emails point at Supabase's placeholder
-          <code>localhost:3000</code> instead, which is why the link "can't be reached".
-        </div>
-      </div>`;
-  }
-
-  function wireRedirectUrlCopyButton(container, idPrefix) {
-    const copyBtn = container.querySelector(`#${idPrefix}-copy-url-btn`);
-    if (!copyBtn) return;
-    copyBtn.addEventListener('click', async () => {
-      try {
-        await navigator.clipboard.writeText(currentAppUrl());
-        const original = copyBtn.textContent;
-        copyBtn.textContent = 'Copied!';
-        setTimeout(() => { copyBtn.textContent = original; }, 1500);
-      } catch (_) { /* Clipboard API unavailable/denied — the URL is still selectable text. */ }
-    });
-  }
-
+  // Deliberately minimal: Project URL/key/Save Connection/the full auth form
+  // used to live here too, for pointing Cloud Sync at a different Supabase
+  // project (self-hosting). That's a repo-fork-and-edit-the-constant
+  // scenario now (see DEFAULT_URL/DEFAULT_KEY in data-supabase.js), not a
+  // Settings-UI one — this section is what an ordinary user actually needs:
+  // which backend is active, and sign-out once signed in.
   function renderCloudSyncSection() {
     const backend = SLRData.getBackend();
-    const { url: supabaseUrl, key: supabaseKey } = SLRDataCloud.getCredentials();
     const cloudUser = SLRDataCloud.currentUser();
 
     return `
       <div class="settings-section">
         <h3>Cloud Sync (Supabase)</h3>
         <p class="field-hint" style="margin-top:2px">
-          Sign Up/Log In on the Home screen already connects through this app's
-          own Supabase project — works on any browser or device, including
-          mobile, where the File System Access API isn't available. The fields
-          below are only for pointing Cloud Sync at a <strong>different</strong>
-          Supabase project instead (e.g. self-hosting this app with your own).
+          Sign Up/Log In from the Home screen to sync your projects through the
+          cloud instead of a local folder — works on any browser or device,
+          including mobile, where the File System Access API isn't available.
         </p>
-
-        <div style="margin-top:14px">${renderRedirectUrlNotice('settings-supabase')}</div>
 
         <div class="form-field" style="margin-top:14px">
           <label>Active workspace</label>
@@ -3238,32 +3195,9 @@ window.SLRViews = (() => {
               Cloud Sync
             </label>
           </div>
-        </div>
-
-        <div class="form-field">
-          <label for="settings-supabase-url">Supabase Project URL</label>
-          <input class="form-input monospace" id="settings-supabase-url" type="text"
-            placeholder="https://xxxxxxxx.supabase.co" value="${esc(supabaseUrl)}">
-        </div>
-        <div class="form-field">
-          <label for="settings-supabase-key">Supabase anon / publishable key</label>
-          <div class="secret-input-row">
-            <input class="form-input monospace" id="settings-supabase-key" type="password"
-              placeholder="anon public key or sb_publishable_..." value="${esc(supabaseKey)}">
-            <button class="btn-secondary secret-toggle-btn" type="button" data-target="settings-supabase-key" aria-label="Show key" aria-pressed="false">
-              <span class="secret-toggle-icon">${SLRIcons.eye}</span>
-              <span class="secret-toggle-label">Show</span>
-            </button>
-          </div>
-          <p class="field-hint">From Project Settings → API in your Supabase dashboard. Both the
-            legacy "anon public" key and the newer <code>sb_publishable_...</code> key work here.
-            Safe to use client-side — Row Level Security is the real access gate. Run
-            <code>supabase/schema.sql</code> (in this app's repo) once in your project's SQL
-            editor before connecting.</p>
-        </div>
-        <div class="settings-save-row">
-          <button class="btn-secondary" id="settings-supabase-save-creds-btn">Save Connection</button>
-          <span class="settings-saved-msg" id="settings-supabase-creds-saved-msg">Saved!</span>
+          <p class="field-hint">Local Folder reads/writes a folder on this device via the
+            File System Access API. Cloud Sync stores the same data in Supabase instead,
+            under your account, so it follows you across browsers and devices.</p>
         </div>
 
         ${cloudUser ? `
@@ -3274,157 +3208,20 @@ window.SLRViews = (() => {
           </div>
         ` : `
           ${renderSupabaseDevNotice()}
-          <form id="settings-supabase-form" autocomplete="on">
-            <div class="form-field" style="margin-top:10px">
-              <label for="settings-supabase-email">Email</label>
-              <input class="form-input" id="settings-supabase-email" name="email" type="email" placeholder="you@example.com" autocomplete="email">
-            </div>
-            <div class="form-field">
-              <label for="settings-supabase-password">Password</label>
-              <div class="secret-input-row">
-                <input class="form-input" id="settings-supabase-password" name="password" type="password"
-                  placeholder="Password" autocomplete="current-password">
-                <button class="btn-secondary secret-toggle-btn" type="button" data-target="settings-supabase-password" aria-label="Show password" aria-pressed="false">
-                  <span class="secret-toggle-icon">${SLRIcons.eye}</span>
-                  <span class="secret-toggle-label">Show</span>
-                </button>
-              </div>
-            </div>
-          </form>
-          <div class="settings-save-row">
-            <button class="btn-primary" type="submit" form="settings-supabase-form" id="settings-supabase-signin-btn">Sign In</button>
-            <button class="btn-secondary" type="button" id="settings-supabase-signup-btn">Sign Up</button>
-            <button class="btn-secondary" type="button" id="settings-supabase-magiclink-btn">Email me a magic link</button>
-            <button type="button" class="link-btn" id="settings-supabase-resend-btn">Resend confirmation email</button>
-          </div>
-          <div id="settings-supabase-auth-result" class="scopus-test-result" hidden></div>
         `}
       </div>`;
   }
 
   function wireCloudSyncSection(container) {
-    wireRedirectUrlCopyButton(container, 'settings-supabase');
-
     container.querySelectorAll('input[name="backend-switch"]').forEach(radio => {
       radio.addEventListener('change', () => {
         if (radio.checked) SLRApp.switchBackend(radio.value);
       });
     });
 
-    const saveCredsBtn = container.querySelector('#settings-supabase-save-creds-btn');
-    if (saveCredsBtn) {
-      saveCredsBtn.addEventListener('click', () => {
-        const url = container.querySelector('#settings-supabase-url').value.trim();
-        const key = container.querySelector('#settings-supabase-key').value.trim();
-        SLRApp.saveCloudCredentials(url, key);
-        const msg = container.querySelector('#settings-supabase-creds-saved-msg');
-        if (msg) {
-          msg.classList.add('visible');
-          setTimeout(() => msg.classList.remove('visible'), 2000);
-        }
-      });
-    }
-
     const signOutBtn = container.querySelector('#settings-supabase-signout-btn');
     if (signOutBtn) {
       signOutBtn.addEventListener('click', () => SLRApp.cloudSignOut());
-    }
-
-    const resultEl  = container.querySelector('#settings-supabase-auth-result');
-    const resendBtn = container.querySelector('#settings-supabase-resend-btn');
-    function showAuthResult(message, isError) {
-      if (!resultEl) return;
-      resultEl.hidden = false;
-      resultEl.textContent = message;
-      resultEl.classList.toggle('scopus-test-fail', !!isError);
-    }
-
-    function readEmailPassword() {
-      return {
-        email: (container.querySelector('#settings-supabase-email')?.value || '').trim(),
-        password: container.querySelector('#settings-supabase-password')?.value || '',
-      };
-    }
-
-    // Every auth action re-applies whatever is currently typed in the
-    // Project URL/key fields first — previously only the separate "Save
-    // Connection" button did this, so typing new/updated credentials and
-    // going straight to Sign In (the natural flow) silently authenticated
-    // against whatever was last saved (or nothing), not what was just
-    // typed. This is very likely the actual cause behind "the credentials
-    // are definitely correct but sign-in still fails."
-    function applyCurrentCredentials() {
-      const url = container.querySelector('#settings-supabase-url')?.value.trim() || '';
-      const key = container.querySelector('#settings-supabase-key')?.value.trim() || '';
-      if (url && key) SLRDataCloud.configure(url, key);
-    }
-
-    // Sign In is type="submit" (associated via form="settings-supabase-form"),
-    // so both a click and pressing Enter in either field route through this
-    // one submit handler — also the signal password managers watch for to
-    // offer saving the credentials just entered.
-    const signInForm = container.querySelector('#settings-supabase-form');
-    if (signInForm) {
-      signInForm.addEventListener('submit', async e => {
-        e.preventDefault();
-        const { email, password } = readEmailPassword();
-        if (!email || !password) { showAuthResult('Enter an email and password.', true); return; }
-        applyCurrentCredentials();
-        try {
-          await SLRApp.cloudAuth('signin', email, password);
-        } catch (err) {
-          showAuthResult(describeAuthError(err, 'signin'), true);
-        }
-      });
-    }
-
-    const signUpBtn = container.querySelector('#settings-supabase-signup-btn');
-    if (signUpBtn) {
-      signUpBtn.addEventListener('click', async () => {
-        const { email, password } = readEmailPassword();
-        if (!email || !password) { showAuthResult('Enter an email and password.', true); return; }
-        applyCurrentCredentials();
-        try {
-          const result = await SLRApp.cloudAuth('signup', email, password);
-          if (result && result.confirmed === false) {
-            showAuthResult('Account created — check your email to confirm it, then sign in above.', false);
-          }
-        } catch (err) {
-          showAuthResult(describeAuthError(err, 'signup'), true);
-        }
-      });
-    }
-
-    const magicLinkBtn = container.querySelector('#settings-supabase-magiclink-btn');
-    if (magicLinkBtn) {
-      magicLinkBtn.addEventListener('click', async () => {
-        const { email } = readEmailPassword();
-        if (!email) { showAuthResult('Enter an email first.', true); return; }
-        applyCurrentCredentials();
-        try {
-          await SLRApp.cloudAuth('magiclink', email);
-          showAuthResult('Magic link sent — check your email.', false);
-        } catch (err) {
-          showAuthResult(err.message || String(err), true);
-        }
-      });
-    }
-
-    if (resendBtn) {
-      resendBtn.addEventListener('click', async () => {
-        const { email } = readEmailPassword();
-        if (!email) { showAuthResult('Enter an email first.', true); return; }
-        applyCurrentCredentials();
-        resendBtn.disabled = true;
-        try {
-          await SLRDataCloud.resendConfirmation(email);
-          showAuthResult('Confirmation email resent — check your inbox.', false);
-        } catch (err) {
-          showAuthResult(err.message || String(err), true);
-        } finally {
-          resendBtn.disabled = false;
-        }
-      });
     }
   }
 

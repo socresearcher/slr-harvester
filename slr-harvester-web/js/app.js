@@ -614,13 +614,6 @@ window.SLRApp = (() => {
 		renderCurrentView();
 	}
 
-	function saveCloudCredentials(url, key) {
-		SLRDataCloud.configure(url, key);
-		resetWorkspaceState();
-		renderCurrentView();
-		showToast('Supabase connection saved.', false);
-	}
-
 	// action: 'signin' | 'signup' | 'magiclink'. Throws on failure — the
 	// Settings/Welcome forms display the error inline; on success this loads
 	// the cloud workspace the same way openFolder() does locally. Returns
@@ -2484,7 +2477,6 @@ window.SLRApp = (() => {
 		navigate,
 		openFolder,
 		switchBackend,
-		saveCloudCredentials,
 		cloudAuth,
 		cloudSignOut,
 		openProject,

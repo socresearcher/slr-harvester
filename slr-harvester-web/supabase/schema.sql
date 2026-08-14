@@ -27,9 +27,12 @@
 --   5. Project Settings → API → copy the "Project URL" and the "anon
 --      public" key (or, on newer projects, the "Publishable key" —
 --      sb_publishable_... — which replaces it and works the same way here).
---   6. In SLR Harvester Web, click "Sign Up" on the Home screen (or paste
---      both into Settings → Cloud Sync first, if using a different project
---      than the one already built into the app).
+--   6. In SLR Harvester Web, click "Sign Up" on the Home screen — it
+--      connects through this app's own built-in project automatically.
+--      Self-hosting this app against a *different* project instead of the
+--      built-in one is a source change, not a Settings-UI one: edit
+--      DEFAULT_URL/DEFAULT_KEY in js/data-supabase.js to the values from
+--      step 5 above.
 --
 -- The anon/publishable key is safe to use client-side — it's designed to be public.
 -- Row Level Security (enabled below) is what actually protects the data:

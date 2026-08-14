@@ -899,12 +899,22 @@ a:hover {
   padding: 12px 16px;
   max-width: 460px;
   margin-top: 14px;
-  color: var(--danger);
+  /* Body text reads as plain/neutral, not alarm-red — var(--text) rather
+     than a literal white so light theme (whose --danger-subtle is a pale
+     pink) doesn't go illegible; this still lands near-white in dark
+     theme, matching what was asked for. The icon keeps --danger below. */
+  color: var(--text);
   font-size: 13px;
+  font-weight: 400;
   text-align: left;
 }
 
+.welcome-compat-notice strong {
+  font-weight: 400;
+}
+
 .welcome-compat-notice svg {
+  color: var(--danger);
   width: 16px;
   height: 16px;
   flex-shrink: 0;
