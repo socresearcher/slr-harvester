@@ -244,16 +244,26 @@ window.SLRIcons = (() => {
        <path d="M12 3a15 15 0 0 0 0 18"/>`
     ),
 
-    // Supabase mark — a bolt/flash glyph in the brand's green, used only on
-    // the "Continue with Supabase" button and the About page's Cloud Sync
-    // note. Not the literal trademarked asset (this is original geometry,
-    // not traced from Supabase's brand SVG), just evocative of it via shape
-    // + brand color — filled, not stroke-based like the rest of this set,
-    // so it doesn't go through base() or take on currentColor.
+    // Supabase mark — a bolt/flash glyph, used on the "Continue with
+    // Supabase" button and the About page's Cloud Sync note. Not the
+    // literal trademarked asset (original geometry, not traced from
+    // Supabase's brand SVG), just evocative of it via shape — filled with
+    // currentColor like the rest of this set (unlike Supabase's own asset,
+    // which is always brand green) so it reads correctly in every context:
+    // ink-colored for contrast on the turquoise button, accent-turquoise
+    // inline with the rest of the About page's icon list.
     supabaseLogo:
-      `<svg viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
-         <path d="M13.4 21.6c-.5.7-1.7.3-1.6-.6l.4-9.5h6.9c1.3 0 2.1 1.5 1.3 2.6l-7 7.5z" fill="#3ECF8E"/>
-         <path d="M10.6 2.4c.5-.7 1.7-.3 1.6.6l-.4 9.5H4.9c-1.3 0-2.1-1.5-1.3-2.6l7-7.5z" fill="#3ECF8E"/>
+      `<svg viewBox="0 0 24 24" fill="currentColor" xmlns="http://www.w3.org/2000/svg">
+         <path d="M13.4 21.6c-.5.7-1.7.3-1.6-.6l.4-9.5h6.9c1.3 0 2.1 1.5 1.3 2.6l-7 7.5z"/>
+         <path d="M10.6 2.4c.5-.7 1.7-.3 1.6.6l-.4 9.5H4.9c-1.3 0-2.1-1.5-1.3-2.6l7-7.5z"/>
+       </svg>`,
+
+    // GitHub octicon "mark-github" — GitHub's own MIT-licensed icon mark
+    // (github.com/primer/octicons), used on the "Hosted on GitHub Pages"
+    // About bullet. Filled, currentColor.
+    githubLogo:
+      `<svg viewBox="0 0 16 16" fill="currentColor" xmlns="http://www.w3.org/2000/svg">
+         <path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0 0 16 8c0-4.42-3.58-8-8-8z"/>
        </svg>`,
 
     // Databases — cylinder stack
