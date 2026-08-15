@@ -4636,15 +4636,13 @@ a.db-link:visited {
   width: 100%;
   min-width: 0;
   flex: none;
-  border-radius: 18px;
-  overflow: hidden;
 }
 
 .viz-world-svg {
   width: 100%;
   height: auto;
   max-height: none;
-  aspect-ratio: 1000 / 422;
+  aspect-ratio: 1000 / 520;
   display: block;
   margin: 0 auto;
 }
@@ -4653,8 +4651,18 @@ a.db-link:visited {
   width: 100%;
 }
 
+/* Sits between the map and the legend (map -> status -> legend) — the data-
+   coverage note, the color scale, and the source credit used to float as
+   overlays on top of the map itself; moved here so the map surface only
+   ever shows the map. */
+.viz-world-status {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px 16px;
+}
+
 .viz-world-note {
-  margin-top: 10px;
   font-size: 11.5px;
   color: var(--text-muted);
 }
@@ -4694,7 +4702,11 @@ a.db-link:visited {
   position: relative;
   touch-action: none;
   cursor: grab;
-  background: var(--surface-2);
+  /* No background/border/overflow-clip of its own — the SVG's own ocean
+     rect (rx=18, themed fill) already provides the map's sea backdrop and
+     rounded edge; a second box wrapping it here would just be a redundant
+     frame around the map for no visual gain (in light theme --surface-2
+     equals --bg exactly, so it was invisible there anyway). */
 }
 
 .viz-world-stage.is-panning {
@@ -4736,16 +4748,9 @@ a.db-link:visited {
 }
 
 .viz-world-credit {
-  position: absolute;
-  bottom: 6px;
-  left: 10px;
   font-size: 10px;
   color: var(--text-faint);
-  background: color-mix(in srgb, var(--surface) 70%, transparent);
-  padding: 1px 6px;
-  border-radius: 4px;
-  pointer-events: auto;
-  z-index: 2;
+  margin-left: auto;
 }
 
 .viz-world-credit a {
@@ -4757,7 +4762,6 @@ a.db-link:visited {
   display: flex;
   align-items: center;
   gap: 8px;
-  margin-top: 8px;
   font-size: 11px;
   color: var(--text-muted);
 }
