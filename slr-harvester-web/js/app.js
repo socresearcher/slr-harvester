@@ -12,7 +12,6 @@ window.SLRApp = (() => {
 		theme: localStorage.getItem('slr-theme') || 'dark',
 		sidebarCollapsed: localStorage.getItem('slr-sidebar-collapsed') === '1',
 		folderName: '',
-		actionsBarVisible: localStorage.getItem('slr-actions-visible') === '1',
 
 		projects: [],
 		currentFolder: null,
@@ -713,12 +712,6 @@ window.SLRApp = (() => {
 
 	function setSelectedFilter(patch) {
 		state.selectedFilter = { ...state.selectedFilter, ...patch };
-		renderCurrentView();
-	}
-
-	function toggleActionsBar() {
-		state.actionsBarVisible = !state.actionsBarVisible;
-		localStorage.setItem('slr-actions-visible', state.actionsBarVisible ? '1' : '0');
 		renderCurrentView();
 	}
 
@@ -2517,7 +2510,6 @@ window.SLRApp = (() => {
 		toggleProjectPin,
 		setCorpusFilter,
 		setSelectedFilter,
-		toggleActionsBar,
 		toggleTagBreakdown,
 		updateAnnotation,
 		updateProjectMeta,
