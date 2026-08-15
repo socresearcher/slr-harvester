@@ -36,7 +36,10 @@ window.SLRWorldMap = (() => {
     const themeColor = (token, fallback) => theme ? (theme.getPropertyValue(token).trim() || fallback) : fallback;
 
     return {
-      ocean: themeColor('--surface-2', '#21262d'),
+      // Matches the page background exactly rather than --surface-2, so the
+      // map has no visible "box" of its own — just country shapes sitting
+      // directly on the page (dark theme: near-black, per request).
+      ocean: themeColor('--bg', '#0d1117'),
       oceanStroke: themeColor('--border', '#30363d'),
       land: themeColor('--surface-3', '#2d333b'),
       landStroke: themeColor('--border', '#30363d'),
@@ -454,9 +457,15 @@ window.SLRWorldMap = (() => {
       apply();
     };
 
+    // Keeps the viewport rectangle fully inside the map's base extent. At
+    // view.w === base.w (no zoom) both bounds collapse to base.x, so panning
+    // is impossible — exactly right, since there's nowhere left to pan to.
+    // The old formula allowed +/- half the map's width/height of slack even
+    // at full zoom-out, which is what let the map be dragged off-screen
+    // entirely regardless of zoom level.
     const clampPan = () => {
-      view.x = Math.max(base.x - view.w * 0.5, Math.min(base.x + base.w - view.w * 0.5, view.x));
-      view.y = Math.max(base.y - view.h * 0.5, Math.min(base.y + base.h - view.h * 0.5, view.y));
+      view.x = Math.min(Math.max(view.x, base.x), base.x + base.w - view.w);
+      view.y = Math.min(Math.max(view.y, base.y), base.y + base.h - view.h);
     };
 
     stageEl.addEventListener('wheel', (ev) => {

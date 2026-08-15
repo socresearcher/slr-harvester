@@ -4449,15 +4449,28 @@ a.db-link:visited {
   margin-top: 4px;
 }
 
-/* Controls bar: chart-type tabs left, mode tabs right */
+/* Controls bar: top row is scope (All/Selected/Corpus) + chart-type picker,
+   bottom row is the Hide None / Hide Legend / Export PNG buttons. */
 .viz-section-controls {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-bottom: 10px;
+}
+
+.viz-controls-row {
   display: flex;
   align-items: center;
   gap: 8px;
   flex-wrap: wrap;
-  flex: 1;
+}
+
+.viz-controls-row--top {
   justify-content: space-between;
-  margin-bottom: 10px;
+}
+
+.viz-chart-select {
+  min-width: 200px;
 }
 
 /* Chart heading sits below the controls row */
@@ -4571,22 +4584,6 @@ a.db-link:visited {
   font-size: 13px;
 }
 
-/* Section controls row (chart-type tabs + mode tabs together) */
-.viz-section-controls {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  flex-wrap: wrap;
-  flex: 1;
-  justify-content: space-between;
-}
-
-.viz-chart-tabs {
-  display: flex;
-  gap: 2px;
-  margin-right: 4px;
-}
-
 .viz-legend-toggle {
   display: inline-flex;
   align-items: center;
@@ -4636,54 +4633,28 @@ a.db-link:visited {
   flex-shrink: 0;
 }
 
-.viz-chart-tab {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 30px;
-  height: 30px;
-  background: var(--surface-2);
-  border: 1px solid var(--border);
-  border-radius: 6px;
-  color: var(--text-muted);
-  cursor: pointer;
-  transition: background var(--transition), color var(--transition), border-color var(--transition);
-}
-
-.viz-chart-tab svg {
-  width: 15px;
-  height: 15px;
-  pointer-events: none;
-}
-
-.viz-chart-tab.active,
-.viz-chart-tab:hover {
-  background: var(--accent-subtle, rgba(88, 166, 255, .12));
-  color: var(--accent);
-  border-color: var(--accent);
-}
-
-/* Doughnut chart */
+/* Doughnut chart — centered, legend below, same stacked layout as the
+   Year and World charts instead of the old side-by-side arrangement. */
 .viz-doughnut-wrap {
   display: flex;
-  align-items: flex-start;
-  gap: 24px;
-  flex-wrap: wrap;
+  flex-direction: column;
+  align-items: center;
+  gap: 16px;
   padding: 4px 0;
 }
 
-.viz-doughnut-wrap.legend-hidden {
-  justify-content: center;
-}
-
 .viz-doughnut-svg {
-  width: min(360px, 50%);
+  width: min(360px, 100%);
   height: auto;
   flex-shrink: 0;
 }
 
 .viz-doughnut-wrap.legend-hidden .viz-doughnut-svg {
   width: min(520px, 100%);
+}
+
+.viz-doughnut-wrap .viz-legend {
+  width: 100%;
 }
 
 .viz-world-wrap {
@@ -4965,10 +4936,6 @@ a.db-link:visited {
   background: var(--surface-2);
 }
 
-.viz-col-chart-wrap.legend-hidden .viz-col-chart {
-  height: clamp(360px, calc(100vh - 320px), 900px);
-}
-
 /* ── PRISMA 2020 Screening Flow ──────────────────── */
 .prisma-wrap {
   max-width: 860px;
@@ -5140,7 +5107,10 @@ a.db-link:visited {
   margin-top: 2px;
 }
 
-/* Year / stacked vertical column chart */
+/* Year / stacked vertical column chart.
+   Three parallel rows (counts / bars-area / year labels) instead of one
+   self-contained column per year — this is what lets a single grid overlay
+   sit behind every bar at once instead of needing per-column math. */
 .viz-col-chart-wrap {
   overflow-x: auto;
   padding-bottom: 4px;
@@ -5148,24 +5118,38 @@ a.db-link:visited {
 
 .viz-col-chart {
   display: flex;
-  align-items: stretch;
-  gap: 6px;
-  height: clamp(280px, calc(100vh - 380px), 800px);
+  flex-direction: column;
+  gap: 4px;
   padding: 0 4px;
 }
 
-.viz-col-item {
+.viz-col-counts,
+.viz-col-bars-area,
+.viz-col-years {
   display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 4px;
+  gap: 6px;
+  padding-left: 30px;
+}
+
+.viz-col-counts > *,
+.viz-col-years > * {
   flex: 1;
   min-width: 28px;
+  text-align: center;
+}
+
+/* Height is user-resizable via .viz-col-resize-handle below (inline style
+   sets the actual px value) — this is just a sane first-paint fallback. */
+.viz-col-bars-area {
+  position: relative;
+  align-items: flex-end;
+  height: 320px;
 }
 
 .viz-col-bar-wrap {
   flex: 1;
-  width: 100%;
+  min-width: 28px;
+  height: 100%;
   display: flex;
   align-items: flex-end;
 }
@@ -5203,6 +5187,60 @@ a.db-link:visited {
   color: var(--text-muted);
   white-space: nowrap;
   font-variant-numeric: tabular-nums;
+}
+
+/* Count-axis grid — sits behind the bars, spanning the same 30px-left-gutter
+   box as .viz-col-bars-area so its 0%/100% match the bars' own scale
+   exactly (both are computed against the same "nice tick" top value). */
+.viz-year-grid {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+}
+
+.viz-year-grid-line {
+  position: absolute;
+  left: 30px;
+  right: 4px;
+  border-top: 1px dashed var(--border-subtle);
+}
+
+.viz-year-grid-label {
+  position: absolute;
+  left: -30px;
+  top: 0;
+  width: 26px;
+  transform: translateY(-50%);
+  text-align: right;
+  font-size: 10px;
+  font-variant-numeric: tabular-nums;
+  color: var(--text-faint);
+}
+
+/* Drag handle: resizes .viz-col-bars-area's height (see wireYearChartResize
+   in views.js) — kept outside .viz-col-chart-wrap so it never scrolls away
+   horizontally with the bars. */
+.viz-col-resize-handle {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 16px;
+  margin-top: 2px;
+  cursor: ns-resize;
+  touch-action: none;
+}
+
+.viz-col-resize-grip {
+  width: 44px;
+  height: 4px;
+  border-radius: 2px;
+  background: var(--border);
+  transition: background var(--transition);
+}
+
+.viz-col-resize-handle:hover .viz-col-resize-grip,
+.viz-col-resize-handle.is-dragging .viz-col-resize-grip {
+  background: var(--accent);
 }
 
 /* ----------------------------------------------------------
