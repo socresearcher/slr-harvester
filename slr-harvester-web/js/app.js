@@ -503,6 +503,23 @@ window.SLRApp = (() => {
 		if (view !== 'projects' && view !== 'search') markOnboardingStep(view);
 	}
 
+	// Entry point for Home's "First time here?" hint: jumps to About and
+	// scrolls/flashes the section that used to be static text on Home itself.
+	function gotoAboutFirstTime() {
+		navigate('about');
+		pulseNavHint('about');
+		// renderCurrentView() above already ran synchronously, so the section
+		// is live in the DOM here — no need to defer to a frame callback.
+		const section = document.getElementById('about-first-time');
+		if (!section) return;
+		section.scrollIntoView({ behavior: 'smooth', block: 'start' });
+		if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) return;
+		section.classList.remove('section-hint-pulse');
+		void section.offsetWidth;
+		section.classList.add('section-hint-pulse');
+		section.addEventListener('animationend', () => section.classList.remove('section-hint-pulse'), { once: true });
+	}
+
 	async function hydrateProject(folderName) {
 		const project = state.projects.find(p => p.workspace_folder === folderName) || null;
 		if (!project) throw new Error('Project not found');
@@ -2488,6 +2505,7 @@ window.SLRApp = (() => {
 	return {
 		state,
 		navigate,
+		gotoAboutFirstTime,
 		openFolder,
 		switchBackend,
 		cloudAuth,

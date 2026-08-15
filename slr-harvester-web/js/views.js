@@ -225,6 +225,13 @@ window.SLRViews = (() => {
          neither does any mobile browser. Use <strong>Sign Up</strong> or
          <strong>Log In</strong> above instead.`;
 
+    // The onboarding walkthrough (mobile/Firefox/Safari, first time with
+    // Local Folder, already have local data) used to live here as static
+    // text — now it's a dedicated section in About so it's one tap away
+    // instead of permanently taking up Home's layout. This hint is the
+    // pointer left in its place; dismissing it is remembered for good.
+    const firsttimeDismissed = localStorage.getItem('slr-firsttime-hint-dismissed') === '1';
+
     container.innerHTML = `
       <div class="welcome-view" id="home">
         <canvas id="heroParticles" class="hero-particles-canvas" aria-hidden="true"></canvas>
@@ -269,29 +276,27 @@ window.SLRViews = (() => {
           </button>
         </div>
 
-        <div class="welcome-tips">
-          <p><strong>On mobile, or Firefox/Safari?</strong> Local Folder needs the
-          File System Access API, which isn't available there — use
-          <strong>Sign Up</strong> or <strong>Log In</strong> instead: it syncs your
-          projects through the cloud and works in any browser.</p>
-          <p><strong>First time with Local Folder?</strong> Click the button above,
-          then create a new, empty folder in the picker dialog (any name works, e.g.
-          <code>SLR-Harvester-Data</code>) and select it. The app sets everything up
-          the moment you create your first project — nothing is written until then.</p>
-          <p><strong>Already have local data?</strong> Select the folder that contains
-          <code>projects.json</code> and the <code>projects/</code> directory - your existing
-          SLR Harvester workspace. Works with local folders and cloud-synced drives
-          (OneDrive, Google Drive) alike.</p>
-          <div class="welcome-compat-notice" id="welcome-compat-notice" hidden>
-            ${SLRIcons.warning}
-            <span>${compatMessage}</span>
-          </div>
+        <div class="welcome-compat-notice" id="welcome-compat-notice" hidden>
+          ${SLRIcons.warning}
+          <span>${compatMessage}</span>
         </div>
 
         <div class="welcome-copyright">
           <span class="welcome-copyright-icon">&copy;</span>
           <span>2026 Gregor Hobersdorfer</span>
         </div>
+
+        ${firsttimeDismissed ? '' : `
+          <div class="welcome-firsttime-hint" id="welcome-firsttime-hint">
+            <button type="button" class="welcome-firsttime-btn" id="welcome-firsttime-btn"
+                    title="Go to the &quot;First time here?&quot; section in About">
+              ${SLRIcons.chevronLeft}
+              <span>First time here?</span>
+            </button>
+            <button type="button" class="welcome-firsttime-close" id="welcome-firsttime-close"
+                    title="Dismiss" aria-label="Dismiss">${SLRIcons.close}</button>
+          </div>
+        `}
       </div>`;
 
     container.querySelector('#welcome-open-btn').addEventListener('click', () => {
@@ -302,6 +307,30 @@ window.SLRViews = (() => {
         if (notice) notice.hidden = false;
       }
     });
+
+    if (!firsttimeDismissed) {
+      const hintEl = container.querySelector('#welcome-firsttime-hint');
+      const welcomeEl = container.querySelector('.welcome-view');
+      const positionFirsttimeHint = () => {
+        if (!hintEl.isConnected) { window.removeEventListener('resize', positionFirsttimeHint); return; }
+        const aboutBtn = document.querySelector('.sidebar .nav-item[data-view="about"]');
+        if (!aboutBtn) return;
+        const aboutRect   = aboutBtn.getBoundingClientRect();
+        const welcomeRect = welcomeEl.getBoundingClientRect();
+        const top = (aboutRect.top - welcomeRect.top) + aboutRect.height / 2 - hintEl.offsetHeight / 2;
+        hintEl.style.top = `${Math.max(8, top)}px`;
+      };
+      positionFirsttimeHint();
+      window.addEventListener('resize', positionFirsttimeHint);
+
+      container.querySelector('#welcome-firsttime-btn').addEventListener('click', () => {
+        SLRApp.gotoAboutFirstTime();
+      });
+      container.querySelector('#welcome-firsttime-close').addEventListener('click', () => {
+        localStorage.setItem('slr-firsttime-hint-dismissed', '1');
+        hintEl.remove();
+      });
+    }
 
     if (cloudUser) {
       container.querySelector('#welcome-goto-projects-btn').addEventListener('click', () => {
@@ -3775,6 +3804,31 @@ window.SLRViews = (() => {
             ${SLRIcons.info}
             <span>Privacy &amp; Cookies</span>
           </button>
+        </div>
+
+        <div class="settings-section" id="about-first-time">
+          <h3>First time here?</h3>
+          <p style="font-size:13px;color:var(--text-muted);line-height:1.7">
+            <strong>On mobile, or Firefox/Safari?</strong> Local Folder needs the
+            File System Access API, which isn't available there — use
+            <strong>Sign Up</strong> or <strong>Log In</strong> on the Home screen
+            instead: it syncs your projects through the cloud and works in any
+            browser.
+          </p>
+          <p style="font-size:13px;color:var(--text-muted);margin-top:10px;line-height:1.7">
+            <strong>First time with Local Folder?</strong> Click <strong>Continue
+            with Local Folder</strong> on the Home screen, then create a new, empty
+            folder in the picker dialog (any name works, e.g.
+            <code>SLR-Harvester-Data</code>) and select it. The app sets everything
+            up the moment you create your first project — nothing is written until
+            then.
+          </p>
+          <p style="font-size:13px;color:var(--text-muted);margin-top:10px;line-height:1.7">
+            <strong>Already have local data?</strong> Select the folder that
+            contains <code>projects.json</code> and the <code>projects/</code>
+            directory - your existing SLR Harvester workspace. Works with local
+            folders and cloud-synced drives (OneDrive, Google Drive) alike.
+          </p>
         </div>
 
         <div class="about-v2-banner">
