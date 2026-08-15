@@ -1988,16 +1988,36 @@ window.SLRViews = (() => {
         y += 36;
       });
     } else if (chartType === 'year') {
-      const cols = [...chartEl.querySelectorAll('.viz-col-item')];
-      const chartH = cH - 56, cw2 = cols.length ? Math.min(50, Math.floor((cW - 8) / cols.length)) : 40;
+      // The chart is now three parallel rows (counts / bars-area / year
+      // labels) instead of one .viz-col-item per column, so the per-column
+      // elements are gathered by matching index across each row rather than
+      // queried from within a single grouping element.
+      const barWraps = [...chartEl.querySelectorAll('.viz-col-bar-wrap')];
+      const labelEls = [...chartEl.querySelectorAll('.viz-col-label')];
+      const countEls = [...chartEl.querySelectorAll('.viz-col-count')];
+      const chartH = cH - 56, cw2 = barWraps.length ? Math.min(50, Math.floor((cW - 8) / barWraps.length)) : 40;
+
+      const gridLines = [...chartEl.querySelectorAll('.viz-year-grid-line')];
+      if (gridLines.length) {
+        ctx.save();
+        ctx.strokeStyle = bdC;
+        ctx.setLineDash([3, 3]);
+        gridLines.forEach(line => {
+          const bottomPct = parseFloat(line.style.bottom) || 0;
+          const y = oy + chartH - (chartH * bottomPct / 100);
+          ctx.beginPath(); ctx.moveTo(ox, y); ctx.lineTo(ox + cW, y); ctx.stroke();
+        });
+        ctx.restore();
+      }
+
       let x = ox; ctx.textAlign = 'center';
-      cols.forEach(col => {
-        const bEl = col.querySelector('.viz-col-bar'), lEl = col.querySelector('.viz-col-label'),
-              kEl = col.querySelector('.viz-col-count');
+      barWraps.forEach((wrap, i) => {
+        const bEl = wrap.querySelector('.viz-col-bar');
+        const lEl = labelEls[i], kEl = countEls[i];
         if (!bEl || !lEl) return;
         const barH = chartH * (parseFloat(bEl.style.height) || 0) / 100;
         const barTop = oy + (chartH - barH);
-        const segs  = [...col.querySelectorAll('.viz-col-seg')];
+        const segs  = [...bEl.querySelectorAll('.viz-col-seg')];
         const total = segs.reduce((s, sg) => s + (parseFloat(sg.style.flex) || 1), 0) || 1;
         let segY = barTop;
         segs.forEach(sg => {
@@ -2210,6 +2230,23 @@ window.SLRViews = (() => {
       return { years, maxTotal };
     };
 
+      // Nice round tick values for the year chart's count-axis grid (e.g.
+      // 0/10/20/30/40/50 for a max around 47) — same "nice numbers" approach
+      // any charting library uses, so the grid always lands on round marks
+      // instead of splitting the raw max into awkward fractions.
+      const niceTicks = (maxValue, targetCount = 5) => {
+        const max = Math.max(1, maxValue);
+        const rawStep = max / targetCount;
+        const mag = Math.pow(10, Math.floor(Math.log10(rawStep)));
+        const norm = rawStep / mag;
+        const niceNorm = norm < 1.5 ? 1 : norm < 3 ? 2 : norm < 7 ? 5 : 10;
+        const step = Math.max(1, Math.round(niceNorm * mag));
+        const ticks = [];
+        for (let v = 0; v <= max + step * 0.001; v += step) ticks.push(v);
+        if (ticks.length < 2) ticks.push(step);
+        return ticks;
+      };
+
       const renderYearBars = (mode, showLegend, includeNone) => {
       const { years, maxTotal } = computeYearData(getSubset(mode), includeNone);
       if (years.length === 0) return `<div class="viz-empty-bars">No year data available.</div>`;
@@ -2226,24 +2263,31 @@ window.SLRViews = (() => {
       const noneMeta = tagTotals.get('__none__');
       const allTagEntries = noneMeta ? [...namedTags, ['__none__', noneMeta]] : namedTags;
 
-      const cols = years.map(([yr, tagMap]) => {
+      const ticks    = niceTicks(maxTotal);
+      const topValue = ticks[ticks.length - 1];
+      const gridHTML = ticks.map(t => `
+        <div class="viz-year-grid-line" style="bottom:${(t / topValue * 100).toFixed(2)}%">
+          <span class="viz-year-grid-label">${t}</span>
+        </div>`).join('');
+
+      const counts = years.map(([, tagMap]) => {
         const total = [...tagMap.values()].reduce((s, v) => s + v.count, 0);
-        const heightPct = maxTotal > 0 ? (total / maxTotal * 100).toFixed(1) : '0';
+        return `<div class="viz-col-count">${total}</div>`;
+      }).join('');
+
+      const bars = years.map(([, tagMap]) => {
+        const total = [...tagMap.values()].reduce((s, v) => s + v.count, 0);
+        const heightPct = topValue > 0 ? (total / topValue * 100).toFixed(1) : '0';
         const tagged   = [...tagMap.entries()].filter(([k]) => k !== '__none__').sort((a, b) => b[1].count - a[1].count);
         const none     = tagMap.get('__none__');
         const allSegs  = none ? [...tagged, ['__none__', none]] : tagged;
         const segs = allSegs.map(([key, v]) => {
           return `<div class="viz-col-seg" data-tag-key="${esc(key)}" style="flex:${v.count};background:${v.hex}" title="${esc(v.label)}: ${v.count}"></div>`;
         }).join('');
-        return `
-          <div class="viz-col-item">
-            <div class="viz-col-count">${total}</div>
-            <div class="viz-col-bar-wrap">
-              <div class="viz-col-bar" style="height:${heightPct}%">${segs}</div>
-            </div>
-            <div class="viz-col-label">${yr}</div>
-          </div>`;
+        return `<div class="viz-col-bar-wrap"><div class="viz-col-bar" style="height:${heightPct}%">${segs}</div></div>`;
       }).join('');
+
+      const labels = years.map(([yr]) => `<div class="viz-col-label">${yr}</div>`).join('');
 
       const legendHTML = allTagEntries.map(([key, { label, hex }]) =>
         `<div class="viz-year-legend-item viz-legend-item" data-tag-key="${esc(key)}">
@@ -2252,7 +2296,31 @@ window.SLRViews = (() => {
         </div>`
       ).join('');
 
-        return `<div class="viz-col-chart-wrap${showLegend ? '' : ' legend-hidden'}"><div class="viz-col-chart">${cols}</div></div>${showLegend && legendHTML ? `<div class="viz-year-legend">${legendHTML}</div>` : ''}`;
+      // Height is user-resizable (drag handle below) and persisted — a flat
+      // default independent of viewport height, unlike the old vh-based
+      // clamp() that made the chart towering in portrait and squashed in
+      // landscape.
+      const savedHeight = parseInt(localStorage.getItem('slr-year-chart-height'), 10);
+      const chartHeight = (Number.isFinite(savedHeight) && savedHeight >= 160 && savedHeight <= 700) ? savedHeight : 320;
+
+      return `
+        <div class="viz-year-chart-block">
+          <div class="viz-col-chart-wrap${showLegend ? '' : ' legend-hidden'}">
+            <div class="viz-col-chart">
+              <div class="viz-col-counts">${counts}</div>
+              <div class="viz-col-bars-area" id="viz-year-bars-area" style="height:${chartHeight}px">
+                <div class="viz-year-grid">${gridHTML}</div>
+                ${bars}
+              </div>
+              <div class="viz-col-years">${labels}</div>
+            </div>
+          </div>
+          <div class="viz-col-resize-handle" id="viz-year-resize-handle"
+               title="Drag to resize chart height" role="separator" aria-orientation="horizontal">
+            <span class="viz-col-resize-grip"></span>
+          </div>
+        </div>
+        ${showLegend && legendHTML ? `<div class="viz-year-legend">${legendHTML}</div>` : ''}`;
     };
 
     const renderPrisma = () => {
@@ -2329,21 +2397,25 @@ window.SLRViews = (() => {
 
         <div class="viz-section">
           <div class="viz-section-controls">
-            <div class="viz-chart-tabs">
-              <button class="viz-chart-tab active" data-chart="doughnut" title="Doughnut chart">${SLRIcons.corpus}</button>
-              <button class="viz-chart-tab" data-chart="bars" title="Bar chart">${SLRIcons.chart}</button>
-              <button class="viz-chart-tab" data-chart="year" title="Year distribution">${SLRIcons.calendar}</button>
-              <button class="viz-chart-tab" data-chart="world" title="World map">${SLRIcons.globe}</button>
-              <button class="viz-chart-tab" data-chart="prisma" title="Screening Flow">${SLRIcons.prisma}</button>
+            <div class="viz-controls-row viz-controls-row--top">
+              <div class="viz-mode-tabs">
+                <button class="viz-mode-tab active" data-mode="all">All&nbsp;(${stats.total})</button>
+                <button class="viz-mode-tab" data-mode="selected">Selected&nbsp;(${stats.selected})</button>
+                <button class="viz-mode-tab" data-mode="corpus">Corpus&nbsp;(${stats.corpus})</button>
+              </div>
+              <select class="filter-select viz-chart-select" id="viz-chart-select" title="Chart type">
+                <option value="doughnut">Tag Distribution — Doughnut</option>
+                <option value="bars">Tag Distribution — Bars</option>
+                <option value="year">Year Distribution</option>
+                <option value="world">World Map</option>
+                <option value="prisma">Screening Flow (PRISMA)</option>
+              </select>
             </div>
-            <div class="viz-mode-tabs">
-              <button class="viz-mode-tab active" data-mode="all">All&nbsp;(${stats.total})</button>
-              <button class="viz-mode-tab" data-mode="selected">Selected&nbsp;(${stats.selected})</button>
-              <button class="viz-mode-tab" data-mode="corpus">Corpus&nbsp;(${stats.corpus})</button>
-            </div>
+            <div class="viz-controls-row">
               <button class="viz-legend-toggle" id="viz-none-toggle">Hide None</button>
               <button class="viz-legend-toggle" id="viz-legend-toggle">Hide Legend</button>
               <button class="viz-legend-toggle viz-export-btn" id="viz-export-btn" title="Export current chart as PNG">${SLRIcons.download}&nbsp;Export&nbsp;PNG</button>
+            </div>
           </div>
           <h3 id="viz-chart-title" class="viz-chart-heading">Tag Distribution</h3>
           <div id="viz-chart" class="viz-bars"></div>
@@ -2356,6 +2428,40 @@ window.SLRViews = (() => {
       let currentChart = 'doughnut';
       let showLegend   = true;
       let showNone     = true;
+
+    // Lets the year chart's bar height be dragged instead of being locked to
+    // a viewport-height-derived clamp() (the old source of portrait being
+    // towering and landscape being squashed). Persists across renders/views.
+    const YEAR_CHART_MIN_H = 160, YEAR_CHART_MAX_H = 700;
+    const wireYearChartResize = (el) => {
+      const handle   = el.querySelector('#viz-year-resize-handle');
+      const barsArea = el.querySelector('#viz-year-bars-area');
+      if (!handle || !barsArea) return;
+      let dragging = false, startY = 0, startH = 0;
+      handle.addEventListener('pointerdown', ev => {
+        dragging = true;
+        startY = ev.clientY;
+        startH = barsArea.getBoundingClientRect().height;
+        handle.classList.add('is-dragging');
+        handle.setPointerCapture(ev.pointerId);
+      });
+      handle.addEventListener('pointermove', ev => {
+        if (!dragging) return;
+        const newH = Math.max(YEAR_CHART_MIN_H, Math.min(YEAR_CHART_MAX_H, startH + (ev.clientY - startY)));
+        barsArea.style.height = newH + 'px';
+      });
+      const endDrag = ev => {
+        if (!dragging) return;
+        dragging = false;
+        handle.classList.remove('is-dragging');
+        localStorage.setItem('slr-year-chart-height', String(Math.round(barsArea.getBoundingClientRect().height)));
+        if (ev && handle.releasePointerCapture && ev.pointerId != null) {
+          try { handle.releasePointerCapture(ev.pointerId); } catch (_) { /* noop */ }
+        }
+      };
+      handle.addEventListener('pointerup', endDrag);
+      handle.addEventListener('pointercancel', endDrag);
+    };
 
     const wireChartInteractivity = (el, chartType) => {
       if (chartType === 'doughnut') {
@@ -2385,6 +2491,7 @@ window.SLRViews = (() => {
         };
         segs.forEach(s   => { s.addEventListener('mouseenter', () => activate(s.dataset.tagKey)); s.addEventListener('mouseleave', reset); });
         items.forEach(li => { li.addEventListener('mouseenter', () => activate(li.dataset.tagKey)); li.addEventListener('mouseleave', reset); });
+        wireYearChartResize(el);
       }
       if (chartType === 'world') {
         const countries = [...el.querySelectorAll('.viz-world-country-has-data[data-country-key]')];
@@ -2515,12 +2622,9 @@ window.SLRViews = (() => {
     };
     updateChart();
 
-    container.querySelectorAll('[data-chart]').forEach(btn => {
-      btn.addEventListener('click', () => {
-        currentChart = btn.dataset.chart;
-        container.querySelectorAll('[data-chart]').forEach(b => b.classList.toggle('active', b === btn));
-        updateChart();
-      });
+    container.querySelector('#viz-chart-select')?.addEventListener('change', e => {
+      currentChart = e.target.value;
+      updateChart();
     });
 
     container.querySelector('#viz-legend-toggle')?.addEventListener('click', () => {
