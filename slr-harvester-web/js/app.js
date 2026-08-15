@@ -23,7 +23,7 @@ window.SLRApp = (() => {
 
 		filter: {
 			mode: 'all',
-			tag: null,
+			tags: [],
 			yearFrom: '',
 			yearTo: '',
 			sort: 'newest',
@@ -31,7 +31,7 @@ window.SLRApp = (() => {
 		},
 
 		corpusFilter: {
-			tag: null,
+			tags: [],
 			yearFrom: '',
 			yearTo: '',
 			sort: 'newest',
@@ -39,12 +39,16 @@ window.SLRApp = (() => {
 		},
 
 		selectedFilter: {
-			tag: null,
+			tags: [],
 			yearFrom: '',
 			yearTo: '',
 			sort: 'newest',
 			search: '',
 		},
+
+		// Shared across Articles/Selected/Corpus (one preference, not per-view)
+		// so the tag-breakdown show/hide toggle behaves identically everywhere.
+		tagBreakdownVisible: localStorage.getItem('slr-tag-breakdown-visible') !== '0',
 
 		monoHue: Math.floor(Math.random() * 360),
 
@@ -698,6 +702,12 @@ window.SLRApp = (() => {
 	function toggleActionsBar() {
 		state.actionsBarVisible = !state.actionsBarVisible;
 		localStorage.setItem('slr-actions-visible', state.actionsBarVisible ? '1' : '0');
+		renderCurrentView();
+	}
+
+	function toggleTagBreakdown() {
+		state.tagBreakdownVisible = !state.tagBreakdownVisible;
+		localStorage.setItem('slr-tag-breakdown-visible', state.tagBreakdownVisible ? '1' : '0');
 		renderCurrentView();
 	}
 
@@ -2490,6 +2500,7 @@ window.SLRApp = (() => {
 		setCorpusFilter,
 		setSelectedFilter,
 		toggleActionsBar,
+		toggleTagBreakdown,
 		updateAnnotation,
 		updateProjectMeta,
 		showNewProjectModal,
