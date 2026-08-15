@@ -418,13 +418,20 @@ a:hover {
 }
 
 /* Same box (width, centering) as .nav-icon so the © sits on the exact same
-   vertical axis as every sidebar icon above it, in every breakpoint. */
+   vertical axis as every sidebar icon above it, in every breakpoint. Font
+   size is set here (not inherited from .sidebar-copyright's 10.5px body
+   text) so the glyph itself fills this 18px box the way every other
+   sidebar icon's 18x18 SVG does — a tiny character left at body-text size
+   sat centered with visible empty space on both sides, which read as a
+   much wider gap to the label than any nav item has, even though the
+   flex `gap` value is identical to .nav-item's. */
 .sidebar-copyright-icon {
   display: flex;
   align-items: center;
   justify-content: center;
   flex-shrink: 0;
   width: 18px;
+  font-size: 14px;
 }
 
 /* ----------------------------------------------------------
@@ -2440,6 +2447,51 @@ a.db-link:visited {
 .corpus-tag-chip .chip-count {
   font-size: 10.5px;
   color: var(--text-faint);
+}
+
+/* Show/hide toggle for .corpus-tag-breakdown above — shared by
+   Articles / Selected / Corpus so the control looks and behaves
+   identically everywhere. */
+.tag-breakdown-header {
+  display: flex;
+  padding: 8px 24px;
+  background: var(--surface);
+  border-bottom: 1px solid var(--border-subtle);
+  flex-shrink: 0;
+}
+
+.tag-breakdown-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 30px;
+  padding: 0 10px;
+  font-size: 12.5px;
+  font-weight: 500;
+  line-height: 1;
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  color: var(--text-muted);
+  cursor: pointer;
+  transition: background var(--transition), color var(--transition), border-color var(--transition);
+}
+
+.tag-breakdown-toggle svg {
+  width: 14px;
+  height: 14px;
+  flex-shrink: 0;
+}
+
+.tag-breakdown-toggle:hover {
+  background: var(--surface-3);
+  color: var(--text);
+}
+
+.tag-breakdown-toggle.active {
+  background: var(--accent-subtle);
+  color: var(--accent);
+  border-color: color-mix(in srgb, var(--accent) 45%, transparent);
 }
 
 /* ----------------------------------------------------------
@@ -5332,6 +5384,7 @@ a.db-link:visited {
   .viz-view,
   .list-toolbar,
   .corpus-banner,
+  .tag-breakdown-header,
   .corpus-tag-breakdown,
   .articles-stats,
   .search-editor-panel {

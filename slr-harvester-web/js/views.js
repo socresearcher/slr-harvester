@@ -640,7 +640,7 @@ window.SLRViews = (() => {
     const totalTagged   = new Set(articles.filter(a => a.color && a.color !== 'None').map(a => a.color)).size;
     const actionsVisible = !!SLRApp.state.actionsBarVisible;
 
-    const tagBreakdownHTML = buildTagBreakdownHTML(articles, projectData, filter.tag);
+    const tagBreakdownSectionHTML = buildTagBreakdownSection(articles, projectData, filter.tags, SLRApp.state.tagBreakdownVisible);
 
     // Build article HTML
     const listHTML = !projectData
@@ -674,15 +674,15 @@ window.SLRViews = (() => {
           </span>
         </div>
 
-        ${tagBreakdownHTML ? `<div class="corpus-tag-breakdown">${tagBreakdownHTML}</div>` : ''}
+        ${tagBreakdownSectionHTML}
 
         ${buildListToolbarHTML({
           searchId: 'list-search', searchValue: filter.search,
           sortId: 'list-sort', sortValue: filter.sort,
           yearFromId: 'list-year-from', yearFromValue: filter.yearFrom,
           yearToId: 'list-year-to', yearToValue: filter.yearTo,
-          tagFilterId: 'list-tag-filter', tagFilterValue: filter.tag,
-          tagOptionsHTML: buildTagOptions(articles, projectData, filter.tag),
+          tagFilterId: 'list-tag-filter',
+          tagOptionsHTML: buildTagOptions(articles, projectData, filter.tags),
           actionsVisible,
           exportTitle: 'Download current list as .bib, .ris, or .csv',
         })}
@@ -700,12 +700,9 @@ window.SLRViews = (() => {
         </div>
       </div>`;
 
-    // Tag chip filter
-    container.querySelectorAll('.corpus-tag-breakdown .corpus-tag-chip').forEach(btn => {
-      btn.addEventListener('click', () => {
-        const t = btn.dataset.tag;
-        SLRApp.setFilter({ tag: filter.tag === t ? null : t });
-      });
+    wireTagBreakdownSection(container, {
+      activeTags: filter.tags,
+      onTagsChange: tags => SLRApp.setFilter({ tags }),
     });
 
     wireListToolbar(container, {
@@ -714,6 +711,7 @@ window.SLRViews = (() => {
         const exportBtn = container.querySelector('#export-list-btn');
         openExportMenu(exportBtn, filtered, 'articles');
       },
+      activeTags: filter.tags,
     });
 
     // Expand/collapse articles
@@ -1187,7 +1185,11 @@ window.SLRViews = (() => {
     return `"${text.replace(/"/g, '""')}"`;
   }
 
-  function buildTagOptions(articles, projectData, activeTag) {
+  // `activeTags` (array) are left out of the list — selecting an option adds
+  // it to the multi-select filter, so an already-active tag has nothing to
+  // add.
+  function buildTagOptions(articles, projectData, activeTags) {
+    const activeSet = new Set(activeTags || []);
     const tagSet = new Set();
     let hasUntagged = false;
     for (const a of articles) {
@@ -1198,13 +1200,12 @@ window.SLRViews = (() => {
       }
     }
     const options = [];
-    if (hasUntagged || activeTag === TAG_FILTER_NONE) {
-      options.push(`<option value="${TAG_FILTER_NONE}" ${activeTag === TAG_FILTER_NONE ? 'selected' : ''}>None (untagged)</option>`);
+    if (hasUntagged && !activeSet.has(TAG_FILTER_NONE)) {
+      options.push(`<option value="${TAG_FILTER_NONE}">None (untagged)</option>`);
     }
-    options.push(...Array.from(tagSet).sort().map(t => {
-      const sel = t === activeTag ? 'selected' : '';
-      return `<option value="${esc(t)}" ${sel}>${esc(t)}</option>`;
-    }));
+    options.push(...Array.from(tagSet).filter(t => !activeSet.has(t)).sort().map(t =>
+      `<option value="${esc(t)}">${esc(t)}</option>`
+    ));
     return options.join('');
   }
 
@@ -1215,11 +1216,14 @@ window.SLRViews = (() => {
     if (filter.mode === 'selected') list = list.filter(a => a.selected);
     if (filter.mode === 'corpus')   list = list.filter(a => a.corpus);
 
-    // Tag
-    if (filter.tag === TAG_FILTER_NONE) {
-      list = list.filter(a => !a.tag || a.tag === 'None');
-    } else if (filter.tag) {
-      list = list.filter(a => a.tag === filter.tag);
+    // Tag (multi-select — an article matches if its tag is any one of the
+    // selected tags; empty selection means no tag filtering at all)
+    if (Array.isArray(filter.tags) && filter.tags.length > 0) {
+      const tagSet = new Set(filter.tags);
+      list = list.filter(a => {
+        const effective = (a.tag && a.tag !== 'None') ? a.tag : TAG_FILTER_NONE;
+        return tagSet.has(effective);
+      });
     }
 
     // Year
@@ -1261,8 +1265,10 @@ window.SLRViews = (() => {
     return list;
   }
 
-  // Tag chips-with-counts row, shared by Articles / Selected / Corpus
-  function buildTagBreakdownHTML(list, projectData, activeTag) {
+  // Tag chips-with-counts row, shared by Articles / Selected / Corpus.
+  // `activeTags` is an array — multiple chips can be active/pinned at once.
+  function buildTagBreakdownHTML(list, projectData, activeTags) {
+    const activeSet = new Set(activeTags || []);
     const tagMap = new Map();
     for (const a of list) {
       const label = (a.tag && a.tag !== 'None') ? a.tag : null;
@@ -1273,7 +1279,7 @@ window.SLRViews = (() => {
     const chips = [...tagMap.entries()]
       .sort((a, b) => b[1].count - a[1].count)
       .map(([t, { count: n, hex: hexVal }]) => {
-        const active = activeTag === t ? 'active' : '';
+        const active = activeSet.has(t) ? 'active' : '';
         return `<button class="corpus-tag-chip ${active}" data-tag="${esc(t)}"
                         ${hexVal ? `style="--tag-color:${esc(hexVal)}"` : ''}>
                   <span class="tag-dot" ${hexVal ? `style="background:${esc(hexVal)}"` : ''}></span>
@@ -1284,7 +1290,7 @@ window.SLRViews = (() => {
 
     const untaggedCount = list.filter(a => !a.tag || a.tag === 'None').length;
     const noneChip = untaggedCount > 0
-      ? `<button class="corpus-tag-chip ${activeTag === TAG_FILTER_NONE ? 'active' : ''}" data-tag="${TAG_FILTER_NONE}">
+      ? `<button class="corpus-tag-chip ${activeSet.has(TAG_FILTER_NONE) ? 'active' : ''}" data-tag="${TAG_FILTER_NONE}">
            <span class="tag-dot tag-dot-empty"></span>
            None
            <span class="chip-count">${untaggedCount}</span>
@@ -1294,6 +1300,47 @@ window.SLRViews = (() => {
     return [noneChip, chips].filter(Boolean).join('');
   }
 
+  // Wraps buildTagBreakdownHTML with a show/hide toggle (filter icon) that
+  // controls the same shared state.tagBreakdownVisible everywhere, so the
+  // control looks and behaves identically in Articles/Selected/Corpus
+  // rather than being three independent implementations. Returns '' (no
+  // toggle shown either) when there's no tag data to break down at all.
+  function buildTagBreakdownSection(list, projectData, activeTags, visible) {
+    const breakdown = buildTagBreakdownHTML(list, projectData, activeTags);
+    if (!breakdown) return '';
+    const activeCount = (activeTags || []).length;
+    return `
+      <div class="tag-breakdown-header">
+        <button type="button" class="tag-breakdown-toggle${visible ? ' active' : ''}" id="tag-breakdown-toggle"
+                title="${visible ? 'Hide' : 'Show'} tag filter" aria-label="Toggle tag filter" aria-expanded="${visible ? 'true' : 'false'}">
+          ${SLRIcons.filter}
+          <span>Tags${activeCount ? ` (${activeCount})` : ''}</span>
+        </button>
+      </div>
+      ${visible ? `<div class="corpus-tag-breakdown">${breakdown}</div>` : ''}`;
+  }
+
+  // "Tag: X" / "Tags: X, Y" summary label shared by Corpus/Selected's stats row.
+  function formatActiveTagsLabel(tags) {
+    if (!tags || !tags.length) return '';
+    const names = tags.map(t => t === TAG_FILTER_NONE ? 'None' : t);
+    return `<span class="stats-sep">|</span><span>${tags.length > 1 ? 'Tags' : 'Tag'}: ${esc(names.join(', '))}</span>`;
+  }
+
+  // Wires the toggle button and the chips' multi-select toggling.
+  // `onTagsChange` receives the full new tags array (add/remove one tag).
+  function wireTagBreakdownSection(container, { activeTags, onTagsChange }) {
+    container.querySelector('#tag-breakdown-toggle')?.addEventListener('click', () => SLRApp.toggleTagBreakdown());
+    container.querySelectorAll('.corpus-tag-breakdown .corpus-tag-chip').forEach(btn => {
+      btn.addEventListener('click', () => {
+        const t = btn.dataset.tag;
+        const current = activeTags || [];
+        const next = current.includes(t) ? current.filter(x => x !== t) : [...current, t];
+        onTagsChange(next);
+      });
+    });
+  }
+
   // Toolbar markup shared by Articles / Selected / Corpus: a search row, a
   // sort/year/tag-filter row, and a hideable row of bulk-action buttons.
   function buildListToolbarHTML(opts) {
@@ -1301,7 +1348,7 @@ window.SLRViews = (() => {
       searchId, searchValue,
       sortId, sortValue,
       yearFromId, yearFromValue, yearToId, yearToValue,
-      tagFilterId, tagFilterValue, tagOptionsHTML,
+      tagFilterId, tagOptionsHTML,
       actionsVisible, exportTitle,
     } = opts;
 
@@ -1336,8 +1383,8 @@ window.SLRViews = (() => {
                    placeholder="To" min="1900" max="2100" value="${esc(yearToValue)}">
           </div>
 
-          <select class="filter-select" id="${tagFilterId}" title="Filter by tag">
-            <option value="">All tags</option>
+          <select class="filter-select" id="${tagFilterId}" title="Add a tag to the filter">
+            <option value="">+ Add tag filter</option>
             ${tagOptionsHTML}
           </select>
         </div>
@@ -1381,8 +1428,10 @@ window.SLRViews = (() => {
 
   // Wires the shared toolbar's controls. `onFilter` receives a state patch
   // for the view's own setXFilter; `onExport` receives no args (the caller
-  // closes over the current filtered list).
-  function wireListToolbar(container, { onFilter, onExport }) {
+  // closes over the current filtered list). `activeTags` is the current
+  // multi-select tag filter, needed here so picking a dropdown option adds
+  // to it rather than replacing it.
+  function wireListToolbar(container, { onFilter, onExport, activeTags }) {
     const toggleBtn = container.querySelector('#list-actions-toggle');
     if (toggleBtn) toggleBtn.addEventListener('click', () => SLRApp.toggleActionsBar());
 
@@ -1399,7 +1448,15 @@ window.SLRViews = (() => {
     if (sortSelect) sortSelect.addEventListener('change', e => onFilter({ sort: e.target.value }));
 
     const tagSelect = container.querySelector('#list-tag-filter');
-    if (tagSelect) tagSelect.addEventListener('change', e => onFilter({ tag: e.target.value || null }));
+    if (tagSelect) {
+      tagSelect.addEventListener('change', e => {
+        const val = e.target.value;
+        tagSelect.value = ''; // reset to the "+ Add tag filter" placeholder
+        if (!val) return;
+        const current = activeTags || [];
+        if (!current.includes(val)) onFilter({ tags: [...current, val] });
+      });
+    }
 
     const yearFrom = container.querySelector('#list-year-from');
     const yearTo   = container.querySelector('#list-year-to');
@@ -1709,7 +1766,7 @@ window.SLRViews = (() => {
     const stats          = SLRData.getStats(corpusArticles);
     const actionsVisible = !!SLRApp.state.actionsBarVisible;
 
-    const tagBreakdownHTML = buildTagBreakdownHTML(corpusArticles, projectData, filter.tag);
+    const tagBreakdownSectionHTML = buildTagBreakdownSection(corpusArticles, projectData, filter.tags, SLRApp.state.tagBreakdownVisible);
 
     const filtered = applyFilter(corpusArticles, Object.assign({}, filter, { mode: 'corpus' }), projectData);
     const listHTML = !projectData
@@ -1736,22 +1793,22 @@ window.SLRViews = (() => {
           </span>
         </div>
 
-        ${tagBreakdownHTML ? `<div class="corpus-tag-breakdown">${tagBreakdownHTML}</div>` : ''}
+        ${tagBreakdownSectionHTML}
 
         ${buildListToolbarHTML({
           searchId: 'list-search', searchValue: filter.search,
           sortId: 'list-sort', sortValue: filter.sort,
           yearFromId: 'list-year-from', yearFromValue: filter.yearFrom,
           yearToId: 'list-year-to', yearToValue: filter.yearTo,
-          tagFilterId: 'list-tag-filter', tagFilterValue: filter.tag,
-          tagOptionsHTML: buildTagOptions(corpusArticles, projectData, filter.tag),
+          tagFilterId: 'list-tag-filter',
+          tagOptionsHTML: buildTagOptions(corpusArticles, projectData, filter.tags),
           actionsVisible,
           exportTitle: 'Download current list as .bib, .ris, or .csv',
         })}
 
         <div class="articles-stats">
           <span>Showing <strong>${filtered.length}</strong> of <strong>${stats.corpus}</strong> corpus articles</span>
-          ${filter.tag ? `<span class="stats-sep">|</span><span>Tag: ${esc(filter.tag === TAG_FILTER_NONE ? 'None' : filter.tag)}</span>` : ''}
+          ${formatActiveTagsLabel(filter.tags)}
           ${filter.search ? `<span class="stats-sep">|</span><span>Search: "${esc(filter.search)}"</span>` : ''}
         </div>
 
@@ -1760,12 +1817,9 @@ window.SLRViews = (() => {
         </div>
       </div>`;
 
-    // Tag chip filter
-    container.querySelectorAll('.corpus-tag-breakdown .corpus-tag-chip').forEach(btn => {
-      btn.addEventListener('click', () => {
-        const t = btn.dataset.tag;
-        SLRApp.setCorpusFilter({ tag: filter.tag === t ? null : t });
-      });
+    wireTagBreakdownSection(container, {
+      activeTags: filter.tags,
+      onTagsChange: tags => SLRApp.setCorpusFilter({ tags }),
     });
 
     wireListToolbar(container, {
@@ -1774,6 +1828,7 @@ window.SLRViews = (() => {
         const exportBtn = container.querySelector('#export-list-btn');
         openExportMenu(exportBtn, filtered, 'corpus');
       },
+      activeTags: filter.tags,
     });
 
     container.querySelector('#corpus-list').addEventListener('click', e => {
@@ -1793,7 +1848,7 @@ window.SLRViews = (() => {
     const stats = SLRData.getStats(selectedArticles);
     const actionsVisible = !!SLRApp.state.actionsBarVisible;
 
-    const selectedTagBreakdownHTML = buildTagBreakdownHTML(selectedArticles, projectData, filter.tag);
+    const tagBreakdownSectionHTML = buildTagBreakdownSection(selectedArticles, projectData, filter.tags, SLRApp.state.tagBreakdownVisible);
 
     const filtered = applyFilter(selectedArticles, Object.assign({}, filter, { mode: 'selected' }), projectData);
     const listHTML = !projectData
@@ -1823,33 +1878,31 @@ window.SLRViews = (() => {
           </span>
         </div>
 
-        ${selectedTagBreakdownHTML ? `<div class="corpus-tag-breakdown">${selectedTagBreakdownHTML}</div>` : ''}
+        ${tagBreakdownSectionHTML}
 
         ${buildListToolbarHTML({
           searchId: 'list-search', searchValue: filter.search,
           sortId: 'list-sort', sortValue: filter.sort,
           yearFromId: 'list-year-from', yearFromValue: filter.yearFrom,
           yearToId: 'list-year-to', yearToValue: filter.yearTo,
-          tagFilterId: 'list-tag-filter', tagFilterValue: filter.tag,
-          tagOptionsHTML: buildTagOptions(selectedArticles, projectData, filter.tag),
+          tagFilterId: 'list-tag-filter',
+          tagOptionsHTML: buildTagOptions(selectedArticles, projectData, filter.tags),
           actionsVisible,
           exportTitle: 'Download current list as .bib, .ris, or .csv',
         })}
 
         <div class="articles-stats">
           <span>Showing <strong>${filtered.length}</strong> of <strong>${selectedArticles.length}</strong> selected articles</span>
-          ${filter.tag    ? `<span class="stats-sep">|</span><span>Tag: ${esc(filter.tag === TAG_FILTER_NONE ? 'None' : filter.tag)}</span>` : ''}
+          ${formatActiveTagsLabel(filter.tags)}
           ${filter.search ? `<span class="stats-sep">|</span><span>Search: "${esc(filter.search)}"</span>` : ''}
         </div>
 
         <div class="article-list" id="selected-list">${listHTML}</div>
       </div>`;
 
-    container.querySelectorAll('.corpus-tag-breakdown .corpus-tag-chip').forEach(btn => {
-      btn.addEventListener('click', () => {
-        const t = btn.dataset.tag;
-        SLRApp.setSelectedFilter({ tag: filter.tag === t ? null : t });
-      });
+    wireTagBreakdownSection(container, {
+      activeTags: filter.tags,
+      onTagsChange: tags => SLRApp.setSelectedFilter({ tags }),
     });
 
     wireListToolbar(container, {
@@ -1858,6 +1911,7 @@ window.SLRViews = (() => {
         const exportBtn = container.querySelector('#export-list-btn');
         openExportMenu(exportBtn, filtered, 'selected');
       },
+      activeTags: filter.tags,
     });
 
     container.querySelector('#selected-list').addEventListener('click', e => {
