@@ -90,6 +90,7 @@ window.SLRAppUI = (() => {
       settings: 'Settings',
       about: 'About',
       databases: 'Databases',
+      privacy: 'Privacy & Cookies',
     };
 
     if (refs.viewTitle) refs.viewTitle.textContent = titles[state.view] || 'SLR Harvester Web';

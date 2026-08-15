@@ -477,6 +477,9 @@ window.SLRApp = (() => {
 			case 'about':
 				SLRViews.renderAbout(_container);
 				break;
+			case 'privacy':
+				SLRViews.renderPrivacy(_container);
+				break;
 			case 'tags':
 				SLRViews.renderTags(_container, state.articles, state.projectData);
 				break;
@@ -612,13 +615,6 @@ window.SLRApp = (() => {
 		resetWorkspaceState();
 		state.view = 'settings';
 		renderCurrentView();
-	}
-
-	function saveCloudCredentials(url, key) {
-		SLRDataCloud.configure(url, key);
-		resetWorkspaceState();
-		renderCurrentView();
-		showToast('Supabase connection saved.', false);
 	}
 
 	// action: 'signin' | 'signup' | 'magiclink'. Throws on failure — the
@@ -2484,7 +2480,6 @@ window.SLRApp = (() => {
 		navigate,
 		openFolder,
 		switchBackend,
-		saveCloudCredentials,
 		cloudAuth,
 		cloudSignOut,
 		openProject,

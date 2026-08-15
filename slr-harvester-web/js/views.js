@@ -10,6 +10,34 @@ window.SLRViews = (() => {
 
   const TAG_FILTER_NONE = '__none__';
 
+  //  Welcome view's account menu — document-level listeners bound once
+
+  function closeWelcomeAccountMenu() {
+    const menu = document.getElementById('welcome-account-menu');
+    const btn  = document.getElementById('welcome-account-btn');
+    if (menu) menu.hidden = true;
+    if (btn) btn.setAttribute('aria-expanded', 'false');
+  }
+
+  // renderWelcome() runs on every Home visit, but a document-level listener
+  // added there would never be removed (the render only replaces the view
+  // container's own children) — re-visiting Home repeatedly would silently
+  // stack up duplicate listeners forever. Bound exactly once instead, and
+  // resolves the menu/button fresh by id on every event so it always acts
+  // on whichever Welcome render is currently in the DOM.
+  let _welcomeAccountMenuBound = false;
+  function ensureWelcomeAccountMenuGlobalListeners() {
+    if (_welcomeAccountMenuBound) return;
+    _welcomeAccountMenuBound = true;
+    document.addEventListener('click', e => {
+      const menu = document.getElementById('welcome-account-menu');
+      if (menu && !menu.hidden && !e.target.closest('#welcome-account-wrap')) closeWelcomeAccountMenu();
+    });
+    document.addEventListener('keydown', e => {
+      if (e.key === 'Escape') closeWelcomeAccountMenu();
+    });
+  }
+
   //  Utility 
 
   /** Escape text for safe insertion as textContent isn't always available */
@@ -181,6 +209,12 @@ window.SLRViews = (() => {
 
   function renderWelcome(container) {
     const supported = typeof window.showDirectoryPicker === 'function';
+    // Reachable by clicking "Home" in the sidebar even while already signed
+    // in (that nav item always renders this view, regardless of connection
+    // state) — without this check it re-showed Sign Up/Log In as if nothing
+    // had happened, which reads as broken/forgotten login rather than what
+    // it actually is: a nav shortcut that doesn't know you're already in.
+    const cloudUser = SLRData.getBackend() === 'cloud' ? SLRDataCloud.currentUser() : null;
 
     // Same message everywhere the File System Access API is missing — mobile
     // browsers included, since none of them implement it either. Local
@@ -194,6 +228,22 @@ window.SLRViews = (() => {
     container.innerHTML = `
       <div class="welcome-view" id="home">
         <canvas id="heroParticles" class="hero-particles-canvas" aria-hidden="true"></canvas>
+
+        ${cloudUser ? `
+          <!-- Account entry point lives only here on Home, not in the global
+               header — see index.html/app.js history for why. -->
+          <div class="welcome-account-wrap" id="welcome-account-wrap">
+            <button id="welcome-account-btn" class="welcome-account-btn" aria-haspopup="true" aria-expanded="false" title="Account" aria-label="Account menu">
+              ${SLRIcons.user}
+            </button>
+            <div class="welcome-account-menu" id="welcome-account-menu" hidden role="menu">
+              <div class="account-menu-email">${esc(cloudUser.email)}</div>
+              <button class="account-menu-item" id="welcome-account-settings-btn" role="menuitem">Settings</button>
+              <button class="account-menu-item account-menu-item--danger" id="welcome-account-signout-btn" role="menuitem">Sign Out</button>
+            </div>
+          </div>
+        ` : ''}
+
         <div class="welcome-hero">
           <div class="welcome-logo">${SLRIcons.logo}</div>
           <h1>SLR Harvester <span class="title-web">Web</span></h1>
@@ -203,10 +253,16 @@ window.SLRViews = (() => {
         </div>
 
         <div class="welcome-actions">
-          <div class="welcome-auth-row">
-            <button id="welcome-signup-btn" class="btn-primary">Sign Up</button>
-            <button id="welcome-login-btn" class="btn-secondary">Log In</button>
-          </div>
+          ${cloudUser ? `
+            <div class="welcome-auth-row">
+              <button id="welcome-goto-projects-btn" class="btn-primary">Go to Projects</button>
+            </div>
+          ` : `
+            <div class="welcome-auth-row">
+              <button id="welcome-signup-btn" class="btn-primary">Sign Up</button>
+              <button id="welcome-login-btn" class="btn-secondary">Log In</button>
+            </div>
+          `}
           <button id="welcome-open-btn" class="btn-secondary">
             ${SLRIcons.folderOpen}
             Continue with Local Folder
@@ -242,12 +298,36 @@ window.SLRViews = (() => {
       }
     });
 
-    container.querySelector('#welcome-signup-btn').addEventListener('click', () => {
-      SLRApp.showSupabaseAuthModal('signup');
-    });
-    container.querySelector('#welcome-login-btn').addEventListener('click', () => {
-      SLRApp.showSupabaseAuthModal('signin');
-    });
+    if (cloudUser) {
+      container.querySelector('#welcome-goto-projects-btn').addEventListener('click', () => {
+        SLRApp.navigate('projects');
+      });
+
+      const acctBtn  = container.querySelector('#welcome-account-btn');
+      const acctMenu = container.querySelector('#welcome-account-menu');
+      ensureWelcomeAccountMenuGlobalListeners();
+      acctBtn.addEventListener('click', e => {
+        e.stopPropagation();
+        const willOpen = acctMenu.hidden;
+        acctMenu.hidden = !willOpen;
+        acctBtn.setAttribute('aria-expanded', String(willOpen));
+      });
+      container.querySelector('#welcome-account-settings-btn').addEventListener('click', () => {
+        closeWelcomeAccountMenu();
+        SLRApp.navigate('settings');
+      });
+      container.querySelector('#welcome-account-signout-btn').addEventListener('click', () => {
+        closeWelcomeAccountMenu();
+        SLRApp.cloudSignOut();
+      });
+    } else {
+      container.querySelector('#welcome-signup-btn').addEventListener('click', () => {
+        SLRApp.showSupabaseAuthModal('signup');
+      });
+      container.querySelector('#welcome-login-btn').addEventListener('click', () => {
+        SLRApp.showSupabaseAuthModal('signin');
+      });
+    }
 
     initHeroParticles();
   }
@@ -3151,21 +3231,9 @@ window.SLRViews = (() => {
     return msg;
   }
 
-  // The exact URL Supabase must be told to redirect confirmation/magic-link
-  // emails back to. Supabase ignores emailRedirectTo for any URL not on the
-  // project's own Authentication → URL Configuration allow-list and falls
-  // back to its placeholder http://localhost:3000 instead — silently, with
-  // no client-visible error — which is the #1 cause of "the confirmation/
-  // magic-link email goes nowhere". This can only be fixed in the Supabase
-  // dashboard itself, so the app's job is to make the exact value to paste
-  // there impossible to miss.
-  function currentAppUrl() {
-    return window.location.origin + window.location.pathname;
-  }
-
-  // Shown wherever the Supabase email/password fields themselves appear —
-  // the modal and Settings' "not signed in" state — since sign-in is the
-  // part that's currently unreliable, not Cloud Sync as a whole.
+  // Shown wherever the Supabase email/password fields themselves appear
+  // (currently just the Home modal) — sign-in is the part that's currently
+  // unreliable, not Cloud Sync as a whole.
   function renderSupabaseDevNotice() {
     return `
       <div class="scopus-api-notice scopus-api-notice-caution" style="margin-bottom:14px">
@@ -3176,55 +3244,24 @@ window.SLRViews = (() => {
       </div>`;
   }
 
-  function renderRedirectUrlNotice(idPrefix) {
-    return `
-      <div class="scopus-api-notice" style="margin-bottom:14px">
-        <span class="scopus-api-notice-icon">${SLRIcons.info}</span>
-        <div>
-          <strong>Confirmation or magic-link email not arriving / leads nowhere?</strong>
-          In your Supabase project, go to <strong>Authentication → URL Configuration</strong>
-          and add this exact URL as both the <strong>Site URL</strong> and a
-          <strong>Redirect URL</strong>:
-          <div style="display:flex;align-items:center;gap:8px;margin:8px 0;flex-wrap:wrap">
-            <code id="${idPrefix}-redirect-url" style="word-break:break-all">${esc(currentAppUrl())}</code>
-            <button type="button" class="btn-secondary" id="${idPrefix}-copy-url-btn" style="flex-shrink:0">Copy</button>
-          </div>
-          Without this, those emails point at Supabase's placeholder
-          <code>localhost:3000</code> instead, which is why the link "can't be reached".
-        </div>
-      </div>`;
-  }
-
-  function wireRedirectUrlCopyButton(container, idPrefix) {
-    const copyBtn = container.querySelector(`#${idPrefix}-copy-url-btn`);
-    if (!copyBtn) return;
-    copyBtn.addEventListener('click', async () => {
-      try {
-        await navigator.clipboard.writeText(currentAppUrl());
-        const original = copyBtn.textContent;
-        copyBtn.textContent = 'Copied!';
-        setTimeout(() => { copyBtn.textContent = original; }, 1500);
-      } catch (_) { /* Clipboard API unavailable/denied — the URL is still selectable text. */ }
-    });
-  }
-
+  // Deliberately minimal: Project URL/key/Save Connection/the full auth form
+  // used to live here too, for pointing Cloud Sync at a different Supabase
+  // project (self-hosting). That's a repo-fork-and-edit-the-constant
+  // scenario now (see DEFAULT_URL/DEFAULT_KEY in data-supabase.js), not a
+  // Settings-UI one — this section is what an ordinary user actually needs:
+  // which backend is active, and sign-out once signed in.
   function renderCloudSyncSection() {
     const backend = SLRData.getBackend();
-    const { url: supabaseUrl, key: supabaseKey } = SLRDataCloud.getCredentials();
     const cloudUser = SLRDataCloud.currentUser();
 
     return `
       <div class="settings-section">
         <h3>Cloud Sync (Supabase)</h3>
         <p class="field-hint" style="margin-top:2px">
-          Sign Up/Log In on the Home screen already connects through this app's
-          own Supabase project — works on any browser or device, including
-          mobile, where the File System Access API isn't available. The fields
-          below are only for pointing Cloud Sync at a <strong>different</strong>
-          Supabase project instead (e.g. self-hosting this app with your own).
+          Sign Up/Log In from the Home screen to sync your projects through the
+          cloud instead of a local folder — works on any browser or device,
+          including mobile, where the File System Access API isn't available.
         </p>
-
-        <div style="margin-top:14px">${renderRedirectUrlNotice('settings-supabase')}</div>
 
         <div class="form-field" style="margin-top:14px">
           <label>Active workspace</label>
@@ -3238,32 +3275,9 @@ window.SLRViews = (() => {
               Cloud Sync
             </label>
           </div>
-        </div>
-
-        <div class="form-field">
-          <label for="settings-supabase-url">Supabase Project URL</label>
-          <input class="form-input monospace" id="settings-supabase-url" type="text"
-            placeholder="https://xxxxxxxx.supabase.co" value="${esc(supabaseUrl)}">
-        </div>
-        <div class="form-field">
-          <label for="settings-supabase-key">Supabase anon / publishable key</label>
-          <div class="secret-input-row">
-            <input class="form-input monospace" id="settings-supabase-key" type="password"
-              placeholder="anon public key or sb_publishable_..." value="${esc(supabaseKey)}">
-            <button class="btn-secondary secret-toggle-btn" type="button" data-target="settings-supabase-key" aria-label="Show key" aria-pressed="false">
-              <span class="secret-toggle-icon">${SLRIcons.eye}</span>
-              <span class="secret-toggle-label">Show</span>
-            </button>
-          </div>
-          <p class="field-hint">From Project Settings → API in your Supabase dashboard. Both the
-            legacy "anon public" key and the newer <code>sb_publishable_...</code> key work here.
-            Safe to use client-side — Row Level Security is the real access gate. Run
-            <code>supabase/schema.sql</code> (in this app's repo) once in your project's SQL
-            editor before connecting.</p>
-        </div>
-        <div class="settings-save-row">
-          <button class="btn-secondary" id="settings-supabase-save-creds-btn">Save Connection</button>
-          <span class="settings-saved-msg" id="settings-supabase-creds-saved-msg">Saved!</span>
+          <p class="field-hint">Local Folder reads/writes a folder on this device via the
+            File System Access API. Cloud Sync stores the same data in Supabase instead,
+            under your account, so it follows you across browsers and devices.</p>
         </div>
 
         ${cloudUser ? `
@@ -3274,157 +3288,20 @@ window.SLRViews = (() => {
           </div>
         ` : `
           ${renderSupabaseDevNotice()}
-          <form id="settings-supabase-form" autocomplete="on">
-            <div class="form-field" style="margin-top:10px">
-              <label for="settings-supabase-email">Email</label>
-              <input class="form-input" id="settings-supabase-email" name="email" type="email" placeholder="you@example.com" autocomplete="email">
-            </div>
-            <div class="form-field">
-              <label for="settings-supabase-password">Password</label>
-              <div class="secret-input-row">
-                <input class="form-input" id="settings-supabase-password" name="password" type="password"
-                  placeholder="Password" autocomplete="current-password">
-                <button class="btn-secondary secret-toggle-btn" type="button" data-target="settings-supabase-password" aria-label="Show password" aria-pressed="false">
-                  <span class="secret-toggle-icon">${SLRIcons.eye}</span>
-                  <span class="secret-toggle-label">Show</span>
-                </button>
-              </div>
-            </div>
-          </form>
-          <div class="settings-save-row">
-            <button class="btn-primary" type="submit" form="settings-supabase-form" id="settings-supabase-signin-btn">Sign In</button>
-            <button class="btn-secondary" type="button" id="settings-supabase-signup-btn">Sign Up</button>
-            <button class="btn-secondary" type="button" id="settings-supabase-magiclink-btn">Email me a magic link</button>
-            <button type="button" class="link-btn" id="settings-supabase-resend-btn">Resend confirmation email</button>
-          </div>
-          <div id="settings-supabase-auth-result" class="scopus-test-result" hidden></div>
         `}
       </div>`;
   }
 
   function wireCloudSyncSection(container) {
-    wireRedirectUrlCopyButton(container, 'settings-supabase');
-
     container.querySelectorAll('input[name="backend-switch"]').forEach(radio => {
       radio.addEventListener('change', () => {
         if (radio.checked) SLRApp.switchBackend(radio.value);
       });
     });
 
-    const saveCredsBtn = container.querySelector('#settings-supabase-save-creds-btn');
-    if (saveCredsBtn) {
-      saveCredsBtn.addEventListener('click', () => {
-        const url = container.querySelector('#settings-supabase-url').value.trim();
-        const key = container.querySelector('#settings-supabase-key').value.trim();
-        SLRApp.saveCloudCredentials(url, key);
-        const msg = container.querySelector('#settings-supabase-creds-saved-msg');
-        if (msg) {
-          msg.classList.add('visible');
-          setTimeout(() => msg.classList.remove('visible'), 2000);
-        }
-      });
-    }
-
     const signOutBtn = container.querySelector('#settings-supabase-signout-btn');
     if (signOutBtn) {
       signOutBtn.addEventListener('click', () => SLRApp.cloudSignOut());
-    }
-
-    const resultEl  = container.querySelector('#settings-supabase-auth-result');
-    const resendBtn = container.querySelector('#settings-supabase-resend-btn');
-    function showAuthResult(message, isError) {
-      if (!resultEl) return;
-      resultEl.hidden = false;
-      resultEl.textContent = message;
-      resultEl.classList.toggle('scopus-test-fail', !!isError);
-    }
-
-    function readEmailPassword() {
-      return {
-        email: (container.querySelector('#settings-supabase-email')?.value || '').trim(),
-        password: container.querySelector('#settings-supabase-password')?.value || '',
-      };
-    }
-
-    // Every auth action re-applies whatever is currently typed in the
-    // Project URL/key fields first — previously only the separate "Save
-    // Connection" button did this, so typing new/updated credentials and
-    // going straight to Sign In (the natural flow) silently authenticated
-    // against whatever was last saved (or nothing), not what was just
-    // typed. This is very likely the actual cause behind "the credentials
-    // are definitely correct but sign-in still fails."
-    function applyCurrentCredentials() {
-      const url = container.querySelector('#settings-supabase-url')?.value.trim() || '';
-      const key = container.querySelector('#settings-supabase-key')?.value.trim() || '';
-      if (url && key) SLRDataCloud.configure(url, key);
-    }
-
-    // Sign In is type="submit" (associated via form="settings-supabase-form"),
-    // so both a click and pressing Enter in either field route through this
-    // one submit handler — also the signal password managers watch for to
-    // offer saving the credentials just entered.
-    const signInForm = container.querySelector('#settings-supabase-form');
-    if (signInForm) {
-      signInForm.addEventListener('submit', async e => {
-        e.preventDefault();
-        const { email, password } = readEmailPassword();
-        if (!email || !password) { showAuthResult('Enter an email and password.', true); return; }
-        applyCurrentCredentials();
-        try {
-          await SLRApp.cloudAuth('signin', email, password);
-        } catch (err) {
-          showAuthResult(describeAuthError(err, 'signin'), true);
-        }
-      });
-    }
-
-    const signUpBtn = container.querySelector('#settings-supabase-signup-btn');
-    if (signUpBtn) {
-      signUpBtn.addEventListener('click', async () => {
-        const { email, password } = readEmailPassword();
-        if (!email || !password) { showAuthResult('Enter an email and password.', true); return; }
-        applyCurrentCredentials();
-        try {
-          const result = await SLRApp.cloudAuth('signup', email, password);
-          if (result && result.confirmed === false) {
-            showAuthResult('Account created — check your email to confirm it, then sign in above.', false);
-          }
-        } catch (err) {
-          showAuthResult(describeAuthError(err, 'signup'), true);
-        }
-      });
-    }
-
-    const magicLinkBtn = container.querySelector('#settings-supabase-magiclink-btn');
-    if (magicLinkBtn) {
-      magicLinkBtn.addEventListener('click', async () => {
-        const { email } = readEmailPassword();
-        if (!email) { showAuthResult('Enter an email first.', true); return; }
-        applyCurrentCredentials();
-        try {
-          await SLRApp.cloudAuth('magiclink', email);
-          showAuthResult('Magic link sent — check your email.', false);
-        } catch (err) {
-          showAuthResult(err.message || String(err), true);
-        }
-      });
-    }
-
-    if (resendBtn) {
-      resendBtn.addEventListener('click', async () => {
-        const { email } = readEmailPassword();
-        if (!email) { showAuthResult('Enter an email first.', true); return; }
-        applyCurrentCredentials();
-        resendBtn.disabled = true;
-        try {
-          await SLRDataCloud.resendConfirmation(email);
-          showAuthResult('Confirmation email resent — check your inbox.', false);
-        } catch (err) {
-          showAuthResult(err.message || String(err), true);
-        } finally {
-          resendBtn.disabled = false;
-        }
-      });
     }
   }
 
@@ -3433,7 +3310,9 @@ window.SLRViews = (() => {
     const enabledCategorySet = new Set(Array.isArray(autoTagCategories) && autoTagCategories.length ? autoTagCategories : categories);
     container.innerHTML = `
       <div class="settings-view">
-        <p class="settings-subtitle">Configure your API credentials and workspace.</p>
+        <p class="settings-subtitle">Configure your API credentials and workspace.
+          <button type="button" class="link-btn" id="settings-privacy-link">See what's stored and why (Privacy &amp; Cookies)</button>
+        </p>
 
         <div class="settings-section">
           <h3>Scopus API</h3>
@@ -3685,6 +3564,10 @@ window.SLRViews = (() => {
       SLRApp.openFolder();
     });
 
+    container.querySelector('#settings-privacy-link')?.addEventListener('click', () => {
+      SLRApp.navigate('privacy');
+    });
+
     wireCloudSyncSection(container);
 
     container.querySelectorAll('.secret-toggle-btn').forEach(btn => {
@@ -3703,7 +3586,111 @@ window.SLRViews = (() => {
     });
   }
 
-  //  About view 
+  //  Privacy view
+  // Everything below is drawn directly from what the code actually does —
+  // every localStorage/IndexedDB key and every external endpoint named here
+  // was verified by reading js/app.js, js/app-ui.js, js/data.js,
+  // js/data-local.js, js/data-supabase.js, and supabase/schema.sql. Nothing
+  // here is boilerplate — if a mechanism changes, this page has to change
+  // with it.
+
+  function renderPrivacy(container) {
+    container.innerHTML = `
+      <div class="settings-view">
+        <h2>Privacy &amp; Cookies</h2>
+        <p class="settings-subtitle">What this app stores, why, and how to remove it — based on what the code actually does, not a template.</p>
+
+        <div class="scopus-api-notice" style="margin-top:2px">
+          <span class="scopus-api-notice-icon">${SLRIcons.info}</span>
+          <div><strong>No cookies.</strong> This app never sets a single cookie. It's a static
+            site with no server-side session of any kind — what it does store, it stores directly
+            in your browser (<code>localStorage</code> and, for one specific thing, <code>IndexedDB</code>),
+            which is a different mechanism with different rules (never sent to a server automatically,
+            unlike cookies). The distinction matters, so this page is precise about which is which
+            instead of calling everything "cookies."</div>
+        </div>
+
+        <div class="settings-section">
+          <h3>Stored in this browser (<code>localStorage</code>)</h3>
+          <p class="field-hint" style="margin-top:2px">Scoped to this browser profile and this
+            site's origin only — no other site can read it, and it's never transmitted anywhere
+            on its own (only whatever you explicitly search/save is sent, covered further down).</p>
+          <ul class="about-feature-list">
+            <li><span class="about-li-icon" aria-hidden="true">${SLRIcons.sun}</span><span><strong>Theme</strong> (<code>slr-theme</code>) &mdash; remembers dark/light mode. Optional; resets to dark if cleared.</span></li>
+            <li><span class="about-li-icon" aria-hidden="true">${SLRIcons.projects}</span><span><strong>Layout preferences</strong> (<code>slr-sidebar-collapsed</code>, <code>slr-actions-visible</code>, <code>slr-projects-sort</code>, <code>slr-pinned-projects</code>) &mdash; sidebar collapsed state, toolbar visibility, project sort order, pinned projects. Optional convenience only.</span></li>
+            <li><span class="about-li-icon" aria-hidden="true">${SLRIcons.check}</span><span><strong>Onboarding progress</strong> (<code>slr-onboarding-done</code>) &mdash; which first-time hints you've already seen, so they don't repeat. Optional.</span></li>
+            <li><span class="about-li-icon" aria-hidden="true">${SLRIcons.folder}</span><span><strong>Active workspace backend</strong> (<code>slr-backend</code>) &mdash; whether Local Folder or Cloud Sync is currently selected. Needed so the app knows which one to reconnect to on your next visit.</span></li>
+            <li><span class="about-li-icon" aria-hidden="true">${SLRIcons.refresh}</span><span><strong>Automation preferences</strong> (<code>slr-auto-fetch-enabled</code>, <code>slr-auto-tag-enabled</code>, <code>slr-auto-run-scope</code>, <code>slr-auto-tag-categories</code>, <code>slr-fetch-mode</code>) &mdash; your chosen auto-enrichment/auto-tagging settings. Optional.</span></li>
+            <li><span class="about-li-icon" aria-hidden="true">${SLRIcons.settings}</span><span><strong>API credentials you enter</strong> (<code>slr-apikey</code>, <code>slr-insttoken</code>, <code>slr-openalex-key</code>, <code>slr-openalex-email</code>) &mdash; only stored if you type them into Settings, so you don't have to retype them. Optional &mdash; the app works without them, just with lower rate limits on Scopus/OpenAlex. In Local Folder mode, the same values are also written into that folder's own <code>slr_config.json</code> on your device (nowhere else), so the desktop app version can share them.</span></li>
+            <li><span class="about-li-icon" aria-hidden="true">${SLRIcons.supabaseLogo}</span><span><strong>Cloud Sync connection override</strong> (<code>slr-supabase-url</code>, <code>slr-supabase-anon-key</code>) &mdash; only present if you've pointed Cloud Sync at a different Supabase project than the one built into the app (e.g. self-hosting). Not used otherwise.</span></li>
+            <li><span class="about-li-icon" aria-hidden="true">${SLRIcons.check}</span><span><strong>Cloud Sync sign-in session</strong> (Cloud Sync mode only) &mdash; Supabase's own client library stores your access/refresh tokens in <code>localStorage</code> under a key it manages itself (prefixed <code>sb-</code>) so you stay signed in between visits. The access token expires automatically (about an hour) and refreshes quietly while you use the app; after a long absence you'll simply be asked to sign in again.</span></li>
+          </ul>
+        </div>
+
+        <div class="settings-section">
+          <h3>Stored in this browser (<code>IndexedDB</code>)</h3>
+          <ul class="about-feature-list">
+            <li><span class="about-li-icon" aria-hidden="true">${SLRIcons.folderOpen}</span><span><strong>Local folder connection</strong> (Local Folder mode only; database <code>slr-harvester-web</code>, store <code>handles</code>) &mdash; the browser's own reference/permission handle to the folder you picked, so the app can reconnect without re-prompting the picker every visit. This holds a permission token, not file contents &mdash; your actual project files (search results, tags, etc.) live only inside the folder you chose on your own device, read and written live through the File System Access API. Nothing about them is copied into browser storage.</span></li>
+          </ul>
+        </div>
+
+        <div class="settings-section">
+          <h3>Sent to external services</h3>
+          <p class="field-hint" style="margin-top:2px">Only when you actively search or enrich
+            articles &mdash; each request goes directly from your browser to that service, not
+            through any server this app runs (there isn't one). Each is an independent third
+            party with its own privacy policy; this app has no visibility into what they log.</p>
+          <ul class="about-feature-list">
+            <li><span class="about-li-icon" aria-hidden="true">${SLRIcons.databases}</span><span><strong>Scopus</strong> (api.elsevier.com) &mdash; your search query, and your API key / institutional token as request headers if you've configured one.</span></li>
+            <li><span class="about-li-icon" aria-hidden="true">${SLRIcons.databases}</span><span><strong>PubMed</strong> (eutils.ncbi.nlm.nih.gov) &mdash; your search query. No key required or sent.</span></li>
+            <li><span class="about-li-icon" aria-hidden="true">${SLRIcons.databases}</span><span><strong>OpenAlex</strong> (api.openalex.org) &mdash; your search query, and your OpenAlex key/contact email as a parameter, only if you've set them in Settings.</span></li>
+            <li><span class="about-li-icon" aria-hidden="true">${SLRIcons.refresh}</span><span><strong>Crossref</strong> (api.crossref.org) &mdash; DOI-based lookups when you use Fetch Abstracts/Authors/Types. A fixed placeholder contact address is sent as Crossref's polite-pool parameter, never your own email.</span></li>
+          </ul>
+        </div>
+
+        <div class="settings-section">
+          <h3>Cloud Sync (Supabase) — if you Sign Up / Log In</h3>
+          <ul class="about-feature-list">
+            <li><span class="about-li-icon" aria-hidden="true">${SLRIcons.user}</span><span><strong>Account</strong> &mdash; your email and password go to Supabase's Auth service, which stores the password using standard industry hashing; this app itself never stores or sees your password.</span></li>
+            <li><span class="about-li-icon" aria-hidden="true">${SLRIcons.project}</span><span><strong>Project data</strong> &mdash; search results, tags, corpus/selected status, saved search terms, and the Scopus/OpenAlex credentials you entered are stored in this app's Supabase database, in rows tied to your account.</span></li>
+            <li><span class="about-li-icon" aria-hidden="true">${SLRIcons.check}</span><span><strong>Who can access it</strong> &mdash; Row Level Security policies restrict every row to your own account at the application layer, so no other signed-in user can read or write your data through the app. Worth stating plainly: this app currently uses one shared Supabase project (not one per user), so its administrator has the same underlying database access any hosted-service operator has via the Supabase dashboard — the same as for any backend service you sign up for, just not left unsaid here.</span></li>
+          </ul>
+        </div>
+
+        <div class="settings-section">
+          <h3>What isn't here</h3>
+          <ul class="about-feature-list">
+            <li><span class="about-li-icon" aria-hidden="true">${SLRIcons.check}</span><span>No cookies of any kind &mdash; no session cookies, no tracking cookies, no third-party ad cookies.</span></li>
+            <li><span class="about-li-icon" aria-hidden="true">${SLRIcons.check}</span><span>No analytics, tracking, or fingerprinting scripts. The app currently loads zero third-party scripts at startup at all &mdash; even the Supabase SDK is vendored into this app's own files rather than pulled from a CDN.</span></li>
+            <li><span class="about-li-icon" aria-hidden="true">${SLRIcons.check}</span><span>No ad networks, no session-replay tools, no data brokers.</span></li>
+          </ul>
+        </div>
+
+        <div class="settings-section">
+          <h3>Deleting or resetting your data</h3>
+          <p style="font-size:13px;color:var(--text-muted);line-height:1.7">
+            Everything this app stores in your browser (all <code>localStorage</code> keys and the
+            IndexedDB entry above) is scoped to this browser profile and this site's origin only.
+            Your browser's own <strong>"Clear site data" / "Clear browsing data"</strong> feature
+            removes all of it in one step and resets the app to a first-visit state (in Chrome/Edge:
+            the padlock icon next to the address bar → Site settings → Clear data; or Settings →
+            Privacy → Clear browsing data, scoped to this site).
+          </p>
+          <p style="font-size:13px;color:var(--text-muted);margin-top:8px;line-height:1.7">
+            <strong>Local Folder</strong>: your research data was never copied anywhere else — it's
+            the files in the folder you chose, fully under your own control.
+          </p>
+          <p style="font-size:13px;color:var(--text-muted);margin-top:8px;line-height:1.7">
+            <strong>Cloud Sync</strong>: Sign Out (Home screen, account menu) clears your local
+            session immediately. The app doesn't yet offer self-service full account/data deletion
+            from the UI — reach out via <a href="https://github.com/socresearcher/slr-harvester/issues" target="_blank" rel="noopener">GitHub</a>
+            to request deletion of your Cloud Sync account and its stored data.
+          </p>
+        </div>
+      </div>`;
+  }
+
+  //  About view
 
   function renderAbout(container) {
     container.innerHTML = `
@@ -3724,6 +3711,10 @@ window.SLRViews = (() => {
             ${SLRIcons.externalLink || ''}
             <span>License</span>
           </a>
+          <button type="button" class="about-link-btn" id="about-privacy-btn">
+            ${SLRIcons.info}
+            <span>Privacy &amp; Cookies</span>
+          </button>
         </div>
 
         <div class="about-v2-banner">
@@ -3825,14 +3816,16 @@ window.SLRViews = (() => {
             Access API (<code>showDirectoryPicker</code>). Desktop Firefox and Safari
             don't support it, and neither does any mobile browser (Chrome, Edge, or
             Safari on phone/tablet) &mdash; this API isn't implemented on mobile at all
-            regardless of vendor. <strong>Cloud Sync</strong> (Settings &rarr; Cloud Sync)
-            works in any modern browser, including mobile, as an alternative.
+            regardless of vendor. <strong>Cloud Sync</strong> (Sign Up / Log In from the
+            Home screen) works in any modern browser, including mobile, as an alternative.
           </p>
           <p style="font-size:13px;color:var(--text-muted);margin-top:8px;line-height:1.7">
             In <strong>Local Folder</strong> mode the app works entirely offline &mdash;
             no project data is sent to any server, only direct API requests from your
             browser to the respective academic databases. In <strong>Cloud Sync</strong>
-            mode, project data is stored in the Supabase project you connect in Settings.
+            mode, project data is stored in this app's Supabase project instead (see
+            <button type="button" class="link-btn" id="databases-privacy-link">Privacy &amp; Cookies</button>
+            for the full breakdown of what's stored and where).
           </p>
         </div>
 
@@ -3844,6 +3837,8 @@ window.SLRViews = (() => {
       </div>`;
     const gotoBtn = container.querySelector('#about-goto-settings');
     if (gotoBtn) gotoBtn.addEventListener('click', () => SLRApp.navigate('settings'));
+    container.querySelector('#about-privacy-btn')?.addEventListener('click', () => SLRApp.navigate('privacy'));
+    container.querySelector('#databases-privacy-link')?.addEventListener('click', () => SLRApp.navigate('privacy'));
   }
 
   //  Tags view 
@@ -4316,6 +4311,7 @@ window.SLRViews = (() => {
     renderSearch,
     renderSettings,
     renderAbout,
+    renderPrivacy,
     renderTags,
     renderNewProjectModal,
     renderSupabaseAuthModal,
