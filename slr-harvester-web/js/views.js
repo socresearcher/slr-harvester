@@ -287,6 +287,11 @@ window.SLRViews = (() => {
             <span>${compatMessage}</span>
           </div>
         </div>
+
+        <div class="welcome-copyright">
+          <span class="welcome-copyright-icon">&copy;</span>
+          <span>2026 Gregor Hobersdorfer</span>
+        </div>
       </div>`;
 
     container.querySelector('#welcome-open-btn').addEventListener('click', () => {
@@ -823,25 +828,6 @@ window.SLRViews = (() => {
               ${year ? `<span>${esc(year)}</span><span class="meta-sep">&middot;</span>` : ''}
               <span>${a.citedby || 0} cited</span>
             </div>
-            <div class="article-tag-row">
-              <span class="article-tag-row-indicators">
-                <span class="abstract-indicator ${a.abstract ? 'has-abstract' : 'no-abstract'}"
-                      title="${a.abstract ? 'Abstract available' : 'No abstract'}">
-                  ${a.abstract ? SLRIcons.eye : SLRIcons.eyeOff}
-                </span>
-                ${affiliationBadge}
-              </span>
-              <span class="article-tag-row-actions">
-                <button class="badge badge-toggle ${a.selected ? 'badge-selected' : 'badge-dim'}"
-                        data-action="toggle-selected"
-                        title="${a.selected ? 'Remove from Selected' : 'Mark as Selected'}"
-                        aria-label="${a.selected ? 'Remove from Selected' : 'Mark as Selected'}">${SLRIcons.selected}</button>
-                <button class="badge badge-toggle ${a.corpus ? 'badge-corpus' : 'badge-dim'}"
-                        data-action="toggle-corpus"
-                        title="${a.corpus ? 'Remove from Corpus' : 'Add to Corpus'}"
-                        aria-label="${a.corpus ? 'Remove from Corpus' : 'Add to Corpus'}">${SLRIcons.corpus}</button>
-              </span>
-            </div>
           </div>
           <div class="article-badges">
             <div class="article-badges-row">
@@ -856,6 +842,26 @@ window.SLRViews = (() => {
               </button>
             </div>
           </div>
+        </div>
+
+        <div class="article-tag-row">
+          <span class="article-tag-row-indicators">
+            <span class="abstract-indicator ${a.abstract ? 'has-abstract' : 'no-abstract'}"
+                  title="${a.abstract ? 'Abstract available' : 'No abstract'}">
+              ${a.abstract ? SLRIcons.eye : SLRIcons.eyeOff}
+            </span>
+            ${affiliationBadge}
+          </span>
+          <span class="article-tag-row-actions">
+            <button class="badge badge-toggle ${a.selected ? 'badge-selected' : 'badge-dim'}"
+                    data-action="toggle-selected"
+                    title="${a.selected ? 'Remove from Selected' : 'Mark as Selected'}"
+                    aria-label="${a.selected ? 'Remove from Selected' : 'Mark as Selected'}">${SLRIcons.selected}</button>
+            <button class="badge badge-toggle ${a.corpus ? 'badge-corpus' : 'badge-dim'}"
+                    data-action="toggle-corpus"
+                    title="${a.corpus ? 'Remove from Corpus' : 'Add to Corpus'}"
+                    aria-label="${a.corpus ? 'Remove from Corpus' : 'Add to Corpus'}">${SLRIcons.corpus}</button>
+          </span>
         </div>
 
         <div class="article-detail">
