@@ -150,7 +150,7 @@ a:hover {
 }
 
 /* iOS notch/home-indicator safe-area baseline.
-   The bottom inset is handled on .sidebar-footer directly (see below) via
+   The bottom inset is handled on .sidebar-nav directly (see below) via
    max(), not here — keeping it in one place avoids stacking it twice. */
 @supports (padding: env(safe-area-inset-top)) {
   #topbar {
@@ -313,7 +313,7 @@ a:hover {
 .sidebar-nav {
   flex: 1;
   min-height: 0; /* Safari: a scrollable flex:1 child needs this to actually fill (not just wrap) available height */
-  padding: 8px 0;
+  padding: 8px 0 max(8px, env(safe-area-inset-bottom, 0px));
   overflow-y: auto;
   overflow-x: hidden;
   -webkit-overflow-scrolling: touch;
@@ -388,43 +388,6 @@ a:hover {
   font-size: 13.5px;
   overflow: hidden;
   text-overflow: ellipsis;
-}
-
-/* Sidebar footer — copyright only; no divider, matches the unified icon list above.
-   Bottom padding is one deliberate max() expression: a small fixed minimum
-   on devices with no safe area, or exactly the safe-area-inset-bottom on
-   notched devices — never both added together, so the gap above the
-   screen edge stays intentional instead of accumulating across elements. */
-.sidebar-footer {
-  padding: 4px 0 max(8px, env(safe-area-inset-bottom, 0px));
-  flex-shrink: 0;
-}
-
-.sidebar-copyright {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  min-width: 0;
-  font-size: 10.5px;
-  color: var(--text-muted);
-  padding: 4px 10px 2px var(--sidebar-icon-pad-left);
-  user-select: none;
-}
-
-.sidebar-copyright-text {
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-
-/* Same box (width, centering) as .nav-icon so the © sits on the exact same
-   vertical axis as every sidebar icon above it, in every breakpoint. */
-.sidebar-copyright-icon {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  flex-shrink: 0;
-  width: 18px;
 }
 
 /* ----------------------------------------------------------
@@ -746,7 +709,7 @@ a:hover {
   .list-toolbar .filter-select,
   .list-toolbar .year-input,
   .list-toolbar .articles-action-btn,
-  .list-toolbar-toggle {
+  .list-filter-toggle {
     height: 32px;
     min-height: 32px;
   }
@@ -1001,19 +964,102 @@ a:hover {
   margin-top: 1px;
 }
 
-.welcome-tips {
-  font-size: 12px;
+/* Points at the sidebar's About nav-item, where the onboarding walkthrough
+   that used to live here as static text now lives instead (see
+   #about-first-time in renderAbout). Vertically aligned to that button by
+   JS (renderWelcome); horizontal tracking is free — this is positioned
+   relative to .welcome-view, whose own left edge already sits flush
+   against the sidebar regardless of collapsed/expanded width. */
+.welcome-firsttime-hint {
+  position: absolute;
+  left: 14px;
+  top: 50%;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  z-index: 5;
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  .welcome-firsttime-hint {
+    animation: firsttimeHintNudge 2.4s ease-in-out infinite;
+  }
+}
+
+@keyframes firsttimeHintNudge {
+  0%, 100% { transform: translateX(0); }
+  50%      { transform: translateX(-4px); }
+}
+
+.welcome-firsttime-btn {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 14px 8px 10px;
+  background: var(--accent-subtle);
+  border: 1px solid color-mix(in srgb, var(--accent) 45%, transparent);
+  border-radius: 20px;
+  color: var(--accent);
+  font-size: 13px;
+  font-weight: 500;
+  white-space: nowrap;
+  box-shadow: var(--shadow);
+}
+
+.welcome-firsttime-btn:hover {
+  background: color-mix(in srgb, var(--accent) 20%, transparent);
+  color: var(--accent-hover);
+}
+
+.welcome-firsttime-btn svg {
+  width: 15px;
+  height: 15px;
+  flex-shrink: 0;
+}
+
+.welcome-firsttime-close {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  background: var(--surface-2);
+  border: 1px solid var(--border);
   color: var(--text-faint);
-  max-width: 460px;
-  text-align: left;
+  flex-shrink: 0;
 }
 
-.welcome-tips p + p {
-  margin-top: 10px;
-}
-
-.welcome-tips strong {
+.welcome-firsttime-close:hover {
+  background: var(--surface-3);
   color: var(--text-muted);
+}
+
+.welcome-firsttime-close svg {
+  width: 11px;
+  height: 11px;
+}
+
+/* Bottom-center of the Home view, independent of the (vertically centered)
+   content group above it — absolute rather than a flex child so it stays
+   pinned to the viewport edge regardless of how tall the content above it
+   gets. */
+.welcome-copyright {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: max(16px, env(safe-area-inset-bottom, 0px));
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  font-size: 11px;
+  color: var(--text-faint);
+  user-select: none;
+}
+
+.welcome-copyright-icon {
+  font-size: 13px;
 }
 
 /* ----------------------------------------------------------
@@ -1187,8 +1233,9 @@ a:hover {
 }
 
 /* List toolbar — shared by Articles / Selected / Corpus.
-   Row 1: search + show/hide-actions toggle. Row 2: sort, year range, tag
-   filter. Row 3 (hidden by default): bulk-action buttons. */
+   Row 1: Filter toggle + Fetch/Tag/Export action buttons. Row 2-3 (only
+   when the filter toggle is active): tag chips, year range. Row 4:
+   search + sort, always visible. */
 .list-toolbar {
   display: flex;
   flex-direction: column;
@@ -1204,49 +1251,6 @@ a:hover {
   align-items: center;
   gap: 10px;
   flex-wrap: wrap;
-}
-
-.list-toolbar-toggle {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 32px;
-  height: 32px;
-  flex-shrink: 0;
-  background: var(--surface-2);
-  border: 1px solid var(--border);
-  border-radius: var(--radius);
-  color: var(--text-muted);
-  cursor: pointer;
-  transition: background var(--transition), color var(--transition), border-color var(--transition);
-}
-
-.list-toolbar-toggle svg {
-  width: 15px;
-  height: 15px;
-}
-
-.list-toolbar-toggle:hover {
-  background: var(--surface-3);
-  color: var(--text);
-}
-
-.list-toolbar-toggle.active {
-  background: var(--accent-subtle);
-  color: var(--accent);
-  border-color: color-mix(in srgb, var(--accent) 45%, transparent);
-}
-
-.list-toolbar-actions {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  flex-wrap: wrap;
-  padding-top: 4px;
-}
-
-.list-toolbar-actions.hidden {
-  display: none;
 }
 
 /* Search input */
@@ -2442,6 +2446,44 @@ a.db-link:visited {
   color: var(--text-faint);
 }
 
+/* Toggle for the filter panel (tag chips + year range) below — sits inline
+   in .list-toolbar-buttons-row alongside Fetch/Tag/Export, shared by
+   Articles / Selected / Corpus so it looks and behaves identically
+   everywhere. */
+.list-filter-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 30px;
+  padding: 0 10px;
+  font-size: 12.5px;
+  font-weight: 500;
+  line-height: 1;
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  color: var(--text-muted);
+  cursor: pointer;
+  transition: background var(--transition), color var(--transition), border-color var(--transition);
+}
+
+.list-filter-toggle svg {
+  width: 14px;
+  height: 14px;
+  flex-shrink: 0;
+}
+
+.list-filter-toggle:hover {
+  background: var(--surface-3);
+  color: var(--text);
+}
+
+.list-filter-toggle.active {
+  background: var(--accent-subtle);
+  color: var(--accent);
+  border-color: color-mix(in srgb, var(--accent) 45%, transparent);
+}
+
 /* ----------------------------------------------------------
    15. Settings view
    ---------------------------------------------------------- */
@@ -2630,6 +2672,19 @@ a.db-link:visited {
   margin-bottom: 14px;
   padding-bottom: 8px;
   border-bottom: 1px solid var(--border);
+}
+
+/* Landing flash for a section reached via a jump-link (currently just
+   #about-first-time, via Home's "First time here?" hint) — box-shadow/
+   background only, so it never shifts layout the way padding would. */
+@keyframes sectionHintPulse {
+  0%, 100% { background-color: transparent; box-shadow: none; }
+  25%, 75% { background-color: var(--accent-subtle); box-shadow: 0 0 0 8px var(--accent-subtle); }
+}
+
+.section-hint-pulse {
+  border-radius: var(--radius);
+  animation: sectionHintPulse 1.6s ease-in-out 1;
 }
 
 .scopus-api-notice > div {
@@ -4243,7 +4298,10 @@ a.db-link:visited {
 }
 
 /* Export menu popup */
-.export-menu-popup {
+/* Generic floating choice menu — used by the Filter row's Fetch/Tag/Export
+   buttons (openToolbarPopupMenu in views.js) so all three share one look
+   instead of three near-duplicate popups. */
+.toolbar-popup-menu {
   position: fixed;
   z-index: 1001;
   background: var(--surface);
@@ -4254,7 +4312,7 @@ a.db-link:visited {
   padding: 4px;
 }
 
-.export-menu-item {
+.toolbar-popup-item {
   display: flex;
   align-items: center;
   gap: 8px;
@@ -4269,15 +4327,23 @@ a.db-link:visited {
   border-radius: 5px;
 }
 
-.export-menu-item:hover {
+.toolbar-popup-item:hover {
   background: var(--surface-2);
 }
 
-.export-menu-item svg {
+.toolbar-popup-item svg {
   width: 13px;
   height: 13px;
   flex-shrink: 0;
   color: var(--accent);
+}
+
+.toolbar-popup-item--warn svg {
+  color: #f97316;
+}
+
+.toolbar-popup-item--warn:hover {
+  background: color-mix(in srgb, #f97316 15%, transparent);
 }
 
 /* ══════════════════════════════════════════════════════════════

@@ -225,6 +225,13 @@ window.SLRViews = (() => {
          neither does any mobile browser. Use <strong>Sign Up</strong> or
          <strong>Log In</strong> above instead.`;
 
+    // The onboarding walkthrough (mobile/Firefox/Safari, first time with
+    // Local Folder, already have local data) used to live here as static
+    // text — now it's a dedicated section in About so it's one tap away
+    // instead of permanently taking up Home's layout. This hint is the
+    // pointer left in its place; dismissing it is remembered for good.
+    const firsttimeDismissed = localStorage.getItem('slr-firsttime-hint-dismissed') === '1';
+
     container.innerHTML = `
       <div class="welcome-view" id="home">
         <canvas id="heroParticles" class="hero-particles-canvas" aria-hidden="true"></canvas>
@@ -269,24 +276,27 @@ window.SLRViews = (() => {
           </button>
         </div>
 
-        <div class="welcome-tips">
-          <p><strong>On mobile, or Firefox/Safari?</strong> Local Folder needs the
-          File System Access API, which isn't available there — use
-          <strong>Sign Up</strong> or <strong>Log In</strong> instead: it syncs your
-          projects through the cloud and works in any browser.</p>
-          <p><strong>First time with Local Folder?</strong> Click the button above,
-          then create a new, empty folder in the picker dialog (any name works, e.g.
-          <code>SLR-Harvester-Data</code>) and select it. The app sets everything up
-          the moment you create your first project — nothing is written until then.</p>
-          <p><strong>Already have local data?</strong> Select the folder that contains
-          <code>projects.json</code> and the <code>projects/</code> directory - your existing
-          SLR Harvester workspace. Works with local folders and cloud-synced drives
-          (OneDrive, Google Drive) alike.</p>
-          <div class="welcome-compat-notice" id="welcome-compat-notice" hidden>
-            ${SLRIcons.warning}
-            <span>${compatMessage}</span>
-          </div>
+        <div class="welcome-compat-notice" id="welcome-compat-notice" hidden>
+          ${SLRIcons.warning}
+          <span>${compatMessage}</span>
         </div>
+
+        <div class="welcome-copyright">
+          <span class="welcome-copyright-icon">&copy;</span>
+          <span>2026 Gregor Hobersdorfer</span>
+        </div>
+
+        ${firsttimeDismissed ? '' : `
+          <div class="welcome-firsttime-hint" id="welcome-firsttime-hint">
+            <button type="button" class="welcome-firsttime-btn" id="welcome-firsttime-btn"
+                    title="Go to the &quot;First time here?&quot; section in About">
+              ${SLRIcons.chevronLeft}
+              <span>First time here?</span>
+            </button>
+            <button type="button" class="welcome-firsttime-close" id="welcome-firsttime-close"
+                    title="Dismiss" aria-label="Dismiss">${SLRIcons.close}</button>
+          </div>
+        `}
       </div>`;
 
     container.querySelector('#welcome-open-btn').addEventListener('click', () => {
@@ -297,6 +307,30 @@ window.SLRViews = (() => {
         if (notice) notice.hidden = false;
       }
     });
+
+    if (!firsttimeDismissed) {
+      const hintEl = container.querySelector('#welcome-firsttime-hint');
+      const welcomeEl = container.querySelector('.welcome-view');
+      const positionFirsttimeHint = () => {
+        if (!hintEl.isConnected) { window.removeEventListener('resize', positionFirsttimeHint); return; }
+        const aboutBtn = document.querySelector('.sidebar .nav-item[data-view="about"]');
+        if (!aboutBtn) return;
+        const aboutRect   = aboutBtn.getBoundingClientRect();
+        const welcomeRect = welcomeEl.getBoundingClientRect();
+        const top = (aboutRect.top - welcomeRect.top) + aboutRect.height / 2 - hintEl.offsetHeight / 2;
+        hintEl.style.top = `${Math.max(8, top)}px`;
+      };
+      positionFirsttimeHint();
+      window.addEventListener('resize', positionFirsttimeHint);
+
+      container.querySelector('#welcome-firsttime-btn').addEventListener('click', () => {
+        SLRApp.gotoAboutFirstTime();
+      });
+      container.querySelector('#welcome-firsttime-close').addEventListener('click', () => {
+        localStorage.setItem('slr-firsttime-hint-dismissed', '1');
+        hintEl.remove();
+      });
+    }
 
     if (cloudUser) {
       container.querySelector('#welcome-goto-projects-btn').addEventListener('click', () => {
@@ -638,9 +672,6 @@ window.SLRViews = (() => {
     const totalSelected = articles.filter(a => a.selected).length;
     const totalCorpus   = articles.filter(a => a.corpus).length;
     const totalTagged   = new Set(articles.filter(a => a.color && a.color !== 'None').map(a => a.color)).size;
-    const actionsVisible = !!SLRApp.state.actionsBarVisible;
-
-    const tagBreakdownHTML = buildTagBreakdownHTML(articles, projectData, filter.tag);
 
     // Build article HTML
     const listHTML = !projectData
@@ -674,16 +705,13 @@ window.SLRViews = (() => {
           </span>
         </div>
 
-        ${tagBreakdownHTML ? `<div class="corpus-tag-breakdown">${tagBreakdownHTML}</div>` : ''}
-
         ${buildListToolbarHTML({
+          list: articles, projectData, activeTags: filter.tags,
+          filterVisible: !!SLRApp.state.tagBreakdownVisible,
           searchId: 'list-search', searchValue: filter.search,
           sortId: 'list-sort', sortValue: filter.sort,
           yearFromId: 'list-year-from', yearFromValue: filter.yearFrom,
           yearToId: 'list-year-to', yearToValue: filter.yearTo,
-          tagFilterId: 'list-tag-filter', tagFilterValue: filter.tag,
-          tagOptionsHTML: buildTagOptions(articles, projectData, filter.tag),
-          actionsVisible,
           exportTitle: 'Download current list as .bib, .ris, or .csv',
         })}
 
@@ -700,20 +728,14 @@ window.SLRViews = (() => {
         </div>
       </div>`;
 
-    // Tag chip filter
-    container.querySelectorAll('.corpus-tag-breakdown .corpus-tag-chip').forEach(btn => {
-      btn.addEventListener('click', () => {
-        const t = btn.dataset.tag;
-        SLRApp.setFilter({ tag: filter.tag === t ? null : t });
-      });
-    });
-
     wireListToolbar(container, {
       onFilter: patch => SLRApp.setFilter(patch),
+      onTagsChange: tags => SLRApp.setFilter({ tags }),
       onExport: () => {
         const exportBtn = container.querySelector('#export-list-btn');
         openExportMenu(exportBtn, filtered, 'articles');
       },
+      activeTags: filter.tags,
     });
 
     // Expand/collapse articles
@@ -825,25 +847,6 @@ window.SLRViews = (() => {
               ${year ? `<span>${esc(year)}</span><span class="meta-sep">&middot;</span>` : ''}
               <span>${a.citedby || 0} cited</span>
             </div>
-            <div class="article-tag-row">
-              <span class="article-tag-row-indicators">
-                <span class="abstract-indicator ${a.abstract ? 'has-abstract' : 'no-abstract'}"
-                      title="${a.abstract ? 'Abstract available' : 'No abstract'}">
-                  ${a.abstract ? SLRIcons.eye : SLRIcons.eyeOff}
-                </span>
-                ${affiliationBadge}
-              </span>
-              <span class="article-tag-row-actions">
-                <button class="badge badge-toggle ${a.selected ? 'badge-selected' : 'badge-dim'}"
-                        data-action="toggle-selected"
-                        title="${a.selected ? 'Remove from Selected' : 'Mark as Selected'}"
-                        aria-label="${a.selected ? 'Remove from Selected' : 'Mark as Selected'}">${SLRIcons.selected}</button>
-                <button class="badge badge-toggle ${a.corpus ? 'badge-corpus' : 'badge-dim'}"
-                        data-action="toggle-corpus"
-                        title="${a.corpus ? 'Remove from Corpus' : 'Add to Corpus'}"
-                        aria-label="${a.corpus ? 'Remove from Corpus' : 'Add to Corpus'}">${SLRIcons.corpus}</button>
-              </span>
-            </div>
           </div>
           <div class="article-badges">
             <div class="article-badges-row">
@@ -858,6 +861,26 @@ window.SLRViews = (() => {
               </button>
             </div>
           </div>
+        </div>
+
+        <div class="article-tag-row">
+          <span class="article-tag-row-indicators">
+            <span class="abstract-indicator ${a.abstract ? 'has-abstract' : 'no-abstract'}"
+                  title="${a.abstract ? 'Abstract available' : 'No abstract'}">
+              ${a.abstract ? SLRIcons.eye : SLRIcons.eyeOff}
+            </span>
+            ${affiliationBadge}
+          </span>
+          <span class="article-tag-row-actions">
+            <button class="badge badge-toggle ${a.selected ? 'badge-selected' : 'badge-dim'}"
+                    data-action="toggle-selected"
+                    title="${a.selected ? 'Remove from Selected' : 'Mark as Selected'}"
+                    aria-label="${a.selected ? 'Remove from Selected' : 'Mark as Selected'}">${SLRIcons.selected}</button>
+            <button class="badge badge-toggle ${a.corpus ? 'badge-corpus' : 'badge-dim'}"
+                    data-action="toggle-corpus"
+                    title="${a.corpus ? 'Remove from Corpus' : 'Add to Corpus'}"
+                    aria-label="${a.corpus ? 'Remove from Corpus' : 'Add to Corpus'}">${SLRIcons.corpus}</button>
+          </span>
         </div>
 
         <div class="article-detail">
@@ -941,40 +964,86 @@ window.SLRViews = (() => {
     setTimeout(() => document.addEventListener('click', closeHandler, true), 10);
   }
 
-  function openExportMenu(triggerEl, articles, scopeLabel) {
-    document.querySelector('.export-menu-popup')?.remove();
+  // Generic floating choice menu, shared by the Filter row's Fetch/Tag/Export
+  // buttons — each just supplies its own list of {icon, label, title, warn,
+  // onClick} items instead of reimplementing positioning/click-outside-close
+  // three times over.
+  function openToolbarPopupMenu(triggerEl, items) {
+    document.querySelector('.toolbar-popup-menu')?.remove();
     const popup = document.createElement('div');
-    popup.className = 'export-menu-popup';
-    popup.innerHTML = `
-      <button class="export-menu-item" data-format="bib">${SLRIcons.download}<span>Download .bib</span></button>
-      <button class="export-menu-item" data-format="ris">${SLRIcons.download}<span>Download .ris</span></button>
-      <button class="export-menu-item" data-format="csv">${SLRIcons.download}<span>Download .csv</span></button>`;
+    popup.className = 'toolbar-popup-menu';
+    popup.innerHTML = items.map((it, i) => `
+      <button class="toolbar-popup-item${it.warn ? ' toolbar-popup-item--warn' : ''}"
+              data-idx="${i}" title="${esc(it.title || '')}">
+        ${it.icon}<span>${esc(it.label)}</span>
+      </button>`).join('');
     document.body.appendChild(popup);
 
     const rect = triggerEl.getBoundingClientRect();
-    const estimatedH = 34 * 3 + 8;
+    const estimatedH = 34 * items.length + 8;
     const spaceBelow = window.innerHeight - rect.bottom;
     if (spaceBelow < estimatedH && rect.top > estimatedH) {
       popup.style.top = (rect.top - estimatedH - 4) + 'px';
     } else {
       popup.style.top = (rect.bottom + 4) + 'px';
     }
-    popup.style.left = Math.min(rect.left, window.innerWidth - 220) + 'px';
+    popup.style.left = Math.min(rect.left, window.innerWidth - 240) + 'px';
 
     popup.addEventListener('click', ev => {
-      const item = ev.target.closest('.export-menu-item');
+      const item = ev.target.closest('.toolbar-popup-item');
       if (!item) return;
-      exportArticleList(articles, item.dataset.format, scopeLabel);
       popup.remove();
+      items[Number(item.dataset.idx)].onClick();
     });
 
     const closeHandler = ev => {
-      if (!popup.contains(ev.target) && ev.target !== triggerEl) {
+      if (!popup.contains(ev.target) && ev.target !== triggerEl && !triggerEl.contains(ev.target)) {
         popup.remove();
         document.removeEventListener('click', closeHandler, true);
       }
     };
     setTimeout(() => document.addEventListener('click', closeHandler, true), 10);
+  }
+
+  function openExportMenu(triggerEl, articles, scopeLabel) {
+    openToolbarPopupMenu(triggerEl, [
+      { icon: SLRIcons.download, label: 'Download .bib', onClick: () => exportArticleList(articles, 'bib', scopeLabel) },
+      { icon: SLRIcons.download, label: 'Download .ris', onClick: () => exportArticleList(articles, 'ris', scopeLabel) },
+      { icon: SLRIcons.download, label: 'Download .csv', onClick: () => exportArticleList(articles, 'csv', scopeLabel) },
+    ]);
+  }
+
+  function openFetchMenu(triggerEl) {
+    const onErr = label => err => SLRApp.showToast(`${label} failed: ` + (err?.message || String(err)), true);
+    openToolbarPopupMenu(triggerEl, [
+      { icon: SLRIcons.eye, label: 'Fetch Abstracts',
+        title: 'Fetch missing abstracts via DOI (Crossref)',
+        onClick: () => void SLRApp.fetchAbstractsViaDOI().catch(onErr('Fetch abstracts')) },
+      { icon: SLRIcons.user, label: 'Fetch Authors',
+        title: 'Fetch full author lists via DOI (Crossref) - Scopus only delivers the first author by default',
+        onClick: () => void SLRApp.fetchAuthorsViaDOI().catch(onErr('Fetch authors')) },
+      { icon: SLRIcons.tag, label: 'Fetch Document Types',
+        title: 'Fetch missing document types via DOI (Crossref) - e.g. Article, Chapter, Dataset, Preprint',
+        onClick: () => void SLRApp.fetchTypesViaDOI().catch(onErr('Fetch types')) },
+      { icon: SLRIcons.globe, label: 'Fetch Affiliations',
+        title: 'Fetch affiliation names and country data via DOI / OpenAlex / PMID',
+        onClick: () => void SLRApp.fetchAffiliationsViaIdentifier().catch(onErr('Fetch affiliations')) },
+      { icon: SLRIcons.refresh, label: 'Fetch Everything',
+        title: 'Fetch abstracts, authors, document types, and affiliations in one run',
+        onClick: () => void SLRApp.fetchAllMetadata({ mode: SLRApp.state.fetchMode }).catch(onErr('Fetch all metadata')) },
+    ]);
+  }
+
+  function openTagMenu(triggerEl) {
+    const onErr = err => SLRApp.showToast('Auto-tag failed: ' + (err?.message || String(err)), true);
+    openToolbarPopupMenu(triggerEl, [
+      { icon: SLRIcons.tag, label: 'Tag Untagged Articles',
+        title: "Automatically tag articles that don't have a tag yet, based on journal name",
+        onClick: () => void SLRApp.autoTagByJournal(false).catch(onErr) },
+      { icon: SLRIcons.tag, label: 'Re-tag All Articles', warn: true,
+        title: 'Reset every tag and re-run automatic tagging on all articles, including ones already tagged',
+        onClick: () => void SLRApp.autoTagByJournal(true).catch(onErr) },
+    ]);
   }
 
   function exportArticleList(articles, format, scopeLabel) {
@@ -1187,27 +1256,6 @@ window.SLRViews = (() => {
     return `"${text.replace(/"/g, '""')}"`;
   }
 
-  function buildTagOptions(articles, projectData, activeTag) {
-    const tagSet = new Set();
-    let hasUntagged = false;
-    for (const a of articles) {
-      if (a.tag && a.tag !== 'None') {
-        tagSet.add(a.tag);
-      } else {
-        hasUntagged = true;
-      }
-    }
-    const options = [];
-    if (hasUntagged || activeTag === TAG_FILTER_NONE) {
-      options.push(`<option value="${TAG_FILTER_NONE}" ${activeTag === TAG_FILTER_NONE ? 'selected' : ''}>None (untagged)</option>`);
-    }
-    options.push(...Array.from(tagSet).sort().map(t => {
-      const sel = t === activeTag ? 'selected' : '';
-      return `<option value="${esc(t)}" ${sel}>${esc(t)}</option>`;
-    }));
-    return options.join('');
-  }
-
   function applyFilter(articles, filter, projectData) {
     let list = articles;
 
@@ -1215,11 +1263,14 @@ window.SLRViews = (() => {
     if (filter.mode === 'selected') list = list.filter(a => a.selected);
     if (filter.mode === 'corpus')   list = list.filter(a => a.corpus);
 
-    // Tag
-    if (filter.tag === TAG_FILTER_NONE) {
-      list = list.filter(a => !a.tag || a.tag === 'None');
-    } else if (filter.tag) {
-      list = list.filter(a => a.tag === filter.tag);
+    // Tag (multi-select — an article matches if its tag is any one of the
+    // selected tags; empty selection means no tag filtering at all)
+    if (Array.isArray(filter.tags) && filter.tags.length > 0) {
+      const tagSet = new Set(filter.tags);
+      list = list.filter(a => {
+        const effective = (a.tag && a.tag !== 'None') ? a.tag : TAG_FILTER_NONE;
+        return tagSet.has(effective);
+      });
     }
 
     // Year
@@ -1261,8 +1312,10 @@ window.SLRViews = (() => {
     return list;
   }
 
-  // Tag chips-with-counts row, shared by Articles / Selected / Corpus
-  function buildTagBreakdownHTML(list, projectData, activeTag) {
+  // Tag chips-with-counts row, shared by Articles / Selected / Corpus.
+  // `activeTags` is an array — multiple chips can be active/pinned at once.
+  function buildTagBreakdownHTML(list, projectData, activeTags) {
+    const activeSet = new Set(activeTags || []);
     const tagMap = new Map();
     for (const a of list) {
       const label = (a.tag && a.tag !== 'None') ? a.tag : null;
@@ -1273,7 +1326,7 @@ window.SLRViews = (() => {
     const chips = [...tagMap.entries()]
       .sort((a, b) => b[1].count - a[1].count)
       .map(([t, { count: n, hex: hexVal }]) => {
-        const active = activeTag === t ? 'active' : '';
+        const active = activeSet.has(t) ? 'active' : '';
         return `<button class="corpus-tag-chip ${active}" data-tag="${esc(t)}"
                         ${hexVal ? `style="--tag-color:${esc(hexVal)}"` : ''}>
                   <span class="tag-dot" ${hexVal ? `style="background:${esc(hexVal)}"` : ''}></span>
@@ -1284,7 +1337,7 @@ window.SLRViews = (() => {
 
     const untaggedCount = list.filter(a => !a.tag || a.tag === 'None').length;
     const noneChip = untaggedCount > 0
-      ? `<button class="corpus-tag-chip ${activeTag === TAG_FILTER_NONE ? 'active' : ''}" data-tag="${TAG_FILTER_NONE}">
+      ? `<button class="corpus-tag-chip ${activeSet.has(TAG_FILTER_NONE) ? 'active' : ''}" data-tag="${TAG_FILTER_NONE}">
            <span class="tag-dot tag-dot-empty"></span>
            None
            <span class="chip-count">${untaggedCount}</span>
@@ -1294,19 +1347,65 @@ window.SLRViews = (() => {
     return [noneChip, chips].filter(Boolean).join('');
   }
 
-  // Toolbar markup shared by Articles / Selected / Corpus: a search row, a
-  // sort/year/tag-filter row, and a hideable row of bulk-action buttons.
+  // "Tag: X" / "Tags: X, Y" summary label shared by Corpus/Selected's stats row.
+  function formatActiveTagsLabel(tags) {
+    if (!tags || !tags.length) return '';
+    const names = tags.map(t => t === TAG_FILTER_NONE ? 'None' : t);
+    return `<span class="stats-sep">|</span><span>${tags.length > 1 ? 'Tags' : 'Tag'}: ${esc(names.join(', '))}</span>`;
+  }
+
+  // Toolbar markup shared by Articles / Selected / Corpus:
+  //   Row 1 — Filter toggle, then Fetch / Tag / Export (each opens a choice
+  //           popup rather than being 7+ separate buttons).
+  //   Row 2/3 — only while the Filter toggle is on: tag chips, year range.
+  //   Row 4 — search + sort, always visible.
   function buildListToolbarHTML(opts) {
     const {
+      list, projectData, activeTags, filterVisible,
       searchId, searchValue,
       sortId, sortValue,
       yearFromId, yearFromValue, yearToId, yearToValue,
-      tagFilterId, tagFilterValue, tagOptionsHTML,
-      actionsVisible, exportTitle,
+      exportTitle,
     } = opts;
+
+    const breakdown = buildTagBreakdownHTML(list, projectData, activeTags);
+    const activeCount = (activeTags || []).length;
 
     return `
       <div class="list-toolbar">
+        <div class="list-toolbar-row">
+          <button type="button" class="list-filter-toggle${filterVisible ? ' active' : ''}" id="list-filter-toggle"
+                  title="${filterVisible ? 'Hide' : 'Show'} filters" aria-label="Toggle filters" aria-expanded="${filterVisible ? 'true' : 'false'}">
+            ${SLRIcons.filter}
+            <span>Filter${activeCount ? ` (${activeCount})` : ''}</span>
+          </button>
+          <button class="articles-action-btn" id="fetch-menu-btn"
+                  title="Fetch missing abstracts, authors, document types, or affiliations">
+            ${SLRIcons.refresh} Fetch
+          </button>
+          <button class="articles-action-btn" id="tag-menu-btn"
+                  title="Automatically tag articles by journal name">
+            ${SLRIcons.tag} Tag
+          </button>
+          <button class="articles-action-btn" id="export-list-btn"
+              title="${esc(exportTitle || 'Download current list as .bib, .ris, or .csv')}">
+            ${SLRIcons.download} Export
+          </button>
+        </div>
+
+        ${filterVisible ? `
+          ${breakdown ? `<div class="corpus-tag-breakdown">${breakdown}</div>` : ''}
+          <div class="list-toolbar-row">
+            <div class="filter-year-wrap">
+              <input class="year-input" id="${yearFromId}" type="number"
+                     placeholder="From" min="1900" max="2100" value="${esc(yearFromValue)}">
+                   <span>-</span>
+              <input class="year-input" id="${yearToId}" type="number"
+                     placeholder="To" min="1900" max="2100" value="${esc(yearToValue)}">
+            </div>
+          </div>
+        ` : ''}
+
         <div class="list-toolbar-row">
           <div class="search-input-wrap">
             ${SLRIcons.search}
@@ -1314,77 +1413,32 @@ window.SLRViews = (() => {
                    type="text" placeholder="Search title, abstract, journal (use ; for AND)"
                    value="${esc(searchValue)}" autocomplete="off">
           </div>
-          <button class="list-toolbar-toggle ${actionsVisible ? 'active' : ''}" id="list-actions-toggle"
-                  title="Show/hide action buttons" aria-label="Toggle action buttons" aria-expanded="${actionsVisible ? 'true' : 'false'}">
-            ${SLRIcons.menu}
-          </button>
-        </div>
-
-        <div class="list-toolbar-row">
           <select class="filter-select" id="${sortId}" title="Sort order">
             <option value="newest" ${sortValue==='newest'?'selected':''}>Newest first</option>
             <option value="oldest" ${sortValue==='oldest'?'selected':''}>Oldest first</option>
             <option value="cited"  ${sortValue==='cited' ?'selected':''}>Most cited</option>
             <option value="title"  ${sortValue==='title' ?'selected':''}>Title A-Z</option>
           </select>
-
-          <div class="filter-year-wrap">
-            <input class="year-input" id="${yearFromId}" type="number"
-                   placeholder="From" min="1900" max="2100" value="${esc(yearFromValue)}">
-                 <span>-</span>
-            <input class="year-input" id="${yearToId}" type="number"
-                   placeholder="To" min="1900" max="2100" value="${esc(yearToValue)}">
-          </div>
-
-          <select class="filter-select" id="${tagFilterId}" title="Filter by tag">
-            <option value="">All tags</option>
-            ${tagOptionsHTML}
-          </select>
-        </div>
-
-        <div class="list-toolbar-actions${actionsVisible ? '' : ' hidden'}" id="list-actions-panel">
-          <button class="articles-action-btn" id="autotag-btn"
-                  title="Auto-tag untagged articles by journal name">
-            ${SLRIcons.tag} Auto-tag
-          </button>
-          <button class="articles-action-btn articles-action-btn--warn" id="force-autotag-btn"
-                  title="Reset all tags and re-run auto-tag on every article">
-            ${SLRIcons.tag} Force Auto-tag
-          </button>
-          <button class="articles-action-btn" id="fetch-abstracts-btn"
-                  title="Fetch missing abstracts via DOI (Crossref)">
-            ${SLRIcons.eye} Fetch Abstracts
-          </button>
-          <button class="articles-action-btn" id="fetch-authors-btn"
-              title="Fetch full author lists via DOI (Crossref) - Scopus only delivers the first author by default">
-            ${SLRIcons.user} Fetch Authors
-          </button>
-          <button class="articles-action-btn" id="fetch-types-btn"
-              title="Fetch missing document types via DOI (Crossref) - e.g. Article, Chapter, Dataset, Preprint">
-            ${SLRIcons.tag} Fetch Types
-          </button>
-          <button class="articles-action-btn" id="fetch-affiliations-btn"
-              title="Fetch affiliation names and country data via DOI / OpenAlex / PMID">
-            ${SLRIcons.globe} Fetch Affiliations
-          </button>
-          <button class="articles-action-btn" id="fetch-all-btn"
-              title="Fetch abstracts, authors, document types, and affiliations in one run">
-            ${SLRIcons.refresh} Fetch All
-          </button>
-          <button class="articles-action-btn" id="export-list-btn"
-              title="${esc(exportTitle || 'Download current list as .bib, .ris, or .csv')}">
-            ${SLRIcons.download} Export
-          </button>
         </div>
       </div>`;
   }
 
   // Wires the shared toolbar's controls. `onFilter` receives a state patch
   // for the view's own setXFilter; `onExport` receives no args (the caller
-  // closes over the current filtered list).
-  function wireListToolbar(container, { onFilter, onExport }) {
-    const toggleBtn = container.querySelector('#list-actions-toggle');
-    if (toggleBtn) toggleBtn.addEventListener('click', () => SLRApp.toggleActionsBar());
+  // closes over the current filtered list); `onTagsChange` receives the full
+  // new tags array when a chip is clicked (add/remove one tag).
+  function wireListToolbar(container, { onFilter, onExport, onTagsChange, activeTags }) {
+    const filterToggle = container.querySelector('#list-filter-toggle');
+    if (filterToggle) filterToggle.addEventListener('click', () => SLRApp.toggleTagBreakdown());
+
+    container.querySelectorAll('.corpus-tag-breakdown .corpus-tag-chip').forEach(btn => {
+      btn.addEventListener('click', () => {
+        const t = btn.dataset.tag;
+        const current = activeTags || [];
+        const next = current.includes(t) ? current.filter(x => x !== t) : [...current, t];
+        onTagsChange(next);
+      });
+    });
 
     const searchInput = container.querySelector('#list-search');
     if (searchInput) {
@@ -1397,9 +1451,6 @@ window.SLRViews = (() => {
 
     const sortSelect = container.querySelector('#list-sort');
     if (sortSelect) sortSelect.addEventListener('change', e => onFilter({ sort: e.target.value }));
-
-    const tagSelect = container.querySelector('#list-tag-filter');
-    if (tagSelect) tagSelect.addEventListener('change', e => onFilter({ tag: e.target.value || null }));
 
     const yearFrom = container.querySelector('#list-year-from');
     const yearTo   = container.querySelector('#list-year-to');
@@ -1417,41 +1468,8 @@ window.SLRViews = (() => {
       const el = container.querySelector('#' + id);
       if (el) el.addEventListener('click', handler);
     };
-    bind('autotag-btn', () => {
-      void SLRApp.autoTagByJournal(false).catch(err => {
-        SLRApp.showToast('Auto-tag failed: ' + (err?.message || String(err)), true);
-      });
-    });
-    bind('force-autotag-btn', () => {
-      void SLRApp.autoTagByJournal(true).catch(err => {
-        SLRApp.showToast('Auto-tag failed: ' + (err?.message || String(err)), true);
-      });
-    });
-    bind('fetch-abstracts-btn', () => {
-      void SLRApp.fetchAbstractsViaDOI().catch(err => {
-        SLRApp.showToast('Fetch abstracts failed: ' + (err?.message || String(err)), true);
-      });
-    });
-    bind('fetch-authors-btn', () => {
-      void SLRApp.fetchAuthorsViaDOI().catch(err => {
-        SLRApp.showToast('Fetch authors failed: ' + (err?.message || String(err)), true);
-      });
-    });
-    bind('fetch-types-btn', () => {
-      void SLRApp.fetchTypesViaDOI().catch(err => {
-        SLRApp.showToast('Fetch types failed: ' + (err?.message || String(err)), true);
-      });
-    });
-    bind('fetch-affiliations-btn', () => {
-      void SLRApp.fetchAffiliationsViaIdentifier().catch(err => {
-        SLRApp.showToast('Fetch affiliations failed: ' + (err?.message || String(err)), true);
-      });
-    });
-    bind('fetch-all-btn', () => {
-      void SLRApp.fetchAllMetadata({ mode: SLRApp.state.fetchMode }).catch(err => {
-        SLRApp.showToast('Fetch all metadata failed: ' + (err?.message || String(err)), true);
-      });
-    });
+    bind('fetch-menu-btn', ev => { ev.stopPropagation(); openFetchMenu(ev.currentTarget); });
+    bind('tag-menu-btn', ev => { ev.stopPropagation(); openTagMenu(ev.currentTarget); });
     bind('export-list-btn', ev => {
       ev.stopPropagation();
       onExport(ev);
@@ -1707,9 +1725,6 @@ window.SLRViews = (() => {
   function renderCorpus(container, articles, filter, projectData) {
     const corpusArticles = articles.filter(a => a.corpus);
     const stats          = SLRData.getStats(corpusArticles);
-    const actionsVisible = !!SLRApp.state.actionsBarVisible;
-
-    const tagBreakdownHTML = buildTagBreakdownHTML(corpusArticles, projectData, filter.tag);
 
     const filtered = applyFilter(corpusArticles, Object.assign({}, filter, { mode: 'corpus' }), projectData);
     const listHTML = !projectData
@@ -1736,22 +1751,19 @@ window.SLRViews = (() => {
           </span>
         </div>
 
-        ${tagBreakdownHTML ? `<div class="corpus-tag-breakdown">${tagBreakdownHTML}</div>` : ''}
-
         ${buildListToolbarHTML({
+          list: corpusArticles, projectData, activeTags: filter.tags,
+          filterVisible: !!SLRApp.state.tagBreakdownVisible,
           searchId: 'list-search', searchValue: filter.search,
           sortId: 'list-sort', sortValue: filter.sort,
           yearFromId: 'list-year-from', yearFromValue: filter.yearFrom,
           yearToId: 'list-year-to', yearToValue: filter.yearTo,
-          tagFilterId: 'list-tag-filter', tagFilterValue: filter.tag,
-          tagOptionsHTML: buildTagOptions(corpusArticles, projectData, filter.tag),
-          actionsVisible,
           exportTitle: 'Download current list as .bib, .ris, or .csv',
         })}
 
         <div class="articles-stats">
           <span>Showing <strong>${filtered.length}</strong> of <strong>${stats.corpus}</strong> corpus articles</span>
-          ${filter.tag ? `<span class="stats-sep">|</span><span>Tag: ${esc(filter.tag === TAG_FILTER_NONE ? 'None' : filter.tag)}</span>` : ''}
+          ${formatActiveTagsLabel(filter.tags)}
           ${filter.search ? `<span class="stats-sep">|</span><span>Search: "${esc(filter.search)}"</span>` : ''}
         </div>
 
@@ -1760,20 +1772,14 @@ window.SLRViews = (() => {
         </div>
       </div>`;
 
-    // Tag chip filter
-    container.querySelectorAll('.corpus-tag-breakdown .corpus-tag-chip').forEach(btn => {
-      btn.addEventListener('click', () => {
-        const t = btn.dataset.tag;
-        SLRApp.setCorpusFilter({ tag: filter.tag === t ? null : t });
-      });
-    });
-
     wireListToolbar(container, {
       onFilter: patch => SLRApp.setCorpusFilter(patch),
+      onTagsChange: tags => SLRApp.setCorpusFilter({ tags }),
       onExport: () => {
         const exportBtn = container.querySelector('#export-list-btn');
         openExportMenu(exportBtn, filtered, 'corpus');
       },
+      activeTags: filter.tags,
     });
 
     container.querySelector('#corpus-list').addEventListener('click', e => {
@@ -1791,9 +1797,6 @@ window.SLRViews = (() => {
   function renderSelected(container, articles, filter, projectData) {
     const selectedArticles = articles.filter(a => a.selected);
     const stats = SLRData.getStats(selectedArticles);
-    const actionsVisible = !!SLRApp.state.actionsBarVisible;
-
-    const selectedTagBreakdownHTML = buildTagBreakdownHTML(selectedArticles, projectData, filter.tag);
 
     const filtered = applyFilter(selectedArticles, Object.assign({}, filter, { mode: 'selected' }), projectData);
     const listHTML = !projectData
@@ -1823,41 +1826,33 @@ window.SLRViews = (() => {
           </span>
         </div>
 
-        ${selectedTagBreakdownHTML ? `<div class="corpus-tag-breakdown">${selectedTagBreakdownHTML}</div>` : ''}
-
         ${buildListToolbarHTML({
+          list: selectedArticles, projectData, activeTags: filter.tags,
+          filterVisible: !!SLRApp.state.tagBreakdownVisible,
           searchId: 'list-search', searchValue: filter.search,
           sortId: 'list-sort', sortValue: filter.sort,
           yearFromId: 'list-year-from', yearFromValue: filter.yearFrom,
           yearToId: 'list-year-to', yearToValue: filter.yearTo,
-          tagFilterId: 'list-tag-filter', tagFilterValue: filter.tag,
-          tagOptionsHTML: buildTagOptions(selectedArticles, projectData, filter.tag),
-          actionsVisible,
           exportTitle: 'Download current list as .bib, .ris, or .csv',
         })}
 
         <div class="articles-stats">
           <span>Showing <strong>${filtered.length}</strong> of <strong>${selectedArticles.length}</strong> selected articles</span>
-          ${filter.tag    ? `<span class="stats-sep">|</span><span>Tag: ${esc(filter.tag === TAG_FILTER_NONE ? 'None' : filter.tag)}</span>` : ''}
+          ${formatActiveTagsLabel(filter.tags)}
           ${filter.search ? `<span class="stats-sep">|</span><span>Search: "${esc(filter.search)}"</span>` : ''}
         </div>
 
         <div class="article-list" id="selected-list">${listHTML}</div>
       </div>`;
 
-    container.querySelectorAll('.corpus-tag-breakdown .corpus-tag-chip').forEach(btn => {
-      btn.addEventListener('click', () => {
-        const t = btn.dataset.tag;
-        SLRApp.setSelectedFilter({ tag: filter.tag === t ? null : t });
-      });
-    });
-
     wireListToolbar(container, {
       onFilter: patch => SLRApp.setSelectedFilter(patch),
+      onTagsChange: tags => SLRApp.setSelectedFilter({ tags }),
       onExport: () => {
         const exportBtn = container.querySelector('#export-list-btn');
         openExportMenu(exportBtn, filtered, 'selected');
       },
+      activeTags: filter.tags,
     });
 
     container.querySelector('#selected-list').addEventListener('click', e => {
@@ -3715,6 +3710,31 @@ window.SLRViews = (() => {
             ${SLRIcons.info}
             <span>Privacy &amp; Cookies</span>
           </button>
+        </div>
+
+        <div class="settings-section" id="about-first-time">
+          <h3>First time here?</h3>
+          <p style="font-size:13px;color:var(--text-muted);line-height:1.7">
+            <strong>On mobile, or Firefox/Safari?</strong> Local Folder needs the
+            File System Access API, which isn't available there — use
+            <strong>Sign Up</strong> or <strong>Log In</strong> on the Home screen
+            instead: it syncs your projects through the cloud and works in any
+            browser.
+          </p>
+          <p style="font-size:13px;color:var(--text-muted);margin-top:10px;line-height:1.7">
+            <strong>First time with Local Folder?</strong> Click <strong>Continue
+            with Local Folder</strong> on the Home screen, then create a new, empty
+            folder in the picker dialog (any name works, e.g.
+            <code>SLR-Harvester-Data</code>) and select it. The app sets everything
+            up the moment you create your first project — nothing is written until
+            then.
+          </p>
+          <p style="font-size:13px;color:var(--text-muted);margin-top:10px;line-height:1.7">
+            <strong>Already have local data?</strong> Select the folder that
+            contains <code>projects.json</code> and the <code>projects/</code>
+            directory - your existing SLR Harvester workspace. Works with local
+            folders and cloud-synced drives (OneDrive, Google Drive) alike.
+          </p>
         </div>
 
         <div class="about-v2-banner">

@@ -12,7 +12,6 @@ window.SLRApp = (() => {
 		theme: localStorage.getItem('slr-theme') || 'dark',
 		sidebarCollapsed: localStorage.getItem('slr-sidebar-collapsed') === '1',
 		folderName: '',
-		actionsBarVisible: localStorage.getItem('slr-actions-visible') === '1',
 
 		projects: [],
 		currentFolder: null,
@@ -23,7 +22,7 @@ window.SLRApp = (() => {
 
 		filter: {
 			mode: 'all',
-			tag: null,
+			tags: [],
 			yearFrom: '',
 			yearTo: '',
 			sort: 'newest',
@@ -31,7 +30,7 @@ window.SLRApp = (() => {
 		},
 
 		corpusFilter: {
-			tag: null,
+			tags: [],
 			yearFrom: '',
 			yearTo: '',
 			sort: 'newest',
@@ -39,12 +38,16 @@ window.SLRApp = (() => {
 		},
 
 		selectedFilter: {
-			tag: null,
+			tags: [],
 			yearFrom: '',
 			yearTo: '',
 			sort: 'newest',
 			search: '',
 		},
+
+		// Shared across Articles/Selected/Corpus (one preference, not per-view)
+		// so the tag-breakdown show/hide toggle behaves identically everywhere.
+		tagBreakdownVisible: localStorage.getItem('slr-tag-breakdown-visible') !== '0',
 
 		monoHue: Math.floor(Math.random() * 360),
 
@@ -499,6 +502,23 @@ window.SLRApp = (() => {
 		if (view !== 'projects' && view !== 'search') markOnboardingStep(view);
 	}
 
+	// Entry point for Home's "First time here?" hint: jumps to About and
+	// scrolls/flashes the section that used to be static text on Home itself.
+	function gotoAboutFirstTime() {
+		navigate('about');
+		pulseNavHint('about');
+		// renderCurrentView() above already ran synchronously, so the section
+		// is live in the DOM here — no need to defer to a frame callback.
+		const section = document.getElementById('about-first-time');
+		if (!section) return;
+		section.scrollIntoView({ behavior: 'smooth', block: 'start' });
+		if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) return;
+		section.classList.remove('section-hint-pulse');
+		void section.offsetWidth;
+		section.classList.add('section-hint-pulse');
+		section.addEventListener('animationend', () => section.classList.remove('section-hint-pulse'), { once: true });
+	}
+
 	async function hydrateProject(folderName) {
 		const project = state.projects.find(p => p.workspace_folder === folderName) || null;
 		if (!project) throw new Error('Project not found');
@@ -695,9 +715,9 @@ window.SLRApp = (() => {
 		renderCurrentView();
 	}
 
-	function toggleActionsBar() {
-		state.actionsBarVisible = !state.actionsBarVisible;
-		localStorage.setItem('slr-actions-visible', state.actionsBarVisible ? '1' : '0');
+	function toggleTagBreakdown() {
+		state.tagBreakdownVisible = !state.tagBreakdownVisible;
+		localStorage.setItem('slr-tag-breakdown-visible', state.tagBreakdownVisible ? '1' : '0');
 		renderCurrentView();
 	}
 
@@ -2478,6 +2498,7 @@ window.SLRApp = (() => {
 	return {
 		state,
 		navigate,
+		gotoAboutFirstTime,
 		openFolder,
 		switchBackend,
 		cloudAuth,
@@ -2489,7 +2510,7 @@ window.SLRApp = (() => {
 		toggleProjectPin,
 		setCorpusFilter,
 		setSelectedFilter,
-		toggleActionsBar,
+		toggleTagBreakdown,
 		updateAnnotation,
 		updateProjectMeta,
 		showNewProjectModal,
