@@ -477,6 +477,9 @@ window.SLRApp = (() => {
 			case 'about':
 				SLRViews.renderAbout(_container);
 				break;
+			case 'privacy':
+				SLRViews.renderPrivacy(_container);
+				break;
 			case 'tags':
 				SLRViews.renderTags(_container, state.articles, state.projectData);
 				break;
@@ -2443,38 +2446,6 @@ window.SLRApp = (() => {
 		// instead of each view wiring its own click listener.
 		$('view-container')?.addEventListener('click', e => {
 			if (e.target.closest('[data-action="goto-projects"]')) navigate('projects');
-		});
-
-		// Topbar account menu (only visible when signed in via Cloud Sync —
-		// see updateAccountMenu in app-ui.js). Toggle on the button; close on
-		// outside click, Escape, or picking an item.
-		const accountBtn  = $('account-menu-btn');
-		const accountMenu = $('account-menu');
-		const closeAccountMenu = () => {
-			if (!accountMenu) return;
-			accountMenu.hidden = true;
-			accountBtn?.setAttribute('aria-expanded', 'false');
-		};
-		accountBtn?.addEventListener('click', e => {
-			e.stopPropagation();
-			if (!accountMenu) return;
-			const willOpen = accountMenu.hidden;
-			accountMenu.hidden = !willOpen;
-			accountBtn.setAttribute('aria-expanded', String(willOpen));
-		});
-		document.addEventListener('click', e => {
-			if (accountMenu && !accountMenu.hidden && !e.target.closest('#account-menu-wrap')) closeAccountMenu();
-		});
-		document.addEventListener('keydown', e => {
-			if (e.key === 'Escape') closeAccountMenu();
-		});
-		$('account-menu-settings-btn')?.addEventListener('click', () => {
-			closeAccountMenu();
-			navigate('settings');
-		});
-		$('account-menu-signout-btn')?.addEventListener('click', async () => {
-			closeAccountMenu();
-			await cloudSignOut();
 		});
 	}
 

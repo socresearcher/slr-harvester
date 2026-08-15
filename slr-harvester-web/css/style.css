@@ -471,20 +471,39 @@ a:hover {
   flex-shrink: 0;
 }
 
-.account-menu-wrap {
-  position: relative;
+/* Account entry point — Home screen only, top-right of the view's own box
+   (not the global topbar; see renderWelcome in views.js). */
+.welcome-account-wrap {
+  position: absolute;
+  top: 20px;
+  right: 24px;
+  z-index: 10;
 }
 
-.account-menu-wrap[hidden] {
-  display: none;
+.welcome-account-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 48px;
+  height: 48px;
+  border-radius: 50%;
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  color: var(--text-muted);
+  box-shadow: var(--shadow);
 }
 
-.account-menu-wrap .icon-btn svg {
-  width: 16px;
-  height: 16px;
+.welcome-account-btn:hover {
+  background: var(--surface-3);
+  color: var(--text);
 }
 
-.account-menu {
+.welcome-account-btn svg {
+  width: 22px;
+  height: 22px;
+}
+
+.welcome-account-menu {
   position: absolute;
   top: calc(100% + 8px);
   right: 0;
@@ -497,7 +516,7 @@ a:hover {
   z-index: 200;
 }
 
-.account-menu[hidden] {
+.welcome-account-menu[hidden] {
   display: none;
 }
 
