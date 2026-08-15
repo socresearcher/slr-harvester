@@ -6,7 +6,7 @@
   <meta name="theme-color" id="theme-color-meta" content="#0d1117">
   <title>SLR Harvester Web</title>
   <link rel="icon" type="image/svg+xml" href="favicon.svg">
-  <link rel="stylesheet" href="css/style.css?v=20260815a">
+  <link rel="stylesheet" href="css/style.css?v=20260815b">
 </head>
 <body>
 
@@ -113,6 +113,18 @@
               <span id="theme-icon" class="theme-switch-icon"></span>
             </span>
           </button>
+          <!-- Only shown when signed in via Cloud Sync (see updateAccountMenu
+               in app-ui.js) -- local-folder mode has no account to show here. -->
+          <div class="account-menu-wrap" id="account-menu-wrap" hidden>
+            <button id="account-menu-btn" class="icon-btn" aria-haspopup="true" aria-expanded="false" title="Account" aria-label="Account menu">
+              <span data-icon="user"></span>
+            </button>
+            <div class="account-menu" id="account-menu" hidden role="menu">
+              <div class="account-menu-email" id="account-menu-email"></div>
+              <button class="account-menu-item" id="account-menu-settings-btn" role="menuitem">Settings</button>
+              <button class="account-menu-item account-menu-item--danger" id="account-menu-signout-btn" role="menuitem">Sign Out</button>
+            </div>
+          </div>
         </div>
       </header>
 
@@ -126,7 +138,7 @@
   <!-- Modal overlay (rendered dynamically) -->
   <div id="modal-overlay" class="modal-overlay hidden" role="dialog" aria-modal="true"></div>
 
-  <script src="js/icons.js?v=20260815a"></script>
+  <script src="js/icons.js?v=20260815b"></script>
   <!-- Cloud sync (optional): Supabase JS SDK v2.112.3, vendored locally
        (js/vendor/supabase.js) rather than loaded from a CDN. This used to
        be cdn.jsdelivr.net, which browser tracking-prevention features
@@ -137,17 +149,17 @@
        Same-origin now, so that entire class of blocking can't happen.
        To update: download a newer dist/umd/supabase.js build and replace
        the vendored file; nothing else needs to change. -->
-  <script src="js/vendor/supabase.js?v=20260815a"></script>
-  <script src="js/data-local.js?v=20260815a"></script>
-  <script src="js/data-supabase.js?v=20260815a"></script>
-  <script src="js/data.js?v=20260815a"></script>
-  <script src="js/world-map-data.js?v=20260815a"></script>
-  <script src="js/world-map-outline-data.js?v=20260815a"></script>
-  <script src="js/world-map-paths-data.js?v=20260815a"></script>
-  <script src="js/world-map.js?v=20260815a"></script>
-  <script src="js/views.js?v=20260815a"></script>
-  <script src="js/app-ui.js?v=20260815a"></script>
-  <script src="js/app.js?v=20260815a"></script>
+  <script src="js/vendor/supabase.js?v=20260815b"></script>
+  <script src="js/data-local.js?v=20260815b"></script>
+  <script src="js/data-supabase.js?v=20260815b"></script>
+  <script src="js/data.js?v=20260815b"></script>
+  <script src="js/world-map-data.js?v=20260815b"></script>
+  <script src="js/world-map-outline-data.js?v=20260815b"></script>
+  <script src="js/world-map-paths-data.js?v=20260815b"></script>
+  <script src="js/world-map.js?v=20260815b"></script>
+  <script src="js/views.js?v=20260815b"></script>
+  <script src="js/app-ui.js?v=20260815b"></script>
+  <script src="js/app.js?v=20260815b"></script>
 
 </body>
 </html>

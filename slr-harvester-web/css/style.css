@@ -471,6 +471,67 @@ a:hover {
   flex-shrink: 0;
 }
 
+.account-menu-wrap {
+  position: relative;
+}
+
+.account-menu-wrap[hidden] {
+  display: none;
+}
+
+.account-menu-wrap .icon-btn svg {
+  width: 16px;
+  height: 16px;
+}
+
+.account-menu {
+  position: absolute;
+  top: calc(100% + 8px);
+  right: 0;
+  min-width: 220px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-lg);
+  padding: 6px;
+  z-index: 200;
+}
+
+.account-menu[hidden] {
+  display: none;
+}
+
+.account-menu-email {
+  padding: 8px 10px 7px;
+  font-size: 12px;
+  color: var(--text-muted);
+  border-bottom: 1px solid var(--border-subtle);
+  margin-bottom: 4px;
+  word-break: break-all;
+}
+
+.account-menu-item {
+  display: block;
+  width: 100%;
+  text-align: left;
+  padding: 8px 10px;
+  border-radius: var(--radius);
+  font-size: 13px;
+  color: var(--text);
+}
+
+.account-menu-item:hover {
+  background: var(--surface-2);
+}
+
+.account-menu-item--danger {
+  color: var(--danger);
+}
+
+.account-menu-item--danger:hover {
+  background: var(--danger-subtle);
+}
+
 .project-badge {
   display: inline-flex;
   align-items: center;
