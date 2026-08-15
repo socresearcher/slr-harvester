@@ -181,6 +181,12 @@ window.SLRViews = (() => {
 
   function renderWelcome(container) {
     const supported = typeof window.showDirectoryPicker === 'function';
+    // Reachable by clicking "Home" in the sidebar even while already signed
+    // in (that nav item always renders this view, regardless of connection
+    // state) — without this check it re-showed Sign Up/Log In as if nothing
+    // had happened, which reads as broken/forgotten login rather than what
+    // it actually is: a nav shortcut that doesn't know you're already in.
+    const cloudUser = SLRData.getBackend() === 'cloud' ? SLRDataCloud.currentUser() : null;
 
     // Same message everywhere the File System Access API is missing — mobile
     // browsers included, since none of them implement it either. Local
@@ -203,10 +209,21 @@ window.SLRViews = (() => {
         </div>
 
         <div class="welcome-actions">
-          <div class="welcome-auth-row">
-            <button id="welcome-signup-btn" class="btn-primary">Sign Up</button>
-            <button id="welcome-login-btn" class="btn-secondary">Log In</button>
-          </div>
+          ${cloudUser ? `
+            <div class="cloud-auth-status" style="margin-top:0">
+              ${SLRIcons.check}
+              <span>Signed in as <strong>${esc(cloudUser.email)}</strong></span>
+            </div>
+            <div class="welcome-auth-row">
+              <button id="welcome-goto-projects-btn" class="btn-primary">Go to Projects</button>
+              <button id="welcome-signout-btn" class="btn-secondary">Sign Out</button>
+            </div>
+          ` : `
+            <div class="welcome-auth-row">
+              <button id="welcome-signup-btn" class="btn-primary">Sign Up</button>
+              <button id="welcome-login-btn" class="btn-secondary">Log In</button>
+            </div>
+          `}
           <button id="welcome-open-btn" class="btn-secondary">
             ${SLRIcons.folderOpen}
             Continue with Local Folder
@@ -242,12 +259,21 @@ window.SLRViews = (() => {
       }
     });
 
-    container.querySelector('#welcome-signup-btn').addEventListener('click', () => {
-      SLRApp.showSupabaseAuthModal('signup');
-    });
-    container.querySelector('#welcome-login-btn').addEventListener('click', () => {
-      SLRApp.showSupabaseAuthModal('signin');
-    });
+    if (cloudUser) {
+      container.querySelector('#welcome-goto-projects-btn').addEventListener('click', () => {
+        SLRApp.navigate('projects');
+      });
+      container.querySelector('#welcome-signout-btn').addEventListener('click', () => {
+        SLRApp.cloudSignOut();
+      });
+    } else {
+      container.querySelector('#welcome-signup-btn').addEventListener('click', () => {
+        SLRApp.showSupabaseAuthModal('signup');
+      });
+      container.querySelector('#welcome-login-btn').addEventListener('click', () => {
+        SLRApp.showSupabaseAuthModal('signin');
+      });
+    }
 
     initHeroParticles();
   }

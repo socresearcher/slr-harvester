@@ -64,6 +64,7 @@ window.SLRAppUI = (() => {
       project: SLRIcons.project,
       settings: SLRIcons.settings,
       info: SLRIcons.info,
+      user: SLRIcons.user,
     };
 
     document.querySelectorAll('[data-icon]').forEach(el => {
@@ -98,6 +99,27 @@ window.SLRAppUI = (() => {
     document.querySelectorAll('.nav-item[data-view]').forEach(btn => {
       btn.classList.toggle('active', btn.dataset.view === state.view);
     });
+
+    updateAccountMenu();
+  }
+
+  // Shows/hides the topbar account icon based on live auth state — called
+  // on every render so it can never go stale (e.g. after sign-in, sign-out,
+  // or switching the active backend). Local-folder mode has no account
+  // concept, so the icon only ever appears for a signed-in Cloud Sync user.
+  function updateAccountMenu() {
+    const wrap = document.getElementById('account-menu-wrap');
+    if (!wrap) return;
+    const user = window.SLRData?.getBackend() === 'cloud' ? window.SLRDataCloud?.currentUser() : null;
+    wrap.hidden = !user;
+    if (!user) {
+      const menu = document.getElementById('account-menu');
+      if (menu) menu.hidden = true;
+      document.getElementById('account-menu-btn')?.setAttribute('aria-expanded', 'false');
+      return;
+    }
+    const emailEl = document.getElementById('account-menu-email');
+    if (emailEl) emailEl.textContent = user.email;
   }
 
   // Only Safari (desktop + iOS) still needs the -webkit- prefix for the
