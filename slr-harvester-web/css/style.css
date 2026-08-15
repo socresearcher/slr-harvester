@@ -150,7 +150,7 @@ a:hover {
 }
 
 /* iOS notch/home-indicator safe-area baseline.
-   The bottom inset is handled on .sidebar-footer directly (see below) via
+   The bottom inset is handled on .sidebar-nav directly (see below) via
    max(), not here — keeping it in one place avoids stacking it twice. */
 @supports (padding: env(safe-area-inset-top)) {
   #topbar {
@@ -313,7 +313,7 @@ a:hover {
 .sidebar-nav {
   flex: 1;
   min-height: 0; /* Safari: a scrollable flex:1 child needs this to actually fill (not just wrap) available height */
-  padding: 8px 0;
+  padding: 8px 0 max(8px, env(safe-area-inset-bottom, 0px));
   overflow-y: auto;
   overflow-x: hidden;
   -webkit-overflow-scrolling: touch;
@@ -388,50 +388,6 @@ a:hover {
   font-size: 13.5px;
   overflow: hidden;
   text-overflow: ellipsis;
-}
-
-/* Sidebar footer — copyright only; no divider, matches the unified icon list above.
-   Bottom padding is one deliberate max() expression: a small fixed minimum
-   on devices with no safe area, or exactly the safe-area-inset-bottom on
-   notched devices — never both added together, so the gap above the
-   screen edge stays intentional instead of accumulating across elements. */
-.sidebar-footer {
-  padding: 4px 0 max(8px, env(safe-area-inset-bottom, 0px));
-  flex-shrink: 0;
-}
-
-.sidebar-copyright {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  min-width: 0;
-  font-size: 10.5px;
-  color: var(--text-muted);
-  padding: 4px 10px 2px var(--sidebar-icon-pad-left);
-  user-select: none;
-}
-
-.sidebar-copyright-text {
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-
-/* Same box (width, centering) as .nav-icon so the © sits on the exact same
-   vertical axis as every sidebar icon above it, in every breakpoint. Font
-   size is set here (not inherited from .sidebar-copyright's 10.5px body
-   text) so the glyph itself fills this 18px box the way every other
-   sidebar icon's 18x18 SVG does — a tiny character left at body-text size
-   sat centered with visible empty space on both sides, which read as a
-   much wider gap to the label than any nav item has, even though the
-   flex `gap` value is identical to .nav-item's. */
-.sidebar-copyright-icon {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  flex-shrink: 0;
-  width: 18px;
-  font-size: 14px;
 }
 
 /* ----------------------------------------------------------
@@ -1021,6 +977,27 @@ a:hover {
 
 .welcome-tips strong {
   color: var(--text-muted);
+}
+
+/* Bottom-center of the Home view, independent of the (vertically centered)
+   content group above it — absolute rather than a flex child so it stays
+   pinned to the viewport edge regardless of how tall .welcome-tips gets. */
+.welcome-copyright {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: max(16px, env(safe-area-inset-bottom, 0px));
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  font-size: 11px;
+  color: var(--text-faint);
+  user-select: none;
+}
+
+.welcome-copyright-icon {
+  font-size: 13px;
 }
 
 /* ----------------------------------------------------------
