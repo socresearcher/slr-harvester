@@ -964,24 +964,86 @@ a:hover {
   margin-top: 1px;
 }
 
-.welcome-tips {
-  font-size: 12px;
+/* Points at the sidebar's About nav-item, where the onboarding walkthrough
+   that used to live here as static text now lives instead (see
+   #about-first-time in renderAbout). Vertically aligned to that button by
+   JS (renderWelcome); horizontal tracking is free — this is positioned
+   relative to .welcome-view, whose own left edge already sits flush
+   against the sidebar regardless of collapsed/expanded width. */
+.welcome-firsttime-hint {
+  position: absolute;
+  left: 14px;
+  top: 50%;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  z-index: 5;
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  .welcome-firsttime-hint {
+    animation: firsttimeHintNudge 2.4s ease-in-out infinite;
+  }
+}
+
+@keyframes firsttimeHintNudge {
+  0%, 100% { transform: translateX(0); }
+  50%      { transform: translateX(-4px); }
+}
+
+.welcome-firsttime-btn {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 14px 8px 10px;
+  background: var(--accent-subtle);
+  border: 1px solid color-mix(in srgb, var(--accent) 45%, transparent);
+  border-radius: 20px;
+  color: var(--accent);
+  font-size: 13px;
+  font-weight: 500;
+  white-space: nowrap;
+  box-shadow: var(--shadow);
+}
+
+.welcome-firsttime-btn:hover {
+  background: color-mix(in srgb, var(--accent) 20%, transparent);
+  color: var(--accent-hover);
+}
+
+.welcome-firsttime-btn svg {
+  width: 15px;
+  height: 15px;
+  flex-shrink: 0;
+}
+
+.welcome-firsttime-close {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  background: var(--surface-2);
+  border: 1px solid var(--border);
   color: var(--text-faint);
-  max-width: 460px;
-  text-align: left;
+  flex-shrink: 0;
 }
 
-.welcome-tips p + p {
-  margin-top: 10px;
-}
-
-.welcome-tips strong {
+.welcome-firsttime-close:hover {
+  background: var(--surface-3);
   color: var(--text-muted);
+}
+
+.welcome-firsttime-close svg {
+  width: 11px;
+  height: 11px;
 }
 
 /* Bottom-center of the Home view, independent of the (vertically centered)
    content group above it — absolute rather than a flex child so it stays
-   pinned to the viewport edge regardless of how tall .welcome-tips gets. */
+   pinned to the viewport edge regardless of how tall the content above it
+   gets. */
 .welcome-copyright {
   position: absolute;
   left: 0;
@@ -2659,6 +2721,19 @@ a.db-link:visited {
   margin-bottom: 14px;
   padding-bottom: 8px;
   border-bottom: 1px solid var(--border);
+}
+
+/* Landing flash for a section reached via a jump-link (currently just
+   #about-first-time, via Home's "First time here?" hint) — box-shadow/
+   background only, so it never shifts layout the way padding would. */
+@keyframes sectionHintPulse {
+  0%, 100% { background-color: transparent; box-shadow: none; }
+  25%, 75% { background-color: var(--accent-subtle); box-shadow: 0 0 0 8px var(--accent-subtle); }
+}
+
+.section-hint-pulse {
+  border-radius: var(--radius);
+  animation: sectionHintPulse 1.6s ease-in-out 1;
 }
 
 .scopus-api-notice > div {
