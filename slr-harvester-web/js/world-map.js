@@ -376,19 +376,29 @@ window.SLRWorldMap = (() => {
     const colors = getThemeColors();
     const { items, mappedArticles, missingArticles } = aggregateCountryCounts(articles);
     const width = 1000;
+    // Full height, uncropped — Antarctica's own polygon (world-map-paths-
+    // data.js) is capped correctly down to this bottom edge; there's no
+    // reason left to hide part of the viewBox to avoid a broken-looking
+    // south edge.
     const height = 520;
-    const antarcticaCrop = 98;
-    const visibleHeight = height - antarcticaCrop;
     const totalAssignments = items.reduce((sum, item) => sum + item.count, 0);
 
     const countryLayer = buildCountryLayer(items, colors);
     const legendItems = renderLegend(items, colors, totalAssignments);
     const scaleBar = renderScaleBar(items, colors);
 
+    // Source credit and the data-coverage note used to float as overlays on
+    // top of the map itself (position:absolute inside .viz-world-stage) —
+    // moved into their own row between the map and the legend instead, so
+    // the map surface only ever shows the map. Map -> status -> legend.
+    const statusNote = items.length > 0
+      ? `${mappedArticles} article${mappedArticles !== 1 ? 's' : ''} have at least one country assignment. ${missingArticles} article${missingArticles !== 1 ? 's' : ''} do not expose usable country metadata yet. Scroll/pinch to zoom, drag to pan.`
+      : 'No affiliation country data available yet. Use Fetch Affiliations to enrich records from DOI, OpenAlex, or PMID sources.';
+
     return `
       <div class="viz-world-wrap${showLegend ? '' : ' legend-hidden'}">
         <div class="viz-world-stage">
-          <svg class="viz-world-svg" viewBox="0 0 ${width} ${visibleHeight}" role="img" aria-label="World map showing article counts by affiliation country, shaded by count">
+          <svg class="viz-world-svg" viewBox="0 0 ${width} ${height}" role="img" aria-label="World map showing article counts by affiliation country, shaded by count">
             <rect class="viz-world-ocean" x="0" y="0" width="${width}" height="${height}" rx="18" fill="${colors.ocean}" stroke="${colors.oceanStroke}" stroke-width="1.2"/>
             <g class="viz-world-country-layer">${countryLayer}</g>
           </svg>
@@ -397,13 +407,11 @@ window.SLRWorldMap = (() => {
             <button type="button" class="viz-world-zoom-btn" data-zoom="out" aria-label="Zoom out">&minus;</button>
             <button type="button" class="viz-world-zoom-btn viz-world-zoom-reset" data-zoom="reset" aria-label="Reset zoom">&#8634;</button>
           </div>
-          <div class="viz-world-credit">Map: <a href="https://www.naturalearthdata.com/" target="_blank" rel="noopener">Natural Earth</a></div>
-          <div class="viz-world-note">
-            ${items.length > 0
-              ? `${mappedArticles} article${mappedArticles !== 1 ? 's' : ''} have at least one country assignment. ${missingArticles} article${missingArticles !== 1 ? 's' : ''} do not expose usable country metadata yet. Scroll/pinch to zoom, drag to pan.`
-              : 'No affiliation country data available yet. Use Fetch Affiliations to enrich records from DOI, OpenAlex, or PMID sources.'}
-          </div>
+        </div>
+        <div class="viz-world-status">
+          <div class="viz-world-note">${statusNote}</div>
           ${scaleBar}
+          <div class="viz-world-credit">Map: <a href="https://www.naturalearthdata.com/" target="_blank" rel="noopener">Natural Earth</a></div>
         </div>
         ${showLegend && legendItems ? `<div class="viz-world-legend">${legendItems}</div>` : ''}
       </div>`;
