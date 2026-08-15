@@ -709,7 +709,7 @@ a:hover {
   .list-toolbar .filter-select,
   .list-toolbar .year-input,
   .list-toolbar .articles-action-btn,
-  .list-toolbar-toggle {
+  .list-filter-toggle {
     height: 32px;
     min-height: 32px;
   }
@@ -1233,8 +1233,9 @@ a:hover {
 }
 
 /* List toolbar — shared by Articles / Selected / Corpus.
-   Row 1: search + show/hide-actions toggle. Row 2: sort, year range, tag
-   filter. Row 3 (hidden by default): bulk-action buttons. */
+   Row 1: Filter toggle + Fetch/Tag/Export action buttons. Row 2-3 (only
+   when the filter toggle is active): tag chips, year range. Row 4:
+   search + sort, always visible. */
 .list-toolbar {
   display: flex;
   flex-direction: column;
@@ -1250,49 +1251,6 @@ a:hover {
   align-items: center;
   gap: 10px;
   flex-wrap: wrap;
-}
-
-.list-toolbar-toggle {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 32px;
-  height: 32px;
-  flex-shrink: 0;
-  background: var(--surface-2);
-  border: 1px solid var(--border);
-  border-radius: var(--radius);
-  color: var(--text-muted);
-  cursor: pointer;
-  transition: background var(--transition), color var(--transition), border-color var(--transition);
-}
-
-.list-toolbar-toggle svg {
-  width: 15px;
-  height: 15px;
-}
-
-.list-toolbar-toggle:hover {
-  background: var(--surface-3);
-  color: var(--text);
-}
-
-.list-toolbar-toggle.active {
-  background: var(--accent-subtle);
-  color: var(--accent);
-  border-color: color-mix(in srgb, var(--accent) 45%, transparent);
-}
-
-.list-toolbar-actions {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  flex-wrap: wrap;
-  padding-top: 4px;
-}
-
-.list-toolbar-actions.hidden {
-  display: none;
 }
 
 /* Search input */
@@ -2488,18 +2446,11 @@ a.db-link:visited {
   color: var(--text-faint);
 }
 
-/* Show/hide toggle for .corpus-tag-breakdown above — shared by
-   Articles / Selected / Corpus so the control looks and behaves
-   identically everywhere. */
-.tag-breakdown-header {
-  display: flex;
-  padding: 8px 24px;
-  background: var(--surface);
-  border-bottom: 1px solid var(--border-subtle);
-  flex-shrink: 0;
-}
-
-.tag-breakdown-toggle {
+/* Toggle for the filter panel (tag chips + year range) below — sits inline
+   in .list-toolbar-buttons-row alongside Fetch/Tag/Export, shared by
+   Articles / Selected / Corpus so it looks and behaves identically
+   everywhere. */
+.list-filter-toggle {
   display: inline-flex;
   align-items: center;
   gap: 6px;
@@ -2516,18 +2467,18 @@ a.db-link:visited {
   transition: background var(--transition), color var(--transition), border-color var(--transition);
 }
 
-.tag-breakdown-toggle svg {
+.list-filter-toggle svg {
   width: 14px;
   height: 14px;
   flex-shrink: 0;
 }
 
-.tag-breakdown-toggle:hover {
+.list-filter-toggle:hover {
   background: var(--surface-3);
   color: var(--text);
 }
 
-.tag-breakdown-toggle.active {
+.list-filter-toggle.active {
   background: var(--accent-subtle);
   color: var(--accent);
   border-color: color-mix(in srgb, var(--accent) 45%, transparent);
@@ -4347,7 +4298,10 @@ a.db-link:visited {
 }
 
 /* Export menu popup */
-.export-menu-popup {
+/* Generic floating choice menu — used by the Filter row's Fetch/Tag/Export
+   buttons (openToolbarPopupMenu in views.js) so all three share one look
+   instead of three near-duplicate popups. */
+.toolbar-popup-menu {
   position: fixed;
   z-index: 1001;
   background: var(--surface);
@@ -4358,7 +4312,7 @@ a.db-link:visited {
   padding: 4px;
 }
 
-.export-menu-item {
+.toolbar-popup-item {
   display: flex;
   align-items: center;
   gap: 8px;
@@ -4373,15 +4327,23 @@ a.db-link:visited {
   border-radius: 5px;
 }
 
-.export-menu-item:hover {
+.toolbar-popup-item:hover {
   background: var(--surface-2);
 }
 
-.export-menu-item svg {
+.toolbar-popup-item svg {
   width: 13px;
   height: 13px;
   flex-shrink: 0;
   color: var(--accent);
+}
+
+.toolbar-popup-item--warn svg {
+  color: #f97316;
+}
+
+.toolbar-popup-item--warn:hover {
+  background: color-mix(in srgb, #f97316 15%, transparent);
 }
 
 /* ══════════════════════════════════════════════════════════════
@@ -5436,7 +5398,6 @@ a.db-link:visited {
   .viz-view,
   .list-toolbar,
   .corpus-banner,
-  .tag-breakdown-header,
   .corpus-tag-breakdown,
   .articles-stats,
   .search-editor-panel {
