@@ -3357,6 +3357,41 @@ a.db-link:visited {
   display: block;
 }
 
+.modal-subtitle {
+  font-size: 11.5px;
+  color: var(--text-faint);
+  margin-top: 2px;
+}
+
+.modal-prisma-detail {
+  max-width: 640px;
+}
+
+.modal-body-scroll {
+  max-height: 60vh;
+  overflow-y: auto;
+}
+
+.prisma-modal-row {
+  padding: 8px 0;
+  border-bottom: 1px solid var(--border-subtle, var(--border));
+}
+
+.prisma-modal-row:last-child {
+  border-bottom: none;
+}
+
+.prisma-modal-row-title {
+  font-size: 13px;
+  color: var(--text);
+}
+
+.prisma-modal-row-meta {
+  font-size: 11.5px;
+  color: var(--text-faint);
+  margin-top: 2px;
+}
+
 /* ----------------------------------------------------------
    17. Projects view — new project button
    ---------------------------------------------------------- */
@@ -4843,8 +4878,8 @@ a.db-link:visited {
   margin-top: 4px;
 }
 
-/* Controls bar: top row is scope (All/Selected/Corpus) + chart-type picker,
-   bottom row is the Hide None / Hide Legend / Export PNG buttons. */
+/* Controls bar: dropdowns (chart type, group-by) on the left, everything
+   clickable (scope tabs, Hide None / Hide Legend / Export PNG) on the right. */
 .viz-section-controls {
   display: flex;
   flex-direction: column;
@@ -4863,8 +4898,21 @@ a.db-link:visited {
   justify-content: space-between;
 }
 
-.viz-chart-select {
-  min-width: 200px;
+.viz-controls-left,
+.viz-controls-right {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+/* Long option labels ("Tag Distribution — Doughnut", "Group by Document
+   Type") need more room than the 170px cap every other .filter-select
+   gets — otherwise the select box itself clips the chosen label. */
+.viz-chart-select,
+.viz-groupby-select {
+  min-width: 220px;
+  max-width: 260px;
 }
 
 /* Chart heading sits below the controls row */
@@ -5499,6 +5547,53 @@ a.db-link:visited {
   font-size: 10.5px;
   color: var(--text-muted);
   margin-top: 2px;
+}
+
+/* Interactive PRISMA stages/connectors — click through to the matching
+   article list (or a modal, for steps with no dedicated view). */
+.prisma-box-clickable,
+.prisma-step-connector-clickable {
+  cursor: pointer;
+  transition: background .15s, border-color .15s;
+}
+
+.prisma-box-clickable:hover,
+.prisma-box-clickable:focus-visible {
+  background: var(--surface-2);
+  outline: none;
+}
+
+.prisma-step-connector-clickable:hover .prisma-sc-excl,
+.prisma-step-connector-clickable:focus-visible .prisma-sc-excl {
+  border-color: var(--accent);
+  outline: none;
+}
+
+.prisma-hint {
+  text-align: center;
+  font-size: 11px;
+  color: var(--text-faint);
+  margin-top: 14px;
+}
+
+/* Per-source query breakdown chips under the Identification box */
+.prisma-sources {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  justify-content: center;
+  padding: 10px 0 18px;
+}
+
+.prisma-source-chip {
+  cursor: pointer;
+  transition: opacity .15s;
+}
+
+.prisma-source-chip:hover,
+.prisma-source-chip:focus-visible {
+  opacity: 0.75;
+  outline: none;
 }
 
 /* Year / stacked vertical column chart.
