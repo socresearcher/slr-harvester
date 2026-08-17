@@ -301,6 +301,19 @@ window.SLRIcons = (() => {
        <path d="M9 6V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2"/>`
     ),
 
+    // Archive box — Query History archive tab / archive action
+    archive: base(
+      `<rect x="2" y="3" width="20" height="5" rx="1"/>
+       <path d="M4 8v10a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8"/>
+       <path d="M10 12h4"/>`
+    ),
+
+    // Restore / undo — move an archived or trashed query back to active
+    restore: base(
+      `<polyline points="1 4 1 10 7 10"/>
+       <path d="M3.51 15a9 9 0 1 0 2.13-9.36L1 10"/>`
+    ),
+
     // PRISMA flow chart icon (3 decreasing bars = screening funnel)
     prisma: base(
       `<rect x="3" y="3" width="18" height="3.5" rx="1.5"/>

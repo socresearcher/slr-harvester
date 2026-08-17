@@ -2199,7 +2199,110 @@ a:hover {
   gap: 12px;
 }
 
+.history-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.hist-tabs {
+  display: flex;
+  gap: 4px;
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 3px;
+}
+
+.hist-tab {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 12px;
+  border: none;
+  background: transparent;
+  border-radius: calc(var(--radius) - 2px);
+  color: var(--text-muted);
+  font-size: 13px;
+  cursor: pointer;
+  transition: background .15s, color .15s;
+}
+
+.hist-tab svg {
+  width: 14px;
+  height: 14px;
+}
+
+.hist-tab:hover {
+  color: var(--text);
+}
+
+.hist-tab.active {
+  background: var(--surface);
+  color: var(--text);
+  box-shadow: 0 1px 2px rgba(0,0,0,.15);
+}
+
+.hist-tab-count {
+  font-size: 11px;
+  color: var(--text-faint);
+}
+
+.history-list {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.history-item-swipe {
+  position: relative;
+  overflow: hidden;
+  border-radius: var(--radius-lg);
+  touch-action: pan-y;
+}
+
+.hist-swipe-action {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: 96px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  font-size: 11px;
+  font-weight: 600;
+  color: #fff;
+  cursor: pointer;
+}
+
+.hist-swipe-action svg {
+  width: 20px;
+  height: 20px;
+}
+
+.hist-swipe-reveal-left {
+  right: 0;
+}
+
+.hist-swipe-reveal-right {
+  left: 0;
+}
+
+.hist-swipe-danger {
+  background: var(--danger);
+}
+
+.hist-swipe-accent {
+  background: var(--accent);
+  color: var(--bg);
+}
+
 .history-item {
+  position: relative;
   background: var(--surface);
   border: 1px solid var(--border);
   border-radius: var(--radius-lg);
@@ -2336,7 +2439,7 @@ a:hover {
   color: var(--accent);
 }
 
-.hist-delete-btn {
+.hist-action-btn {
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -2352,17 +2455,21 @@ a:hover {
   transition: opacity .15s, background .15s, color .15s;
 }
 
-.hist-delete-btn svg {
+.hist-action-btn svg {
   width: 15px;
   height: 15px;
 }
 
-.history-item-header:hover .hist-delete-btn {
+.history-item-header:hover .hist-action-btn {
   opacity: 1;
 }
 
-.hist-delete-btn:hover {
+.hist-action-btn:hover {
   background: var(--surface-2);
+  color: var(--accent);
+}
+
+.hist-action-btn.hist-action-danger:hover {
   color: var(--danger);
 }
 
