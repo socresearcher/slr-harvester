@@ -16,14 +16,18 @@ window.SLRIcons = (() => {
   return {
 
     // App logo — wheat ears growing from a database cylinder ("harvesting"
-    // literature data). Two fixed colors rather than the usual currentColor
-    // stroke: gold for the wheat is hardcoded (a brand color, not meant to
-    // shift with theme), the cylinder uses currentColor so it still tracks
-    // whatever accent color the container sets (matches every other icon).
+    // literature data). Fixed gold rather than the usual currentColor
+    // stroke (a brand color, not meant to shift with theme) in two shades
+    // for a little shading depth — the cylinder itself uses currentColor
+    // so it still tracks whatever accent color the container sets (matches
+    // every other icon).
+    // Kernels attach near the stem and splay out+up at a gentle angle
+    // (real wheat-ear shape) rather than pointing straight along the stem.
     // The ring group uses mix-blend-mode:multiply rather than an opacity
-    // blend over a hardcoded background — opacity would only read correctly
-    // against one specific background color, multiply darkens whatever
-    // currentColor resolves to in either theme.
+    // blend over a hardcoded background — opacity would only read
+    // correctly against one specific background color, multiply darkens
+    // whatever currentColor resolves to in either theme. Three rings: the
+    // seam under the top cap (the DB's "opening") plus the two body seams.
     // Kernels/rings built as absolute path coordinates (see scratchpad gen
     // script) rather than <use>+transform — this renderer didn't paint
     // <use> reliably.
@@ -34,35 +38,38 @@ window.SLRIcons = (() => {
         <ellipse cx="50" cy="68" rx="29" ry="7"/>
       </g>
       <g stroke="#000" stroke-opacity="0.35" stroke-width="1.8" style="mix-blend-mode:multiply">
-        <path d="M21,78 A29,7 0 0 0 79,78" fill="none"/>
-        <path d="M21,85 A29,7 0 0 0 79,85" fill="none"/>
+        <path d="M21,75 A29,7 0 0 0 79,75" fill="none"/>
+        <path d="M21,80 A29,7 0 0 0 79,80" fill="none"/>
+        <path d="M21,86 A29,7 0 0 0 79,86" fill="none"/>
       </g>
-      <g fill="none" stroke="#d9a441" stroke-width="2.4" stroke-linecap="round">
+      <g fill="none" stroke="#ffc94d" stroke-width="2.4" stroke-linecap="round">
         <line x1="50" y1="66" x2="50" y2="16"/>
         <line x1="31" y1="69" x2="19.26" y2="32.86"/>
         <line x1="69" y1="69" x2="80.74" y2="32.86"/>
       </g>
-      <g fill="#d9a441">
-        <path d="M47.92,52.12 C50.00,54.05 50.00,63.95 47.92,65.88 C45.84,63.95 45.84,54.05 47.92,52.12 Z"/>
-        <path d="M52.08,52.12 C54.16,54.05 54.16,63.95 52.08,65.88 C50.00,63.95 50.00,54.05 52.08,52.12 Z"/>
-        <path d="M47.75,38.21 C50.00,40.30 50.00,51.03 47.75,53.12 C45.49,51.03 45.49,40.30 47.75,38.21 Z"/>
-        <path d="M52.25,38.21 C54.51,40.30 54.51,51.03 52.25,53.12 C50.00,51.03 50.00,40.30 52.25,38.21 Z"/>
-        <path d="M47.57,24.31 C50.00,26.55 50.00,38.11 47.57,40.36 C45.14,38.11 45.14,26.55 47.57,24.31 Z"/>
-        <path d="M52.43,24.31 C54.86,26.55 54.86,38.11 52.43,40.36 C50.00,38.11 50.00,26.55 52.43,24.31 Z"/>
-        <path d="M47.40,10.40 C50.00,12.81 50.00,25.19 47.40,27.60 C44.80,25.19 44.80,12.81 47.40,10.40 Z"/>
-        <path d="M52.60,10.40 C55.20,12.81 55.20,25.19 52.60,27.60 C50.00,25.19 50.00,12.81 52.60,10.40 Z"/>
-        <path d="M25.25,58.04 C27.83,59.23 30.89,68.65 29.50,71.13 C26.93,69.94 23.87,60.52 25.25,58.04 Z"/>
-        <path d="M29.21,56.75 C31.78,57.94 34.85,67.37 33.46,69.84 C30.88,68.65 27.82,59.23 29.21,56.75 Z"/>
-        <path d="M20.04,42.85 C22.94,44.18 26.38,54.78 24.83,57.57 C21.93,56.23 18.48,45.63 20.04,42.85 Z"/>
-        <path d="M24.49,41.40 C27.39,42.74 30.84,53.34 29.28,56.12 C26.38,54.79 22.93,44.19 24.49,41.40 Z"/>
-        <path d="M14.83,27.65 C18.05,29.14 21.88,40.92 20.15,44.01 C16.93,42.53 13.10,30.75 14.83,27.65 Z"/>
-        <path d="M19.78,26.05 C23.00,27.53 26.82,39.31 25.09,42.40 C21.87,40.92 18.04,29.14 19.78,26.05 Z"/>
-        <path d="M70.79,56.75 C72.18,59.23 69.12,68.65 66.54,69.84 C65.15,67.37 68.22,57.94 70.79,56.75 Z"/>
-        <path d="M74.75,58.04 C76.13,60.52 73.07,69.94 70.50,71.13 C69.11,68.65 72.17,59.23 74.75,58.04 Z"/>
-        <path d="M75.51,41.40 C77.07,44.19 73.62,54.79 70.72,56.12 C69.16,53.34 72.61,42.74 75.51,41.40 Z"/>
-        <path d="M79.96,42.85 C81.52,45.63 78.07,56.23 75.17,57.57 C73.62,54.78 77.06,44.18 79.96,42.85 Z"/>
-        <path d="M80.22,26.05 C81.96,29.14 78.13,40.92 74.91,42.40 C73.18,39.31 77.00,27.53 80.22,26.05 Z"/>
-        <path d="M85.17,27.65 C86.90,30.75 83.07,42.53 79.85,44.01 C78.12,40.92 81.95,29.14 85.17,27.65 Z"/>
+      <g fill="#e8a317">
+        <path d="M46.59,53.34 C49.45,54.01 54.37,62.88 53.41,65.66 C50.55,64.99 45.63,56.12 46.59,53.34 Z"/>
+        <path d="M46.30,39.33 C49.41,40.05 54.73,49.66 53.70,52.67 C50.59,51.95 45.27,42.34 46.30,39.33 Z"/>
+        <path d="M46.02,25.32 C49.36,26.09 55.09,36.44 53.98,39.68 C50.64,38.91 44.91,28.56 46.02,25.32 Z"/>
+        <path d="M45.73,11.30 C49.31,12.14 55.46,23.22 54.27,26.70 C50.69,25.86 44.54,14.78 45.73,11.30 Z"/>
+        <path d="M24.32,59.50 C27.25,59.25 34.67,66.16 34.62,69.10 C31.69,69.35 24.28,62.44 24.32,59.50 Z"/>
+        <path d="M18.93,44.26 C22.22,43.98 30.56,51.76 30.51,55.07 C27.21,55.35 18.87,47.57 18.93,44.26 Z"/>
+        <path d="M13.53,29.03 C17.19,28.71 26.46,37.35 26.40,41.03 C22.74,41.34 13.47,32.70 13.53,29.03 Z"/>
+        <path d="M69.18,57.39 C71.70,58.91 73.64,68.86 71.87,71.21 C69.35,69.69 67.42,59.74 69.18,57.39 Z"/>
+        <path d="M73.77,41.89 C76.60,43.60 78.78,54.79 76.79,57.44 C73.96,55.73 71.78,44.54 73.77,41.89 Z"/>
+        <path d="M78.36,26.39 C81.51,28.29 83.92,40.73 81.72,43.67 C78.57,41.77 76.15,29.33 78.36,26.39 Z"/>
+      </g>
+      <g fill="#ffc94d">
+        <path d="M53.41,53.34 C54.37,56.12 49.45,64.99 46.59,65.66 C45.63,62.88 50.55,54.01 53.41,53.34 Z"/>
+        <path d="M53.70,39.33 C54.73,42.34 49.41,51.95 46.30,52.67 C45.27,49.66 50.59,40.05 53.70,39.33 Z"/>
+        <path d="M53.98,25.32 C55.09,28.56 49.36,38.91 46.02,39.68 C44.91,36.44 50.64,26.09 53.98,25.32 Z"/>
+        <path d="M54.27,11.30 C55.46,14.78 49.31,25.86 45.73,26.70 C44.54,23.22 50.69,12.14 54.27,11.30 Z"/>
+        <path d="M30.82,57.39 C32.58,59.74 30.65,69.69 28.13,71.21 C26.36,68.86 28.30,58.91 30.82,57.39 Z"/>
+        <path d="M26.23,41.89 C28.22,44.54 26.04,55.73 23.21,57.44 C21.22,54.79 23.40,43.60 26.23,41.89 Z"/>
+        <path d="M21.64,26.39 C23.85,29.33 21.43,41.77 18.28,43.67 C16.08,40.73 18.49,28.29 21.64,26.39 Z"/>
+        <path d="M75.68,59.50 C75.72,62.44 68.31,69.35 65.38,69.10 C65.33,66.16 72.75,59.25 75.68,59.50 Z"/>
+        <path d="M81.07,44.26 C81.13,47.57 72.79,55.35 69.49,55.07 C69.44,51.76 77.78,43.98 81.07,44.26 Z"/>
+        <path d="M86.47,29.03 C86.53,32.70 77.26,41.34 73.60,41.03 C73.54,37.35 82.81,28.71 86.47,29.03 Z"/>
       </g>
     </svg>`,
 

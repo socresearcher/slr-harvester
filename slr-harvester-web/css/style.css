@@ -825,15 +825,15 @@ a:hover {
 }
 
 .welcome-logo {
-  width: 64px;
-  height: 64px;
+  width: 112px;
+  height: 112px;
   color: var(--accent);
   opacity: .9;
 }
 
 .welcome-logo svg {
-  width: 64px;
-  height: 64px;
+  width: 112px;
+  height: 112px;
 }
 
 .welcome-hero h1 {
