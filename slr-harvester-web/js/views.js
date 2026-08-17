@@ -535,7 +535,105 @@ window.SLRViews = (() => {
     }
   }
 
-  function renderProjects(container, projectsIn, currentFolder, allProjectData, sort) {
+  // Content shared by the inline Projects-tab detail panel — extracted from
+  // what used to be the standalone "Project Info" view/nav-item.
+  function buildProjectInfoDetailHTML(project, projectData) {
+    const articles = projectData ? SLRData.getArticles(projectData) : [];
+    const stats    = SLRData.getStats(articles);
+
+    const colorCountMap = {};
+    for (const a of articles) {
+      if (a.color && a.color !== 'None') colorCountMap[a.color] = (colorCountMap[a.color] || 0) + 1;
+    }
+    const legendAliases = projectData.tagAliases || {};
+
+    const tagLegend = Object.entries(projectData.tagsConfig || {})
+      .filter(([name, hex]) => name !== 'None' && hex)
+      .map(([name, hex]) => {
+        const count = colorCountMap[name] || 0;
+        const displayName = legendAliases[name] || name;
+        return `
+          <div class="tag-legend-item">
+            <span class="tag-legend-dot" style="background:${esc(hex)}"></span>
+            ${esc(displayName)}
+            <span style="color:var(--text-faint);font-size:11px">(${count})</span>
+          </div>`;
+      }).join('');
+
+    return `
+      <div class="project-meta-edit">
+        <input class="project-name-input" id="proj-name-input" type="text" value="${esc(project.name)}" maxlength="120" aria-label="Project name">
+        <textarea class="project-desc-input" id="proj-desc-input" rows="2" maxlength="500" aria-label="Project description">${esc(project.description || '')}</textarea>
+        <button class="btn-primary" id="save-meta-btn" style="align-self:flex-start;padding:6px 18px;font-size:13px">${SLRIcons.check} Save</button>
+      </div>
+
+      <div class="project-info-cols">
+        <div class="info-section">
+          <h3>Details</h3>
+          <div class="info-grid">
+            <div class="info-field">
+              <label>Created</label>
+              <span>${esc(project.created)}</span>
+            </div>
+            <div class="info-field">
+              <label>Folder</label>
+              <span>${esc(project.workspace_folder)}</span>
+            </div>
+            <div class="info-field">
+              <label>Total articles</label>
+              <span>${stats.total}</span>
+            </div>
+            <div class="info-field">
+              <label>Queries run</label>
+              <span>${projectData.searchLog.length}</span>
+            </div>
+            <div class="info-field">
+              <label>Selected</label>
+              <span>${stats.selected}</span>
+            </div>
+            <div class="info-field">
+              <label>In corpus</label>
+              <span>${stats.corpus}</span>
+            </div>
+          </div>
+        </div>
+
+        ${tagLegend ? `
+        <div class="info-section">
+          <h3>Tag Legend</h3>
+          <div class="tag-legend">${tagLegend}</div>
+        </div>` : ''}
+      </div>`;
+  }
+
+  function renderProjects(container, projectsIn, currentFolder, allProjectData, sort, detailFolder) {
+    if (detailFolder) {
+      const project     = (projectsIn || []).find(p => p.workspace_folder === detailFolder);
+      const projectData = allProjectData[detailFolder];
+      if (project && projectData) {
+        container.innerHTML = `
+          <div class="projects-view">
+            <button type="button" class="project-detail-back" id="project-detail-back">
+              ${SLRIcons.chevronLeft} Back to Projects
+            </button>
+            ${buildProjectInfoDetailHTML(project, projectData)}
+          </div>`;
+
+        container.querySelector('#project-detail-back').addEventListener('click', () => SLRApp.closeProjectDetail());
+
+        const saveBtn   = container.querySelector('#save-meta-btn');
+        const nameInput = container.querySelector('#proj-name-input');
+        const descInput = container.querySelector('#proj-desc-input');
+        if (saveBtn) {
+          saveBtn.addEventListener('click', () =>
+            SLRApp.updateProjectMeta(detailFolder, nameInput.value, descInput.value));
+        }
+        return;
+      }
+      // Stale/missing reference (e.g. project deleted elsewhere) — fall
+      // through to the normal grid instead of showing a dead end.
+    }
+
     if (!projectsIn || projectsIn.length === 0) {
       container.innerHTML = `
         <div class="projects-view" style="padding:0">
@@ -614,10 +712,16 @@ window.SLRViews = (() => {
               <span class="stat-chip">${SLRIcons.refresh} Loading...</span>
             </div>`}
 
-          <button class="open-project-btn" data-folder="${esc(p.workspace_folder)}">
-            ${SLRIcons.chevronRight}
-            ${active ? 'Current project' : 'Open project'}
-          </button>
+          <div class="project-card-actions">
+            <button class="open-project-btn" data-folder="${esc(p.workspace_folder)}">
+              ${SLRIcons.chevronRight}
+              ${active ? 'Current project' : 'Open project'}
+            </button>
+            ${data ? `
+              <button class="project-info-btn" data-info-folder="${esc(p.workspace_folder)}" title="View project info">
+                ${SLRIcons.info} Info
+              </button>` : ''}
+          </div>
         </div>`;
     }).join('');
 
@@ -650,6 +754,13 @@ window.SLRViews = (() => {
       dot.addEventListener('click', e => {
         e.stopPropagation();
         SLRApp.toggleProjectPin(dot.dataset.pinFolder);
+      });
+    });
+
+    container.querySelectorAll('.project-info-btn').forEach(btn => {
+      btn.addEventListener('click', e => {
+        e.stopPropagation();
+        SLRApp.openProjectDetail(btn.dataset.infoFolder);
       });
     });
 
@@ -1607,95 +1718,7 @@ window.SLRViews = (() => {
     });
   }
 
-  //  Project info view 
-
-  function renderProjectInfo(container, project, projectData) {
-    if (!project) {
-      container.innerHTML = `<div class="project-info-view" style="padding:0">${renderNoProjectNotice()}</div>`;
-      return;
-    }
-
-    const articles = projectData ? SLRData.getArticles(projectData) : [];
-    const stats    = SLRData.getStats(articles);
-
-    // Tag legend  count by color name (tagsConfig key), resolve via aliases
-    const colorCountMap = {};
-    for (const a of articles) {
-      if (a.color && a.color !== 'None') colorCountMap[a.color] = (colorCountMap[a.color] || 0) + 1;
-    }
-    const legendAliases = projectData.tagAliases || {};
-
-    const tagLegend = Object.entries(projectData.tagsConfig || {})
-      .filter(([name, hex]) => name !== 'None' && hex)
-      .map(([name, hex]) => {
-        const count = colorCountMap[name] || 0;
-        const displayName = legendAliases[name] || name;
-        return `
-          <div class="tag-legend-item">
-            <span class="tag-legend-dot" style="background:${esc(hex)}"></span>
-            ${esc(displayName)}
-            <span style="color:var(--text-faint);font-size:11px">(${count})</span>
-          </div>`;
-      }).join('');
-
-    container.innerHTML = `
-      <div class="project-info-view">
-        <div class="project-meta-edit">
-          <input class="project-name-input" id="proj-name-input" type="text" value="${esc(project.name)}" maxlength="120" aria-label="Project name">
-          <textarea class="project-desc-input" id="proj-desc-input" rows="2" maxlength="500" aria-label="Project description">${esc(project.description || '')}</textarea>
-          <button class="btn-primary" id="save-meta-btn" style="align-self:flex-start;padding:6px 18px;font-size:13px">${SLRIcons.check} Save</button>
-        </div>
-
-        <div class="project-info-cols">
-          <div class="info-section">
-            <h3>Details</h3>
-            <div class="info-grid">
-              <div class="info-field">
-                <label>Created</label>
-                <span>${esc(project.created)}</span>
-              </div>
-              <div class="info-field">
-                <label>Folder</label>
-                <span>${esc(project.workspace_folder)}</span>
-              </div>
-              <div class="info-field">
-                <label>Total articles</label>
-                <span>${stats.total}</span>
-              </div>
-              <div class="info-field">
-                <label>Queries run</label>
-                <span>${projectData.searchLog.length}</span>
-              </div>
-              <div class="info-field">
-                <label>Selected</label>
-                <span>${stats.selected}</span>
-              </div>
-              <div class="info-field">
-                <label>In corpus</label>
-                <span>${stats.corpus}</span>
-              </div>
-            </div>
-          </div>
-
-          ${tagLegend ? `
-          <div class="info-section">
-            <h3>Tag Legend</h3>
-            <div class="tag-legend">${tagLegend}</div>
-          </div>` : ''}
-        </div>
-      </div>`;
-
-    // Wire up save button
-    const saveBtn   = container.querySelector('#save-meta-btn');
-    const nameInput = container.querySelector('#proj-name-input');
-    const descInput = container.querySelector('#proj-desc-input');
-    if (saveBtn) {
-      saveBtn.addEventListener('click', () =>
-        SLRApp.updateProjectMeta(nameInput.value, descInput.value));
-    }
-  }
-
-  //  Loading state 
+  //  Loading state
 
   function renderLoading(container, message) {
     container.innerHTML = `
@@ -4425,7 +4448,6 @@ window.SLRViews = (() => {
     renderProjects,
     renderArticles,
     renderHistory,
-    renderProjectInfo,
     renderLoading,
     renderError,
     renderCorpus,

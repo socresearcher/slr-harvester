@@ -86,7 +86,6 @@ window.SLRAppUI = (() => {
       corpus: 'Corpus',
       visualizations: 'Visualizations',
       tags: 'Tags',
-      project: 'Project',
       settings: 'Settings',
       about: 'About',
       databases: 'Databases',
