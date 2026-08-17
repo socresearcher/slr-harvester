@@ -921,6 +921,20 @@ window.SLRViews = (() => {
       ? `<div class="article-detail-meta article-affiliation-countries"><span class="article-detail-label">Affiliation countries:</span><span class="article-detail-value">${affiliationCountries.map(country => `<span class="article-country-item"><span class="article-country-flag" aria-hidden="true">${esc(country.flag)}</span><span>${esc(country.name)}</span></span>`).join('<span class="article-country-sep">,</span> ')}</span></div>`
       : '';
 
+    // Raw institution names (as fetched via Fetch Affiliations) — a full
+    // list can be long, so it's collapsed behind a toggle rather than
+    // always shown inline like the country summary above it.
+    const affiliations = Array.isArray(a.affiliations) ? a.affiliations.filter(Boolean) : [];
+    const affiliationsDetail = affiliations.length
+      ? `<div class="article-detail-meta article-affiliations-meta">
+           <span class="article-detail-label">Affiliations:</span>
+           <button type="button" class="article-affiliations-toggle" data-action="toggle-affiliations" aria-expanded="false">
+             ${SLRIcons.chevronRight}<span>Show ${affiliations.length} affiliation${affiliations.length !== 1 ? 's' : ''}</span>
+           </button>
+         </div>
+         <ul class="article-affiliations-list" hidden>${affiliations.map(name => `<li>${esc(name)}</li>`).join('')}</ul>`
+      : '';
+
     const idRow = (doiLink || eidLink) ? `
       <div class="article-id-row">
         ${doiLink ? `
@@ -997,6 +1011,7 @@ window.SLRViews = (() => {
         <div class="article-detail">
           ${abstract}
           ${affiliationCountryDetail}
+          ${affiliationsDetail}
           ${idRow}
           ${comment}
         </div>
@@ -1022,10 +1037,27 @@ window.SLRViews = (() => {
       const btn = ev.target.closest('[data-action]');
       if (!btn) return;
       ev.stopPropagation();
+      const action = btn.dataset.action;
+
+      // Pure UI state, no article identity needed — handled before the eid
+      // lookup below so it still works even on the rare article with none.
+      if (action === 'toggle-affiliations') {
+        const meta = btn.closest('.article-detail-meta');
+        const list = meta ? meta.nextElementSibling : null;
+        if (list && list.classList.contains('article-affiliations-list')) {
+          const willShow = list.hidden;
+          list.hidden = !willShow;
+          btn.setAttribute('aria-expanded', String(willShow));
+          const label = btn.querySelector('span');
+          const n = list.children.length;
+          if (label) label.textContent = willShow ? 'Hide affiliations' : `Show ${n} affiliation${n !== 1 ? 's' : ''}`;
+        }
+        return;
+      }
+
       const item = btn.closest('.article-item');
       const eid  = item ? item.dataset.eid : null;
       if (!eid) return;
-      const action = btn.dataset.action;
       if (action === 'toggle-selected') {
         SLRApp.updateAnnotation(eid, { selected: item.dataset.selected !== 'true' });
       } else if (action === 'toggle-corpus') {
