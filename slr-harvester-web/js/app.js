@@ -86,6 +86,15 @@ window.SLRApp = (() => {
 				return new Set(Array.isArray(raw) ? raw : []);
 			} catch (_) { return new Set(); }
 		})(),
+		// folder -> ISO timestamp, updated whenever a project is opened. Powers
+		// the "Recently used" sort option; per-browser like pinnedProjects
+		// above, not synced to the workspace itself.
+		projectLastOpened: (() => {
+			try {
+				const raw = JSON.parse(localStorage.getItem('slr-project-last-opened') || '{}');
+				return (raw && typeof raw === 'object') ? raw : {};
+			} catch (_) { return {}; }
+		})(),
 
 		search: {
 			query: '',
@@ -557,6 +566,8 @@ window.SLRApp = (() => {
 		try {
 			SLRViews.renderLoading(_container, 'Loading project...');
 			await hydrateProject(folderName);
+			state.projectLastOpened[folderName] = new Date().toISOString();
+			localStorage.setItem('slr-project-last-opened', JSON.stringify(state.projectLastOpened));
 			if (['welcome', 'projects', 'settings', 'about', 'databases'].includes(state.view)) {
 				state.view = 'articles';
 			}
@@ -569,6 +580,20 @@ window.SLRApp = (() => {
 
 	async function loadProjectsAndStats() {
 		state.projects = await SLRData.loadProjects();
+
+		// Fill in icons for projects that don't already carry one from the
+		// backend (always true on cloud, since that table has no icon column —
+		// this localStorage cache is their only persistence).
+		let iconMap;
+		try {
+			iconMap = JSON.parse(localStorage.getItem('slr-project-icons') || '{}');
+		} catch (_) {
+			iconMap = {};
+		}
+		state.projects = state.projects.map(p =>
+			(!p.icon && iconMap[p.workspace_folder]) ? { ...p, icon: iconMap[p.workspace_folder] } : p
+		);
+
 		const cache = {};
 		await Promise.all(state.projects.map(async p => {
 			try {
@@ -710,7 +735,7 @@ window.SLRApp = (() => {
 	}
 
 	function setProjectsSort(sort) {
-		const valid = ['newest', 'oldest', 'az', 'za'];
+		const valid = ['newest', 'oldest', 'az', 'za', 'recent'];
 		state.projectsSort = valid.includes(sort) ? sort : 'newest';
 		localStorage.setItem('slr-projects-sort', state.projectsSort);
 		renderCurrentView();
@@ -725,6 +750,32 @@ window.SLRApp = (() => {
 		}
 		localStorage.setItem('slr-pinned-projects', JSON.stringify([...state.pinnedProjects]));
 		renderCurrentView();
+	}
+
+	// Project card icons: { type: 'emoji'|'svg'|'text', value }. Always
+	// cached client-side in localStorage (works the same on every backend);
+	// additionally written to projects.json on the local backend so it
+	// round-trips across sessions/devices sharing that folder — the cloud
+	// backend's `projects` table has no icon column to migrate here, so
+	// cloud projects fall back to this browser's cache only.
+	async function setProjectIcon(folder, icon) {
+		if (!folder) return;
+		let iconMap;
+		try {
+			iconMap = JSON.parse(localStorage.getItem('slr-project-icons') || '{}');
+		} catch (_) {
+			iconMap = {};
+		}
+		if (icon) iconMap[folder] = icon; else delete iconMap[folder];
+		localStorage.setItem('slr-project-icons', JSON.stringify(iconMap));
+
+		const idx = state.projects.findIndex(p => p.workspace_folder === folder);
+		if (idx >= 0) state.projects[idx] = { ...state.projects[idx], icon: icon || undefined };
+		renderCurrentView();
+
+		if (SLRData.getBackend() === 'local' && typeof SLRDataLocal !== 'undefined' && SLRDataLocal.saveProjectIcon) {
+			try { await SLRDataLocal.saveProjectIcon(folder, icon); } catch (_) { /* best-effort */ }
+		}
 	}
 
 	function setCorpusFilter(patch) {
@@ -2588,6 +2639,7 @@ window.SLRApp = (() => {
 		setFetchMode,
 		setProjectsSort,
 		toggleProjectPin,
+		setProjectIcon,
 		setCorpusFilter,
 		setSelectedFilter,
 		toggleTagBreakdown,
