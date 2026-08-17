@@ -530,9 +530,135 @@ window.SLRViews = (() => {
       case 'oldest': return list.sort((a, b) => String(a.created).localeCompare(String(b.created)));
       case 'az':     return list.sort((a, b) => String(a.name).localeCompare(String(b.name)));
       case 'za':     return list.sort((a, b) => String(b.name).localeCompare(String(a.name)));
+      case 'recent': {
+        const lastOpened = SLRApp.state.projectLastOpened || {};
+        return list.sort((a, b) => {
+          const ta = lastOpened[a.workspace_folder] || '';
+          const tb = lastOpened[b.workspace_folder] || '';
+          if (ta !== tb) return tb.localeCompare(ta); // most recently opened first
+          return String(b.created).localeCompare(String(a.created)); // never-opened: fall back to newest
+        });
+      }
       case 'newest':
       default:       return list.sort((a, b) => String(b.created).localeCompare(String(a.created)));
     }
+  }
+
+  // Default palette offered by the project-icon picker (see
+  // openProjectIconPicker) — SVG choices reuse the app's existing icon set
+  // rather than shipping a second one just for this.
+  const PROJECT_ICON_EMOJI_CHOICES = [
+    '📚', '🔬', '🧠', '💡', '📊', '🌍', '🧪', '🩺', '🧬', '📈', '🖥️', '🎓',
+    '📝', '🔍', '🌱', '🏛️', '💻', '🔭', '📖', '⚖️', '🗂️', '🧾', '🌐', '🩻',
+  ];
+  const PROJECT_ICON_SVG_CHOICES = [
+    'folder', 'articles', 'search', 'chart', 'tag', 'globe', 'star', 'layers',
+    'databases', 'calendar', 'palette', 'user', 'corpus', 'selected', 'history', 'settings',
+  ];
+
+  function deriveProjectInitials(name) {
+    const words = String(name || '').trim().split(/\s+/).filter(Boolean);
+    if (words.length === 0) return '?';
+    if (words.length === 1) return words[0].slice(0, 2).toUpperCase();
+    return (words[0][0] + words[1][0]).toUpperCase();
+  }
+
+  // Resolves a project's card icon to renderable HTML — an explicit emoji/
+  // svg/letters choice if one's been set, otherwise auto-derived initials
+  // (still overridable any time via the picker) so the frame is never empty.
+  function projectIconDisplay(project) {
+    const icon = project && project.icon;
+    if (icon && icon.type === 'emoji' && icon.value) {
+      return { html: esc(icon.value), isText: false };
+    }
+    if (icon && icon.type === 'svg' && icon.value && SLRIcons[icon.value]) {
+      return { html: SLRIcons[icon.value], isText: false };
+    }
+    if (icon && icon.type === 'text' && icon.value) {
+      return { html: esc(icon.value.slice(0, 2).toUpperCase()), isText: true };
+    }
+    return { html: esc(deriveProjectInitials(project && project.name)), isText: true, isDefault: true };
+  }
+
+  // Floating picker for a project card's icon — emoji grid, SVG-symbol grid,
+  // and a free-text 1-2 letter abbreviation, plus a reset-to-initials
+  // option. Mirrors openToolbarPopupMenu's positioning/click-outside-close,
+  // just with a richer body than a plain item list.
+  function openProjectIconPicker(triggerEl, folder, currentIcon) {
+    document.querySelector('.project-icon-picker')?.remove();
+    const popup = document.createElement('div');
+    popup.className = 'project-icon-picker';
+
+    const emojiHTML = PROJECT_ICON_EMOJI_CHOICES.map(e =>
+      `<button type="button" class="project-icon-picker-item" data-icon-type="emoji" data-icon-value="${esc(e)}" title="${esc(e)}">${esc(e)}</button>`
+    ).join('');
+    const svgHTML = PROJECT_ICON_SVG_CHOICES.map(key =>
+      `<button type="button" class="project-icon-picker-item" data-icon-type="svg" data-icon-value="${esc(key)}" title="${esc(key)}">${SLRIcons[key] || ''}</button>`
+    ).join('');
+    const currentLetters = (currentIcon && currentIcon.type === 'text') ? currentIcon.value : '';
+
+    popup.innerHTML = `
+      <div class="project-icon-picker-section">
+        <div class="project-icon-picker-label">Emoji</div>
+        <div class="project-icon-picker-grid">${emojiHTML}</div>
+      </div>
+      <div class="project-icon-picker-section">
+        <div class="project-icon-picker-label">Symbol</div>
+        <div class="project-icon-picker-grid">${svgHTML}</div>
+      </div>
+      <div class="project-icon-picker-section">
+        <div class="project-icon-picker-label">Letters</div>
+        <div class="project-icon-picker-letters">
+          <input type="text" class="project-icon-picker-input" id="project-icon-letters-input" maxlength="2" placeholder="e.g. KI" value="${esc(currentLetters)}">
+          <button type="button" class="project-icon-picker-set" id="project-icon-letters-set">Set</button>
+        </div>
+      </div>
+      <button type="button" class="project-icon-picker-reset" id="project-icon-reset">Use default (initials)</button>`;
+    document.body.appendChild(popup);
+
+    const rect = triggerEl.getBoundingClientRect();
+    const estimatedH = 340;
+    const spaceBelow = window.innerHeight - rect.bottom;
+    if (spaceBelow < estimatedH && rect.top > estimatedH) {
+      popup.style.top = Math.max(8, rect.top - estimatedH - 4) + 'px';
+    } else {
+      popup.style.top = (rect.bottom + 4) + 'px';
+    }
+    popup.style.left = Math.min(rect.left, window.innerWidth - 260) + 'px';
+
+    const choose = (icon) => {
+      SLRApp.setProjectIcon(folder, icon);
+      popup.remove();
+      document.removeEventListener('click', closeHandler, true);
+    };
+
+    popup.querySelectorAll('.project-icon-picker-item').forEach(btn => {
+      btn.addEventListener('click', () => choose({ type: btn.dataset.iconType, value: btn.dataset.iconValue }));
+    });
+
+    const letterInput = popup.querySelector('#project-icon-letters-input');
+    letterInput.addEventListener('input', () => {
+      letterInput.value = letterInput.value.toUpperCase().slice(0, 2);
+    });
+    letterInput.addEventListener('keydown', ev => {
+      if (ev.key !== 'Enter') return;
+      ev.preventDefault();
+      popup.querySelector('#project-icon-letters-set').click();
+    });
+    popup.querySelector('#project-icon-letters-set').addEventListener('click', () => {
+      const val = (letterInput.value || '').trim().toUpperCase().slice(0, 2);
+      if (val) choose({ type: 'text', value: val });
+    });
+
+    popup.querySelector('#project-icon-reset').addEventListener('click', () => choose(null));
+
+    const closeHandler = ev => {
+      if (!popup.contains(ev.target) && ev.target !== triggerEl && !triggerEl.contains(ev.target)) {
+        popup.remove();
+        document.removeEventListener('click', closeHandler, true);
+      }
+    };
+    setTimeout(() => document.addEventListener('click', closeHandler, true), 10);
   }
 
   // Content shared by the inline Projects-tab detail panel — extracted from
@@ -663,14 +789,21 @@ window.SLRViews = (() => {
       const nTerms   = data ? new Set((data.queryHistory && data.queryHistory.terms || [])).size : 0;
       const active = p.workspace_folder === currentFolder;
       const isPinned = pinned.has(p.workspace_folder);
+      const iconInfo = projectIconDisplay(p);
 
       return `
         <div class="project-card ${active ? 'active' : ''}"
              data-folder="${esc(p.workspace_folder)}">
           <div class="project-card-header">
-            <div>
-              <div class="project-card-name">${esc(p.name)}</div>
-              <div class="project-card-date">Created ${esc(p.created)}</div>
+            <div class="project-card-header-main">
+              <button type="button" class="project-icon-frame${iconInfo.isText ? ' is-text' : ''}"
+                      data-icon-folder="${esc(p.workspace_folder)}" title="Change project icon" aria-label="Change project icon">
+                ${iconInfo.html}
+              </button>
+              <div class="project-card-titles">
+                <div class="project-card-name">${esc(p.name)}</div>
+                <div class="project-card-date">Created ${esc(p.created)}</div>
+              </div>
             </div>
             <button class="project-pin-dot ${isPinned ? 'pinned' : ''}"
                     data-pin-folder="${esc(p.workspace_folder)}"
@@ -685,31 +818,31 @@ window.SLRViews = (() => {
             <div class="project-card-stats-grid">
               <span class="stat-chip">
                 ${SLRIcons.history}
-                <strong>${nQueries}</strong> quer${nQueries !== 1 ? 'ies' : 'y'}
+                <span><strong>${nQueries}</strong> quer${nQueries !== 1 ? 'ies' : 'y'}</span>
               </span>
               <span class="stat-chip">
                 ${SLRIcons.search}
-                <strong>${nTerms}</strong> term${nTerms !== 1 ? 's' : ''}
+                <span><strong>${nTerms}</strong> term${nTerms !== 1 ? 's' : ''}</span>
               </span>
               <span class="stat-chip">
                 ${SLRIcons.articles}
-                <strong>${stats.total}</strong> articles
+                <span><strong>${stats.total}</strong> articles</span>
               </span>
               <span class="stat-chip">
                 ${SLRIcons.tag}
-                <strong>${nTags}</strong> tag${nTags !== 1 ? 's' : ''} in use
+                <span><strong>${nTags}</strong> tag${nTags !== 1 ? 's' : ''} in use</span>
               </span>
               <span class="stat-chip selected">
                 ${SLRIcons.selected}
-                <strong>${stats.selected}</strong> selected
+                <span><strong>${stats.selected}</strong> selected</span>
               </span>
               <span class="stat-chip corpus">
                 ${SLRIcons.corpus}
-                <strong>${stats.corpus}</strong> corpus
+                <span><strong>${stats.corpus}</strong> corpus</span>
               </span>
             </div>` : `
             <div class="project-card-stats">
-              <span class="stat-chip">${SLRIcons.refresh} Loading...</span>
+              <span class="stat-chip">${SLRIcons.refresh} <span>Loading...</span></span>
             </div>`}
 
           <div class="project-card-actions">
@@ -735,6 +868,7 @@ window.SLRViews = (() => {
             <select class="filter-select" id="projects-sort" title="Sort projects">
               <option value="newest" ${sort==='newest'?'selected':''}>Newest first</option>
               <option value="oldest" ${sort==='oldest'?'selected':''}>Oldest first</option>
+              <option value="recent" ${sort==='recent'?'selected':''}>Recently used</option>
               <option value="az"     ${sort==='az'    ?'selected':''}>Name A-Z</option>
               <option value="za"     ${sort==='za'    ?'selected':''}>Name Z-A</option>
             </select>
@@ -761,6 +895,15 @@ window.SLRViews = (() => {
       btn.addEventListener('click', e => {
         e.stopPropagation();
         SLRApp.openProjectDetail(btn.dataset.infoFolder);
+      });
+    });
+
+    container.querySelectorAll('.project-icon-frame').forEach(btn => {
+      btn.addEventListener('click', e => {
+        e.stopPropagation();
+        const folder = btn.dataset.iconFolder;
+        const proj = projects.find(p => p.workspace_folder === folder);
+        openProjectIconPicker(btn, folder, proj && proj.icon);
       });
     });
 
@@ -800,19 +943,19 @@ window.SLRViews = (() => {
         <div class="corpus-banner">
           <span class="corpus-banner-stat">
             ${SLRIcons.articles}
-            <strong>${totalAll}</strong> article${totalAll !== 1 ? 's' : ''} total
+            <span><strong>${totalAll}</strong> article${totalAll !== 1 ? 's' : ''} total</span>
           </span>
           <span class="corpus-banner-stat" style="color:var(--text-muted)">
             ${SLRIcons.selected}
-            <strong>${totalSelected}</strong> selected
+            <span><strong>${totalSelected}</strong> selected</span>
           </span>
           <span class="corpus-banner-stat" style="color:var(--text-muted)">
             ${SLRIcons.corpus}
-            <strong>${totalCorpus}</strong> in corpus
+            <span><strong>${totalCorpus}</strong> in corpus</span>
           </span>
           <span class="corpus-banner-stat" style="color:var(--text-muted)">
             ${SLRIcons.tag}
-            <strong>${totalTagged}</strong> tag${totalTagged !== 1 ? 's' : ''} used
+            <span><strong>${totalTagged}</strong> tag${totalTagged !== 1 ? 's' : ''} used</span>
           </span>
         </div>
 
@@ -1794,15 +1937,15 @@ window.SLRViews = (() => {
         <div class="corpus-banner">
           <span class="corpus-banner-stat">
             ${SLRIcons.corpus}
-            <strong>${stats.corpus}</strong> article${stats.corpus !== 1 ? 's' : ''} in corpus
+            <span><strong>${stats.corpus}</strong> article${stats.corpus !== 1 ? 's' : ''} in corpus</span>
           </span>
           <span class="corpus-banner-stat" style="color:var(--text-muted)">
             ${SLRIcons.articles}
-            from ${articles.length} total
+            <span>from ${articles.length} total</span>
           </span>
           <span class="corpus-banner-stat" style="color:var(--text-muted)">
             ${SLRIcons.tag}
-            <strong>${Object.keys(stats.byTag).filter(t => t !== 'None').length}</strong> tag${Object.keys(stats.byTag).filter(t => t !== 'None').length !== 1 ? 's' : ''} used
+            <span><strong>${Object.keys(stats.byTag).filter(t => t !== 'None').length}</strong> tag${Object.keys(stats.byTag).filter(t => t !== 'None').length !== 1 ? 's' : ''} used</span>
           </span>
         </div>
 
@@ -1865,19 +2008,19 @@ window.SLRViews = (() => {
         <div class="corpus-banner" style="border-left-color:var(--accent)">
           <span class="corpus-banner-stat">
             ${SLRIcons.selected}
-            <strong>${selectedArticles.length}</strong> article${selectedArticles.length !== 1 ? 's' : ''} selected
+            <span><strong>${selectedArticles.length}</strong> article${selectedArticles.length !== 1 ? 's' : ''} selected</span>
           </span>
           <span class="corpus-banner-stat" style="color:var(--text-muted)">
             ${SLRIcons.articles}
-            from ${articles.length} total
+            <span>from ${articles.length} total</span>
           </span>
           <span class="corpus-banner-stat" style="color:var(--text-muted)">
             ${SLRIcons.corpus}
-            <strong>${stats.corpus}</strong> in corpus
+            <span><strong>${stats.corpus}</strong> in corpus</span>
           </span>
           <span class="corpus-banner-stat" style="color:var(--text-muted)">
             ${SLRIcons.tag}
-            <strong>${Object.keys(stats.byTag).filter(t => t !== 'None').length}</strong> tag${Object.keys(stats.byTag).filter(t => t !== 'None').length !== 1 ? 's' : ''} used
+            <span><strong>${Object.keys(stats.byTag).filter(t => t !== 'None').length}</strong> tag${Object.keys(stats.byTag).filter(t => t !== 'None').length !== 1 ? 's' : ''} used</span>
           </span>
         </div>
 

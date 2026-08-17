@@ -390,6 +390,17 @@ a:hover {
   text-overflow: ellipsis;
 }
 
+/* Groups nav items without subheadings — same inset on both sides as the
+   icon column so it reads as a deliberate divider rather than a stray
+   line, unchanged by collapse/expand since it doesn't touch .sidebar-label
+   at all. */
+.nav-separator {
+  height: 1px;
+  margin: 6px var(--sidebar-icon-pad-left);
+  background: var(--border);
+  flex-shrink: 0;
+}
+
 /* ----------------------------------------------------------
    5. Main + topbar
    ---------------------------------------------------------- */
@@ -1130,6 +1141,56 @@ a:hover {
   gap: 8px;
 }
 
+.project-card-header-main {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-width: 0;
+}
+
+/* Rounded-corner icon frame, top-left of the card — click to pick an emoji,
+   symbol, or 1-2 letter abbreviation (openProjectIconPicker in views.js).
+   Falls back to auto-derived initials when nothing's been chosen. */
+.project-icon-frame {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 40px;
+  height: 40px;
+  flex-shrink: 0;
+  border-radius: 11px;
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  color: var(--text-muted);
+  font-size: 19px;
+  line-height: 1;
+  cursor: pointer;
+  transition: background var(--transition), border-color var(--transition), color var(--transition);
+}
+
+.project-icon-frame:hover {
+  border-color: var(--accent);
+  background: var(--surface-3);
+}
+
+.project-icon-frame svg {
+  width: 19px;
+  height: 19px;
+}
+
+.project-icon-frame.is-text {
+  font-size: 14px;
+  font-weight: 700;
+  letter-spacing: .02em;
+  color: var(--accent);
+  background: var(--accent-subtle);
+  border-color: color-mix(in srgb, var(--accent) 35%, transparent);
+}
+
+.project-card-titles {
+  min-width: 0;
+}
+
 .project-card-name {
   font-size: 14px;
   font-weight: 600;
@@ -1137,9 +1198,13 @@ a:hover {
   line-height: 1.35;
 }
 
+/* text-muted (not text-faint) — the previous color read as barely-visible
+   against both the plain card background and the active card's accent
+   tint. */
 .project-card-date {
-  font-size: 11px;
-  color: var(--text-faint);
+  font-size: 11.5px;
+  font-weight: 500;
+  color: var(--text-muted);
   white-space: nowrap;
   margin-top: 2px;
 }
@@ -1179,10 +1244,12 @@ a:hover {
   margin-top: auto;
 }
 
+/* No flex `gap` — same reasoning as .corpus-banner-stat above: the markup
+   is an icon followed by "<strong>N</strong> label text", and gap would
+   double up with the text's own leading space. */
 .stat-chip {
   display: flex;
   align-items: center;
-  gap: 5px;
   font-size: 12px;
   color: var(--text-muted);
 }
@@ -1191,6 +1258,7 @@ a:hover {
   width: 13px;
   height: 13px;
   flex-shrink: 0;
+  margin-right: 5px;
 }
 
 .stat-chip.selected {
@@ -1291,6 +1359,129 @@ a:hover {
 .project-detail-back svg {
   width: 14px;
   height: 14px;
+}
+
+/* Project icon picker — floating popup opened from .project-icon-frame
+   (openProjectIconPicker in views.js). Same fixed-position/click-outside
+   pattern as .toolbar-popup-menu, just with a richer body (two choice
+   grids + a text input) instead of a plain item list. */
+.project-icon-picker {
+  position: fixed;
+  z-index: 1001;
+  width: 248px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, .4);
+  padding: 12px;
+}
+
+.project-icon-picker-section + .project-icon-picker-section {
+  margin-top: 12px;
+}
+
+.project-icon-picker-label {
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: .4px;
+  color: var(--text-faint);
+  margin-bottom: 6px;
+}
+
+.project-icon-picker-grid {
+  display: grid;
+  grid-template-columns: repeat(8, 1fr);
+  gap: 4px;
+}
+
+.project-icon-picker-item {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+  aspect-ratio: 1;
+  border-radius: 7px;
+  border: 1px solid transparent;
+  background: var(--surface-2);
+  color: var(--text-muted);
+  font-size: 15px;
+  cursor: pointer;
+  transition: background var(--transition), border-color var(--transition);
+}
+
+.project-icon-picker-item:hover {
+  background: var(--surface-3);
+  border-color: var(--accent);
+  color: var(--text);
+}
+
+.project-icon-picker-item svg {
+  width: 14px;
+  height: 14px;
+}
+
+.project-icon-picker-letters {
+  display: flex;
+  gap: 6px;
+}
+
+.project-icon-picker-input {
+  flex: 1;
+  min-width: 0;
+  height: 30px;
+  padding: 0 10px;
+  border-radius: var(--radius);
+  border: 1px solid var(--border);
+  background: var(--surface-2);
+  color: var(--text);
+  font-size: 13px;
+  font-weight: 600;
+  text-transform: uppercase;
+  text-align: center;
+}
+
+.project-icon-picker-input:focus {
+  outline: none;
+  border-color: var(--accent);
+}
+
+.project-icon-picker-set {
+  height: 30px;
+  padding: 0 12px;
+  border-radius: var(--radius);
+  border: 1px solid var(--border);
+  background: var(--surface-2);
+  color: var(--text-muted);
+  font-size: 12.5px;
+  font-weight: 500;
+  cursor: pointer;
+}
+
+.project-icon-picker-set:hover {
+  background: var(--surface-3);
+  color: var(--text);
+  border-color: var(--accent);
+}
+
+.project-icon-picker-reset {
+  width: 100%;
+  margin-top: 12px;
+  padding: 7px 10px;
+  border-radius: var(--radius);
+  border: 1px solid var(--border);
+  background: transparent;
+  color: var(--text-muted);
+  font-size: 12px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: background var(--transition), color var(--transition), border-color var(--transition);
+}
+
+.project-icon-picker-reset:hover {
+  background: var(--surface-2);
+  color: var(--text);
+  border-color: var(--accent);
 }
 
 /* ----------------------------------------------------------
@@ -2511,10 +2702,16 @@ a.db-link:visited {
   flex-shrink: 0;
 }
 
+/* No flex `gap` here on purpose: each stat's markup is an icon followed by
+   "<strong>N</strong> label text" — a raw text node as a flex item gets
+   wrapped in its own anonymous flex box, so `gap` would add its full value
+   AGAIN between the <strong> and that trailing text on top of the single
+   space already in the text, reading as a doubled gap. Spacing the icon off
+   via its own margin instead keeps the number-to-label gap a plain single
+   space, everywhere this markup is used. */
 .corpus-banner-stat {
   display: flex;
   align-items: center;
-  gap: 7px;
   font-size: 13px;
   color: var(--green);
 }
@@ -2523,6 +2720,7 @@ a.db-link:visited {
   width: 15px;
   height: 15px;
   flex-shrink: 0;
+  margin-right: 7px;
 }
 
 .corpus-banner-stat strong {
@@ -2577,38 +2775,57 @@ a.db-link:visited {
    in .list-toolbar-buttons-row alongside Fetch/Tag/Export, shared by
    Articles / Selected / Corpus so it looks and behaves identically
    everywhere. */
-.list-filter-toggle {
+/* Ghost-button style shared by Filter/Fetch/Tag/Export — flat by default
+   (no permanent fill), a soft hover tint, and color reserved for the one
+   state that actually needs it: Filter while toggled on. */
+.list-filter-toggle,
+.articles-action-btn {
   display: inline-flex;
   align-items: center;
   gap: 6px;
   height: 30px;
-  padding: 0 10px;
+  padding: 0 11px;
   font-size: 12.5px;
   font-weight: 500;
   line-height: 1;
-  background: var(--surface-2);
+  background: transparent;
   border: 1px solid var(--border);
   border-radius: var(--radius);
   color: var(--text-muted);
   cursor: pointer;
+  white-space: nowrap;
+  flex-shrink: 0;
   transition: background var(--transition), color var(--transition), border-color var(--transition);
 }
 
-.list-filter-toggle svg {
-  width: 14px;
-  height: 14px;
+.list-filter-toggle svg,
+.articles-action-btn svg {
+  width: 13px;
+  height: 13px;
   flex-shrink: 0;
+  opacity: .8;
 }
 
-.list-filter-toggle:hover {
-  background: var(--surface-3);
+.list-filter-toggle:hover,
+.articles-action-btn:hover {
+  background: var(--surface-2);
   color: var(--text);
+  border-color: color-mix(in srgb, var(--text-muted) 45%, var(--border));
+}
+
+.list-filter-toggle:hover svg,
+.articles-action-btn:hover svg {
+  opacity: 1;
 }
 
 .list-filter-toggle.active {
   background: var(--accent-subtle);
   color: var(--accent);
   border-color: color-mix(in srgb, var(--accent) 45%, transparent);
+}
+
+.list-filter-toggle.active svg {
+  opacity: 1;
 }
 
 /* ----------------------------------------------------------
@@ -3668,62 +3885,6 @@ a.db-link:visited {
 .btn-sm {
   padding: 5px 12px;
   font-size: 12.5px;
-}
-
-/* Toolbar action button — used in Articles filterbar and Tags header */
-.articles-action-btn {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  height: 32px;
-  gap: 6px;
-  padding: 0 10px;
-  line-height: 1;
-  font-size: 12.5px;
-  font-weight: 500;
-  color: var(--accent);
-  background: var(--accent-subtle);
-  border: 1px solid color-mix(in srgb, var(--accent) 35%, transparent);
-  border-radius: var(--radius);
-  cursor: pointer;
-  white-space: nowrap;
-  flex-shrink: 0;
-  transition: background var(--transition), color var(--transition), border-color var(--transition);
-}
-
-.articles-action-btn:hover {
-  background: color-mix(in srgb, var(--accent) 20%, transparent);
-  color: var(--accent-hover);
-  border-color: color-mix(in srgb, var(--accent) 55%, transparent);
-}
-
-.articles-action-btn svg {
-  width: 13px;
-  height: 13px;
-  flex-shrink: 0;
-}
-
-.articles-action-btn--warn {
-  color: #c05c00;
-  background: color-mix(in srgb, #f97316 15%, transparent);
-  border-color: color-mix(in srgb, #f97316 40%, transparent);
-}
-
-.articles-action-btn--warn:hover {
-  background: color-mix(in srgb, #f97316 28%, transparent);
-  color: #a34800;
-  border-color: color-mix(in srgb, #f97316 65%, transparent);
-}
-
-[data-theme="dark"] .articles-action-btn--warn {
-  color: #fba96a;
-  background: color-mix(in srgb, #f97316 18%, transparent);
-  border-color: color-mix(in srgb, #f97316 45%, transparent);
-}
-
-[data-theme="dark"] .articles-action-btn--warn:hover {
-  color: #ffd0a8;
-  background: color-mix(in srgb, #f97316 32%, transparent);
 }
 
 .btn-warn {
