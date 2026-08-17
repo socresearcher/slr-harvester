@@ -1211,11 +1211,18 @@ a:hover {
   -webkit-box-orient: vertical;
 }
 
+.project-card-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 4px;
+  align-self: flex-start;
+}
+
 .open-project-btn {
   display: inline-flex;
   align-items: center;
   gap: 6px;
-  margin-top: 4px;
   padding: 5px 12px;
   border-radius: var(--radius);
   font-size: 12px;
@@ -1223,7 +1230,6 @@ a:hover {
   background: var(--accent-subtle);
   color: var(--accent-hover);
   border: 1px solid var(--accent);
-  align-self: flex-start;
 }
 
 .open-project-btn:hover {
@@ -1234,6 +1240,57 @@ a:hover {
 .open-project-btn svg {
   width: 12px;
   height: 12px;
+}
+
+/* Opens that card's info inline in the Projects tab (see openProjectDetail
+   in app.js) — this replaced the old standalone "Project Info" nav item. */
+.project-info-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 5px 12px;
+  border-radius: var(--radius);
+  font-size: 12px;
+  font-weight: 500;
+  background: var(--surface-2);
+  color: var(--text-muted);
+  border: 1px solid var(--border);
+}
+
+.project-info-btn:hover {
+  background: var(--surface-3);
+  color: var(--text);
+  border-color: var(--accent);
+}
+
+.project-info-btn svg {
+  width: 12px;
+  height: 12px;
+}
+
+.project-detail-back {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 14px 6px 10px;
+  margin-bottom: 20px;
+  border-radius: var(--radius);
+  font-size: 13px;
+  font-weight: 500;
+  background: var(--surface-2);
+  color: var(--text-muted);
+  border: 1px solid var(--border);
+}
+
+.project-detail-back:hover {
+  background: var(--surface-3);
+  color: var(--text);
+  border-color: var(--accent);
+}
+
+.project-detail-back svg {
+  width: 14px;
+  height: 14px;
 }
 
 /* ----------------------------------------------------------
@@ -2125,12 +2182,8 @@ a:hover {
 }
 
 /* ----------------------------------------------------------
-   10. Project info view
+   10. Project info (inline detail panel inside .projects-view)
    ---------------------------------------------------------- */
-.project-info-view {
-  padding: 24px;
-}
-
 .project-info-cols {
   display: grid;
   grid-template-columns: minmax(300px, 1fr) minmax(260px, 1fr);
@@ -3260,7 +3313,6 @@ a.db-link:visited {
 #view-container > .projects-view,
 #view-container > .articles-view,
 #view-container > .history-view,
-#view-container > .project-info-view,
 #view-container > .settings-view,
 #view-container > .about-view,
 #view-container > .tags-view,
@@ -5412,7 +5464,6 @@ a.db-link:visited {
 /* Final spacing override for consistent header-to-content gap across views */
 #view-container > .projects-view,
 #view-container > .history-view,
-#view-container > .project-info-view,
 #view-container > .settings-view,
 #view-container > .about-view,
 #view-container > .tags-view,
@@ -5441,7 +5492,6 @@ a.db-link:visited {
 @media (max-width: 900px) {
   .projects-view,
   .history-view,
-  .project-info-view,
   .settings-view,
   .about-view,
   .tags-view,

@@ -19,6 +19,10 @@ window.SLRApp = (() => {
 		projectData: null,
 		articles: [],
 		allProjectData: {},
+		// Which project's info panel is open inline within the Projects tab
+		// (null = showing the card grid instead). Replaces the old standalone
+		// "Project Info" nav item/view.
+		projectsDetailFolder: null,
 
 		filter: {
 			mode: 'all',
@@ -436,16 +440,13 @@ window.SLRApp = (() => {
 				markOnboardingStep('welcome');
 				break;
 			case 'projects':
-				SLRViews.renderProjects(_container, state.projects, state.currentFolder, state.allProjectData, state.projectsSort);
+				SLRViews.renderProjects(_container, state.projects, state.currentFolder, state.allProjectData, state.projectsSort, state.projectsDetailFolder);
 				break;
 			case 'articles':
 				SLRViews.renderArticles(_container, state.articles, state.filter, state.projectData);
 				break;
 			case 'history':
 				SLRViews.renderHistory(_container, (state.projectData && state.projectData.searchLog) || [], state.projectData);
-				break;
-			case 'project':
-				SLRViews.renderProjectInfo(_container, state.currentProject, state.projectData);
 				break;
 			case 'corpus':
 				SLRViews.renderCorpus(_container, state.articles, state.corpusFilter, state.projectData);
@@ -495,11 +496,32 @@ window.SLRApp = (() => {
 	}
 
 	function navigate(view) {
+		// A nav-item click always means "go to this section's top level" —
+		// without this, clicking Projects while a card's inline info panel is
+		// open would silently do nothing, stuck showing the same panel.
+		// openProjectDetail() is the only intentional way into that panel.
+		if (view === 'projects') state.projectsDetailFolder = null;
 		state.view = view;
 		renderCurrentView();
 		// 'projects' and 'search' complete on a meaningful action (opening a
 		// project / running a search), not merely on visiting the tab.
 		if (view !== 'projects' && view !== 'search') markOnboardingStep(view);
+	}
+
+	// Opens a project's info panel inline within the Projects tab (replaces
+	// the card grid there until closed) — works for any project in
+	// state.allProjectData, not just the currently open one, since
+	// loadProjectsAndStats() hydrates every project's data up front.
+	function openProjectDetail(folder) {
+		if (!folder) return;
+		state.projectsDetailFolder = folder;
+		state.view = 'projects';
+		renderCurrentView();
+	}
+
+	function closeProjectDetail() {
+		state.projectsDetailFolder = null;
+		renderCurrentView();
 	}
 
 	// Entry point for Home's "First time here?" hint: jumps to About and
@@ -737,12 +759,15 @@ window.SLRApp = (() => {
 		}
 	}
 
-	async function updateProjectMeta(name, description) {
-		if (!state.currentFolder) return;
+	// Targets an explicit folder (not just state.currentFolder) so the inline
+	// info panel on any project card can be edited, not only the one that
+	// happens to be currently open.
+	async function updateProjectMeta(folder, name, description) {
+		if (!folder) return;
 		try {
-			const updated = await SLRData.saveProjectMeta(state.currentFolder, name, description);
-			state.currentProject = updated;
-			const idx = state.projects.findIndex(p => p.workspace_folder === state.currentFolder);
+			const updated = await SLRData.saveProjectMeta(folder, name, description);
+			if (folder === state.currentFolder) state.currentProject = updated;
+			const idx = state.projects.findIndex(p => p.workspace_folder === folder);
 			if (idx >= 0) state.projects[idx] = { ...state.projects[idx], ...updated };
 			showToast('Project updated.', false);
 			renderCurrentView();
@@ -2434,8 +2459,10 @@ window.SLRApp = (() => {
 		const folder = await SLRData.createProject(name, description);
 		await loadProjectsAndStats();
 		await openProject(folder);
-		state.view = 'project';
-		renderCurrentView();
+		// Land on the new project's info panel (name/description are freshly
+		// set from the New Project modal) rather than jumping straight into
+		// an empty article list.
+		openProjectDetail(folder);
 	}
 
 	function showNewProjectModal() {
@@ -2453,7 +2480,7 @@ window.SLRApp = (() => {
 	function bindEvents() {
 		$('theme-toggle')?.addEventListener('click', () => SLRAppUI.toggleTheme(state, $));
 		$('fullscreen-toggle')?.addEventListener('click', () => SLRAppUI.toggleFullscreen(showToast, $));
-		$('project-badge')?.addEventListener('click', () => navigate('project'));
+		$('project-badge')?.addEventListener('click', () => openProjectDetail(state.currentFolder));
 		$('sidebar-toggle')?.addEventListener('click', () => SLRAppUI.toggleSidebar(state, _sidebar, $));
 		document.addEventListener('fullscreenchange', () => SLRAppUI.updateFullscreenButton($));
 		document.addEventListener('webkitfullscreenchange', () => SLRAppUI.updateFullscreenButton($));
@@ -2500,6 +2527,8 @@ window.SLRApp = (() => {
 		state,
 		navigate,
 		gotoAboutFirstTime,
+		openProjectDetail,
+		closeProjectDetail,
 		openFolder,
 		switchBackend,
 		cloudAuth,
