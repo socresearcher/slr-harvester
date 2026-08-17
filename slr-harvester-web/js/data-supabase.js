@@ -245,6 +245,19 @@ window.SLRDataCloud = (() => {
     await writeSearchLog(client, folderName, existing);
   }
 
+  /**
+   * Set (or clear) the archive/trash status of a search-log entry by index.
+   * status: 'active' | 'archived' | 'trashed' — 'active' clears the field.
+   */
+  async function setSearchResultStatus(folderName, index, status) {
+    const client = requireAuth();
+    const existing = (await loadSearchLog(client, folderName)) || [];
+    if (index < 0 || index >= existing.length) throw new Error('Invalid query index');
+    if (status === 'active') delete existing[index].status;
+    else existing[index].status = status;
+    await writeSearchLog(client, folderName, existing);
+  }
+
   async function saveQueryTerms(folderName, newTerms) {
     try {
       const client = requireAuth();
@@ -506,6 +519,7 @@ window.SLRDataCloud = (() => {
     loadProjectData,
     appendSearchResult,
     deleteSearchResult,
+    setSearchResultStatus,
     patchSearchLogAbstracts,
     patchSearchLogDocTypes,
     patchSearchLogAuthors,

@@ -1764,18 +1764,14 @@ window.SLRViews = (() => {
 
   //  History view
 
-  function renderHistory(container, searchLog, projectData) {
+  function renderHistory(container, searchLog, projectData, historyState) {
     if (!projectData) {
       container.innerHTML = `<div class="history-view" style="padding:0">${renderNoProjectNotice()}</div>`;
       return;
     }
-    if (!searchLog || searchLog.length === 0) {
-      container.innerHTML = `
-        <div class="history-view">
-          <p style="color:var(--text-faint)">No query history found for this project.</p>
-        </div>`;
-      return;
-    }
+
+    const statusFilter = (historyState && historyState.statusFilter) || 'active';
+    const sortDir      = (historyState && historyState.sortDir) || 'desc';
 
     const DB_LABELS = {
       scopus: 'Scopus', standard: 'Scopus', complete: 'Scopus', refexpanded: 'Scopus',
@@ -1788,94 +1784,199 @@ window.SLRViews = (() => {
       SCOPUS: 'scopus', PUBMED: 'pubmed', ARXIV: 'arxiv', S2: 's2', OPENALEX: 'openalex',
     };
 
-    const items = [...searchLog].reverse().map((run, i) => {
-      const queryPreview = (run.query || '').replace(/\s+/g, ' ').slice(0, 120);
-      const count = run.count || (run.results ? run.results.length : 0);
+    // Every entry is tagged with its true position in the raw (unreversed,
+    // newest-first) searchLog array BEFORE any filtering/sorting for display
+    // \u2014 that raw index is what every backend mutation (trash/archive/restore/
+    // delete) addresses, so it must travel with the entry regardless of the
+    // order it ends up rendered in. Mixing this up (using a post-sort
+    // display position instead) is exactly what caused queries to delete
+    // the wrong entry.
+    const tagged = (searchLog || []).map((run, rawIndex) => ({ run, rawIndex }));
 
-      // Resolve DB badge from run.view
-      const viewKey = (run.view || 'scopus').toLowerCase();
-      const dbSourceKey = DB_SOURCE_KEY[viewKey] || 'scopus';
-      const dbLabel     = DB_LABELS[viewKey]     || run.view || 'Scopus';
-      const dbBadge = `<span class="badge badge-source badge-source-${esc(dbSourceKey)}">${esc(dbLabel)}</span>`;
+    const counts = { active: 0, archived: 0, trashed: 0 };
+    for (const { run } of tagged) {
+      const s = run.status || 'active';
+      if (counts[s] !== undefined) counts[s]++;
+    }
 
-      const results = Array.isArray(run.results) ? run.results : [];
-      const resultsHTML = results.slice(0, 30).map(r => {
-        const ann  = projectData.globalTags[r.eid] || {};
-        const hex  = tagColor(projectData, ann.color);
-        const year = r.date ? r.date.slice(0, 4) : '';
+    // Raw array is already newest-first (new entries are unshifted in), so
+    // "newest first" is just ascending rawIndex order and "oldest first" is
+    // descending rawIndex order \u2014 no timestamp parsing needed.
+    const filtered = tagged
+      .filter(({ run }) => (run.status || 'active') === statusFilter)
+      .sort((a, b) => sortDir === 'asc' ? b.rawIndex - a.rawIndex : a.rawIndex - b.rawIndex);
+
+    const tabsHTML = `
+      <div class="history-toolbar">
+        <div class="hist-tabs" role="tablist">
+          <button class="hist-tab${statusFilter === 'active' ? ' active' : ''}" data-tab="active" role="tab" aria-selected="${statusFilter === 'active'}">Active<span class="hist-tab-count">${counts.active}</span></button>
+          <button class="hist-tab${statusFilter === 'archived' ? ' active' : ''}" data-tab="archived" role="tab" aria-selected="${statusFilter === 'archived'}">${SLRIcons.archive}Archived<span class="hist-tab-count">${counts.archived}</span></button>
+          <button class="hist-tab${statusFilter === 'trashed' ? ' active' : ''}" data-tab="trashed" role="tab" aria-selected="${statusFilter === 'trashed'}">${SLRIcons.trash}Trash<span class="hist-tab-count">${counts.trashed}</span></button>
+        </div>
+        <select class="filter-select" id="history-sort" title="Sort by date">
+          <option value="desc"${sortDir === 'desc' ? ' selected' : ''}>Newest first</option>
+          <option value="asc"${sortDir === 'asc' ? ' selected' : ''}>Oldest first</option>
+        </select>
+      </div>`;
+
+    // Per-tab swipe/action mapping \u2014 left swipe (or the left action button)
+    // is always the "more destructive" action, right is always "less
+    // destructive / undo", so the gesture stays consistent across tabs.
+    let leftAction, rightAction;
+    if (statusFilter === 'trashed') {
+      leftAction  = { action: 'delete-forever', icon: SLRIcons.trash,   label: 'Delete',  cls: 'danger', title: 'Delete permanently' };
+      rightAction = { action: 'restore',        icon: SLRIcons.restore, label: 'Restore', cls: 'accent', title: 'Restore to active' };
+    } else if (statusFilter === 'archived') {
+      leftAction  = { action: 'trash',   icon: SLRIcons.trash,   label: 'Trash',   cls: 'danger', title: 'Move to trash' };
+      rightAction = { action: 'restore', icon: SLRIcons.restore, label: 'Restore', cls: 'accent', title: 'Restore to active' };
+    } else {
+      leftAction  = { action: 'trash',   icon: SLRIcons.trash,   label: 'Trash',   cls: 'danger', title: 'Move to trash' };
+      rightAction = { action: 'archive', icon: SLRIcons.archive, label: 'Archive', cls: 'accent', title: 'Archive this query' };
+    }
+
+    let bodyHTML;
+    if (filtered.length === 0) {
+      const emptyMsg = statusFilter === 'active' ? 'No query history found for this project.'
+        : statusFilter === 'archived' ? 'No archived queries.'
+        : 'Trash is empty.';
+      bodyHTML = `<p style="color:var(--text-faint)">${esc(emptyMsg)}</p>`;
+    } else {
+      const items = filtered.map(({ run, rawIndex }) => {
+        const queryPreview = (run.query || '').replace(/\s+/g, ' ').slice(0, 120);
+        const count = run.count || (run.results ? run.results.length : 0);
+
+        // Resolve DB badge from run.view
+        const viewKey = (run.view || 'scopus').toLowerCase();
+        const dbSourceKey = DB_SOURCE_KEY[viewKey] || 'scopus';
+        const dbLabel     = DB_LABELS[viewKey]     || run.view || 'Scopus';
+        const dbBadge = `<span class="badge badge-source badge-source-${esc(dbSourceKey)}">${esc(dbLabel)}</span>`;
+
+        const results = Array.isArray(run.results) ? run.results : [];
+        const resultsHTML = results.slice(0, 30).map(r => {
+          const ann  = projectData.globalTags[r.eid] || {};
+          const hex  = tagColor(projectData, ann.color);
+          const year = r.date ? r.date.slice(0, 4) : '';
+          return `
+            <div class="history-result-item">
+              <div class="history-result-dot"
+                   ${hex ? `style="background:${esc(hex)}"` : ''}></div>
+              <div class="history-result-title">${esc(r.title)}</div>
+              <div class="history-result-year">${esc(year)}</div>
+            </div>`;
+        }).join('');
+
+        const moreCount = results.length > 30 ? results.length - 30 : 0;
+
+        // Tag distribution bar
+        const tagBar = (() => {
+          if (!results.length) return '';
+          const colorCounts = {};
+          let untagged = 0;
+          for (const r of results) {
+            const ann = (projectData.globalTags || {})[r.eid] || {};
+            if (ann.color && ann.color !== 'None') {
+              colorCounts[ann.color] = (colorCounts[ann.color] || 0) + 1;
+            } else {
+              untagged++;
+            }
+          }
+          const aliases = projectData.tagAliases || {};
+          const segs = Object.entries(colorCounts)
+            .sort((a, b) => b[1] - a[1])
+            .map(([colorKey, n]) => {
+              const hex   = tagColor(projectData, colorKey) || '#888';
+              const label = aliases[colorKey] || colorKey;
+              return `<span class="hist-tag-seg" style="flex:${n};background:${esc(hex)}" title="${esc(label)}: ${n}"></span>`;
+            });
+          if (untagged > 0) segs.push(`<span class="hist-tag-seg hist-tag-seg-none" style="flex:${untagged}" title="Untagged: ${untagged}"></span>`);
+          if (segs.length === 0) return '';
+          return `<div class="hist-tag-bar">${segs.join('')}</div>`;
+        })();
+
+        // Desktop hover-reveal action buttons (touch has no hover \u2014 those
+        // users get the swipe gesture below instead).
+        const actionButtons = statusFilter === 'trashed'
+          ? `<button class="hist-action-btn" data-action="restore" data-index="${rawIndex}" title="Restore to active">${SLRIcons.restore}</button>
+             <button class="hist-action-btn hist-action-danger" data-action="delete-forever" data-index="${rawIndex}" title="Delete permanently">${SLRIcons.trash}</button>`
+          : statusFilter === 'archived'
+          ? `<button class="hist-action-btn" data-action="restore" data-index="${rawIndex}" title="Restore to active">${SLRIcons.restore}</button>
+             <button class="hist-action-btn hist-action-danger" data-action="trash" data-index="${rawIndex}" title="Move to trash">${SLRIcons.trash}</button>`
+          : `<button class="hist-action-btn" data-action="archive" data-index="${rawIndex}" title="Archive this query">${SLRIcons.archive}</button>
+             <button class="hist-action-btn hist-action-danger" data-action="trash" data-index="${rawIndex}" title="Move to trash">${SLRIcons.trash}</button>`;
+
         return `
-          <div class="history-result-item">
-            <div class="history-result-dot"
-                 ${hex ? `style="background:${esc(hex)}"` : ''}></div>
-            <div class="history-result-title">${esc(r.title)}</div>
-            <div class="history-result-year">${esc(year)}</div>
+          <div class="history-item-swipe">
+            <div class="hist-swipe-action hist-swipe-reveal-left hist-swipe-${leftAction.cls}" data-action="${leftAction.action}" data-index="${rawIndex}" title="${esc(leftAction.title)}">
+              ${leftAction.icon}<span>${esc(leftAction.label)}</span>
+            </div>
+            <div class="hist-swipe-action hist-swipe-reveal-right hist-swipe-${rightAction.cls}" data-action="${rightAction.action}" data-index="${rawIndex}" title="${esc(rightAction.title)}">
+              ${rightAction.icon}<span>${esc(rightAction.label)}</span>
+            </div>
+            <div class="history-item" id="hist-${rawIndex}">
+              <div class="history-item-header" data-hist="${rawIndex}">
+                <span class="history-chevron">${SLRIcons.chevronRight}</span>
+                <div class="history-meta">
+                  <div class="history-timestamp">${esc(run.timestamp)}</div>
+                  <div class="history-query-preview">${esc(queryPreview)}${run.query && run.query.length > 120 ? '\u2026' : ''}</div>
+                  ${tagBar}
+                </div>
+                ${actionButtons}
+                <button class="hist-copy-btn" data-query="${esc(run.query || '')}" title="Copy query to clipboard">${SLRIcons.copy}</button>
+                ${dbBadge}
+                <span class="history-count">${count} result${count !== 1 ? 's' : ''}</span>
+              </div>
+              <div class="history-query-full">
+                <pre>${esc(run.query)}</pre>
+              </div>
+              <div class="history-results-list">
+                ${resultsHTML}
+                ${moreCount > 0 ? `<div style="padding:8px 16px;font-size:12px;color:var(--text-faint)"> and ${moreCount} more</div>` : ''}
+              </div>
+            </div>
           </div>`;
       }).join('');
+      bodyHTML = `<div class="history-list">${items}</div>`;
+    }
 
-      const moreCount = results.length > 30 ? results.length - 30 : 0;
+    container.innerHTML = `<div class="history-view">${tabsHTML}${bodyHTML}</div>`;
 
-      // Tag distribution bar
-      const tagBar = (() => {
-        if (!results.length) return '';
-        const colorCounts = {};
-        let untagged = 0;
-        for (const r of results) {
-          const ann = (projectData.globalTags || {})[r.eid] || {};
-          if (ann.color && ann.color !== 'None') {
-            colorCounts[ann.color] = (colorCounts[ann.color] || 0) + 1;
-          } else {
-            untagged++;
-          }
-        }
-        const aliases = projectData.tagAliases || {};
-        const segs = Object.entries(colorCounts)
-          .sort((a, b) => b[1] - a[1])
-          .map(([colorKey, n]) => {
-            const hex   = tagColor(projectData, colorKey) || '#888';
-            const label = aliases[colorKey] || colorKey;
-            return `<span class="hist-tag-seg" style="flex:${n};background:${esc(hex)}" title="${esc(label)}: ${n}"></span>`;
-          });
-        if (untagged > 0) segs.push(`<span class="hist-tag-seg hist-tag-seg-none" style="flex:${untagged}" title="Untagged: ${untagged}"></span>`);
-        if (segs.length === 0) return '';
-        return `<div class="hist-tag-bar">${segs.join('')}</div>`;
-      })();
+    container.querySelectorAll('.hist-tab').forEach(btn => {
+      btn.addEventListener('click', () => SLRApp.setHistoryStatusFilter(btn.dataset.tab));
+    });
+    const sortSel = container.querySelector('#history-sort');
+    if (sortSel) sortSel.addEventListener('change', e => SLRApp.setHistorySortDir(e.target.value));
 
-      return `
-        <div class="history-item" id="hist-${i}">
-          <div class="history-item-header" data-hist="${i}">
-            <span class="history-chevron">${SLRIcons.chevronRight}</span>
-            <div class="history-meta">
-              <div class="history-timestamp">${esc(run.timestamp)}</div>
-              <div class="history-query-preview">${esc(queryPreview)}${run.query && run.query.length > 120 ? '\u2026' : ''}</div>
-              ${tagBar}
-            </div>
-            <button class="hist-delete-btn" data-index="${i}" title="Delete this query">${SLRIcons.trash}</button>
-            <button class="hist-copy-btn" data-query="${esc(run.query || '')}" title="Copy query to clipboard">${SLRIcons.copy}</button>
-            ${dbBadge}
-            <span class="history-count">${count} result${count !== 1 ? 's' : ''}</span>
-          </div>
-          <div class="history-query-full">
-            <pre>${esc(run.query)}</pre>
-          </div>
-          <div class="history-results-list">
-            ${resultsHTML}
-            ${moreCount > 0 ? `<div style="padding:8px 16px;font-size:12px;color:var(--text-faint)"> and ${moreCount} more</div>` : ''}
-          </div>
-        </div>`;
-    }).join('');
+    if (filtered.length === 0) return;
 
-    container.innerHTML = `<div class="history-view">${items}</div>`;
+    const runHistoryAction = (action, idx) => {
+      if (action === 'trash' && confirm('Move this query to Trash? You can restore it later.')) SLRApp.trashHistoryQuery(idx);
+      else if (action === 'archive' && confirm('Archive this query? You can find it later in the Archived tab.')) SLRApp.archiveHistoryQuery(idx);
+      else if (action === 'restore' && confirm('Restore this query to Active?')) SLRApp.restoreHistoryQuery(idx);
+      else if (action === 'delete-forever' && confirm('Permanently delete this query? This cannot be undone.')) SLRApp.permanentlyDeleteHistoryQuery(idx);
+      else return false;
+      return true;
+    };
 
-    container.querySelector('.history-view').addEventListener('click', e => {
-      const deleteBtn = e.target.closest('.hist-delete-btn');
-      if (deleteBtn) {
+    container.querySelector('.history-list').addEventListener('click', e => {
+      const swipeAction = e.target.closest('.hist-swipe-action');
+      if (swipeAction) {
         e.stopPropagation();
-        const idx = parseInt(deleteBtn.dataset.index, 10);
-        if (confirm('Delete this query? This will permanently remove it from the history.')) {
-          SLRApp.deleteHistoryQuery(idx);
+        const idx = parseInt(swipeAction.dataset.index, 10);
+        const card = swipeAction.closest('.history-item-swipe').querySelector('.history-item');
+        if (!runHistoryAction(swipeAction.dataset.action, idx)) {
+          card.style.transition = 'transform .2s ease';
+          card.style.transform = '';
         }
         return;
       }
+
+      const actionBtn = e.target.closest('.hist-action-btn');
+      if (actionBtn) {
+        e.stopPropagation();
+        runHistoryAction(actionBtn.dataset.action, parseInt(actionBtn.dataset.index, 10));
+        return;
+      }
+
       const copyBtn = e.target.closest('.hist-copy-btn');
       if (copyBtn) {
         e.stopPropagation();
@@ -1886,10 +1987,70 @@ window.SLRViews = (() => {
         setTimeout(() => { copyBtn.innerHTML = prev; }, 1200);
         return;
       }
+
       const header = e.target.closest('.history-item-header');
       if (!header) return;
+      const swipeEl = header.closest('.history-item-swipe');
+      if (swipeEl && swipeEl.dataset.suppressClick === '1') {
+        delete swipeEl.dataset.suppressClick;
+        return;
+      }
       const item = header.closest('.history-item');
       item.classList.toggle('expanded');
+    });
+
+    // Touch swipe: left reveals leftAction, right reveals rightAction.
+    // Mouse/pen keep the desktop hover-reveal buttons above instead \u2014
+    // dragging the header with a mouse would fight with click-to-expand.
+    const REVEAL = 96, THRESHOLD = 56;
+    container.querySelectorAll('.history-item-swipe').forEach(swipeEl => {
+      const card = swipeEl.querySelector('.history-item');
+      const header = swipeEl.querySelector('.history-item-header');
+      let startX = null, startY = 0, baseX = 0, dx = 0, dragging = false, openDir = 0;
+
+      const setX = (x, animate) => {
+        card.style.transition = animate ? 'transform .2s ease' : 'none';
+        card.style.transform = x ? `translateX(${x}px)` : '';
+      };
+
+      header.addEventListener('pointerdown', e => {
+        if (e.pointerType !== 'touch') return;
+        startX = e.clientX;
+        startY = e.clientY;
+        dragging = false;
+        baseX = openDir === -1 ? -REVEAL : openDir === 1 ? REVEAL : 0;
+      });
+
+      header.addEventListener('pointermove', e => {
+        if (e.pointerType !== 'touch' || startX === null) return;
+        const rawDx = e.clientX - startX;
+        if (!dragging) {
+          if (Math.abs(rawDx) < 8 || Math.abs(rawDx) < Math.abs(e.clientY - startY)) return;
+          dragging = true;
+          try { header.setPointerCapture(e.pointerId); } catch (_) { /* ignore */ }
+        }
+        dx = Math.max(-REVEAL, Math.min(REVEAL, baseX + rawDx));
+        setX(dx, false);
+        e.preventDefault();
+      });
+
+      const finish = () => {
+        if (dragging) {
+          if (dx <= -THRESHOLD) { setX(-REVEAL, true); openDir = -1; }
+          else if (dx >= THRESHOLD) { setX(REVEAL, true); openDir = 1; }
+          else { setX(0, true); openDir = 0; }
+          swipeEl.dataset.suppressClick = '1';
+        } else if (openDir !== 0 && startX !== null) {
+          setX(0, true);
+          openDir = 0;
+          swipeEl.dataset.suppressClick = '1';
+        }
+        startX = null;
+        dragging = false;
+      };
+
+      header.addEventListener('pointerup', finish);
+      header.addEventListener('pointercancel', finish);
     });
   }
 

@@ -107,6 +107,13 @@ window.SLRApp = (() => {
 			lastCount: null,
 			db: 'scopus',
 		},
+
+		// Query History view: which status tab is showing, and date sort order.
+		// Not persisted — resets to the defaults each session.
+		history: {
+			statusFilter: 'active', // 'active' | 'archived' | 'trashed'
+			sortDir: 'desc',        // 'desc' = newest first, 'asc' = oldest first
+		},
 	};
 
 	const $ = id => document.getElementById(id);
@@ -455,7 +462,7 @@ window.SLRApp = (() => {
 				SLRViews.renderArticles(_container, state.articles, state.filter, state.projectData);
 				break;
 			case 'history':
-				SLRViews.renderHistory(_container, (state.projectData && state.projectData.searchLog) || [], state.projectData);
+				SLRViews.renderHistory(_container, (state.projectData && state.projectData.searchLog) || [], state.projectData, state.history);
 				break;
 			case 'corpus':
 				SLRViews.renderCorpus(_container, state.articles, state.corpusFilter, state.projectData);
@@ -1591,7 +1598,37 @@ window.SLRApp = (() => {
 		}
 	}
 
-	async function deleteHistoryQuery(index) {
+	// index is always the entry's position in the raw (unreversed, newest-first)
+	// searchLog array as persisted on disk/cloud — NOT its position in whatever
+	// sorted/filtered order the History view is currently displaying.
+	async function setHistoryQueryStatus(index, status, toastMsg) {
+		if (!state.currentFolder) {
+			showToast('No project loaded.', true);
+			return;
+		}
+		try {
+			await SLRData.setSearchResultStatus(state.currentFolder, index, status);
+			await hydrateProject(state.currentFolder);
+			showToast(toastMsg, false);
+			renderCurrentView();
+		} catch (err) {
+			showToast(err.message || String(err), true);
+		}
+	}
+
+	function trashHistoryQuery(index) {
+		return setHistoryQueryStatus(index, 'trashed', 'Query moved to trash.');
+	}
+
+	function archiveHistoryQuery(index) {
+		return setHistoryQueryStatus(index, 'archived', 'Query archived.');
+	}
+
+	function restoreHistoryQuery(index) {
+		return setHistoryQueryStatus(index, 'active', 'Query restored.');
+	}
+
+	async function permanentlyDeleteHistoryQuery(index) {
 		if (!state.currentFolder) {
 			showToast('No project loaded.', true);
 			return;
@@ -1599,11 +1636,22 @@ window.SLRApp = (() => {
 		try {
 			await SLRData.deleteSearchResult(state.currentFolder, index);
 			await hydrateProject(state.currentFolder);
-			showToast('Query deleted.', false);
+			showToast('Query permanently deleted.', false);
 			renderCurrentView();
 		} catch (err) {
 			showToast(err.message || String(err), true);
 		}
+	}
+
+	function setHistoryStatusFilter(tab) {
+		const valid = ['active', 'archived', 'trashed'];
+		state.history.statusFilter = valid.includes(tab) ? tab : 'active';
+		renderCurrentView();
+	}
+
+	function setHistorySortDir(dir) {
+		state.history.sortDir = dir === 'asc' ? 'asc' : 'desc';
+		renderCurrentView();
 	}
 
 	async function deleteQueryTerm(term) {
@@ -2652,7 +2700,12 @@ window.SLRApp = (() => {
 		testScopusApiKey,
 		executeSearch,
 		cancelSearch,
-		deleteHistoryQuery,
+		trashHistoryQuery,
+		archiveHistoryQuery,
+		restoreHistoryQuery,
+		permanentlyDeleteHistoryQuery,
+		setHistoryStatusFilter,
+		setHistorySortDir,
 		deleteQueryTerm,
 		autoTagByJournal,
 		fetchAbstractsViaDOI,
