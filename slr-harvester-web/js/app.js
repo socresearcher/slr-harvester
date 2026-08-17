@@ -1405,6 +1405,55 @@ window.SLRApp = (() => {
 		return allResults.slice(0, maxResults);
 	}
 
+	// Past Terms should hold reusable search terms, not the raw query string
+	// verbatim. Rules: a quoted phrase is one term; a wildcard (algorithm*)
+	// survives untouched since nothing here strips "*"; field codes and
+	// boolean operators are never saved; everything else between AND/OR/NOT
+	// (Scopus's W/n and PRE/n proximity operators count too) is one term,
+	// same as a quoted phrase would be.
+	function extractQueryTerms(query) {
+		const terms = [];
+		const seen = new Set();
+		const addTerm = (text) => {
+			const cleaned = String(text).replace(/[()[\]]/g, ' ').replace(/\s+/g, ' ').trim();
+			if (!cleaned || !/[a-zA-Z]/.test(cleaned)) return; // skip empty/pure-number-or-punctuation leftovers
+			const key = cleaned.toLowerCase();
+			if (seen.has(key)) return;
+			seen.add(key);
+			terms.push(cleaned);
+		};
+
+		// 1. Quoted phrases are their own terms — pulled out (and blanked)
+		// before any further processing so a word like "and" inside a phrase
+		// is never mistaken for the boolean operator.
+		let rest = String(query || '').replace(/"([^"]+)"/g, (_, phrase) => {
+			addTerm(phrase);
+			return ' ';
+		});
+
+		// 2. Field-code wrappers (TITLE-ABS-KEY(...), AUTH(...), ...): the
+		// ALL-CAPS code right before "(" is dropped, its parenthesised
+		// content stays for the later steps.
+		rest = rest.replace(/\b[A-Z][A-Z0-9-]*\s*\(/g, ' ');
+
+		// 3. Bare numeric-field comparisons (PUBYEAR > 2019) — neither the
+		// field name nor the lone number is a meaningful term.
+		rest = rest.replace(/\b[A-Z][A-Z0-9-]*\s*(?:>=|<=|>|<|=)\s*\d+/g, ' ');
+
+		// 4. OpenAlex-style "key:" / "key.sub:" filter prefixes.
+		rest = rest.replace(/\b[a-zA-Z_][a-zA-Z0-9_.]*:(?:>|<)?/g, ' ');
+
+		// 5. PubMed-style bracket field tags: term[TIAB], 2019:2024[PDAT].
+		rest = rest.replace(/\[[^\]]*\]/g, ' ');
+
+		// 6. Everything remaining, split on boolean/proximity operators —
+		// each span between them is one word sequence, treated the same as
+		// a quoted phrase.
+		rest.split(/\b(?:AND\s+NOT|OR\s+NOT|AND|OR|NOT|W\/\d+|PRE\/\d+)\b/gi).forEach(addTerm);
+
+		return terms;
+	}
+
 	async function executeSearch(query, maxResults, db) {
 		if (!state.currentFolder) {
 			showToast('Open a project first.', true);
@@ -1443,7 +1492,8 @@ window.SLRApp = (() => {
 				results,
 			};
 			await SLRData.appendSearchResult(state.currentFolder, runEntry);
-			await SLRData.saveQueryTerms(state.currentFolder, [query]);
+			const extractedTerms = extractQueryTerms(query);
+			if (extractedTerms.length) await SLRData.saveQueryTerms(state.currentFolder, extractedTerms);
 
 			await hydrateProject(state.currentFolder);
 
