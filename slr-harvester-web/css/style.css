@@ -514,13 +514,18 @@ a:hover {
   background: var(--danger-subtle);
 }
 
+/* Now a real button (was a plain span) — height matches .theme-switch (the
+   toggles it sits next to in .topbar-right) so it reads as part of the same
+   row of controls instead of a differently-sized label. */
 .project-badge {
   display: inline-flex;
   align-items: center;
+  height: 28px;
+  box-sizing: border-box;
   background: var(--accent-subtle);
   border: 1px solid color-mix(in srgb, var(--accent) 40%, transparent);
-  border-radius: 20px;
-  padding: 1px 10px;
+  border-radius: 14px;
+  padding: 0 12px;
   font-size: 12px;
   font-weight: 600;
   color: var(--accent);
@@ -528,6 +533,14 @@ a:hover {
   overflow: hidden;
   text-overflow: ellipsis;
   max-width: 260px;
+  cursor: pointer;
+  flex-shrink: 0;
+  transition: background var(--transition), border-color var(--transition);
+}
+
+.project-badge:hover {
+  background: color-mix(in srgb, var(--accent) 24%, var(--accent-subtle));
+  border-color: var(--accent);
 }
 
 .project-badge:empty {

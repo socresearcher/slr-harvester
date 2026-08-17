@@ -2453,6 +2453,7 @@ window.SLRApp = (() => {
 	function bindEvents() {
 		$('theme-toggle')?.addEventListener('click', () => SLRAppUI.toggleTheme(state, $));
 		$('fullscreen-toggle')?.addEventListener('click', () => SLRAppUI.toggleFullscreen(showToast, $));
+		$('project-badge')?.addEventListener('click', () => navigate('project'));
 		$('sidebar-toggle')?.addEventListener('click', () => SLRAppUI.toggleSidebar(state, _sidebar, $));
 		document.addEventListener('fullscreenchange', () => SLRAppUI.updateFullscreenButton($));
 		document.addEventListener('webkitfullscreenchange', () => SLRAppUI.updateFullscreenButton($));
