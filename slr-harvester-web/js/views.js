@@ -120,6 +120,53 @@ window.SLRViews = (() => {
     return normalized || 'other';
   }
 
+  // Source database labels/keys, shared by the Query History view and the
+  // PRISMA Identification breakdown so both agree on the same names.
+  const DB_LABELS = {
+    scopus: 'Scopus', standard: 'Scopus', complete: 'Scopus', refexpanded: 'Scopus',
+    pubmed: 'PubMed', arxiv: 'arXiv', s2: 'Semantic Scholar', openalex: 'OpenAlex',
+    SCOPUS: 'Scopus', PUBMED: 'PubMed', ARXIV: 'arXiv', S2: 'Semantic Scholar', OPENALEX: 'OpenAlex',
+  };
+  const DB_SOURCE_KEY = {
+    scopus: 'scopus', standard: 'scopus', complete: 'scopus', refexpanded: 'scopus',
+    pubmed: 'pubmed', arxiv: 'arxiv', s2: 's2', openalex: 'openalex',
+    SCOPUS: 'scopus', PUBMED: 'pubmed', ARXIV: 'arxiv', S2: 's2', OPENALEX: 'openalex',
+  };
+
+  // Deterministic string -> color, for grouping dimensions (document type,
+  // country) that have no user-configured color the way tags do via
+  // tagsConfig. Same string always yields the same hue, so a given country
+  // or doc type keeps a stable color across renders/chart types.
+  function hueColor(str) {
+    let hash = 0;
+    const s = String(str || '');
+    for (let i = 0; i < s.length; i++) hash = (hash * 31 + s.charCodeAt(i)) >>> 0;
+    return `hsl(${hash % 360}, 62%, 52%)`;
+  }
+
+  // Walks every raw search-log record (not the deduplicated `articles` list)
+  // and reports every record beyond a given id's (EID/DOI) first occurrence
+  // as a duplicate — mirrors SLRData.getArticles' own dedup rule (first
+  // occurrence wins, iterating searchLog in its stored newest-first order)
+  // so "kept" here always matches what getArticles actually kept.
+  function computeDuplicates(searchLog) {
+    const seen = new Map();
+    const dups = [];
+    for (const run of (searchLog || [])) {
+      if (!Array.isArray(run.results)) continue;
+      for (const r of run.results) {
+        const id = r.eid || r.doi || null;
+        if (!id) continue;
+        if (seen.has(id)) {
+          dups.push({ title: r.title, id, view: run.view, timestamp: run.timestamp });
+        } else {
+          seen.set(id, true);
+        }
+      }
+    }
+    return dups;
+  }
+
   const getWorldCountryName = (() => {
     let countryMap = null;
     return (code) => {
@@ -1773,17 +1820,6 @@ window.SLRViews = (() => {
     const statusFilter = (historyState && historyState.statusFilter) || 'active';
     const sortDir      = (historyState && historyState.sortDir) || 'desc';
 
-    const DB_LABELS = {
-      scopus: 'Scopus', standard: 'Scopus', complete: 'Scopus', refexpanded: 'Scopus',
-      pubmed: 'PubMed', arxiv: 'arXiv', s2: 'Semantic Scholar', openalex: 'OpenAlex',
-      SCOPUS: 'Scopus', PUBMED: 'PubMed', ARXIV: 'arXiv', S2: 'Semantic Scholar', OPENALEX: 'OpenAlex',
-    };
-    const DB_SOURCE_KEY = {
-      scopus: 'scopus', standard: 'scopus', complete: 'scopus', refexpanded: 'scopus',
-      pubmed: 'pubmed', arxiv: 'arxiv', s2: 's2', openalex: 'openalex',
-      SCOPUS: 'scopus', PUBMED: 'pubmed', ARXIV: 'arxiv', S2: 's2', OPENALEX: 'openalex',
-    };
-
     // Every entry is tagged with its true position in the raw (unreversed,
     // newest-first) searchLog array BEFORE any filtering/sorting for display
     // \u2014 that raw index is what every backend mutation (trash/archive/restore/
@@ -2467,21 +2503,44 @@ window.SLRViews = (() => {
     }
     const stats = SLRData.getStats(articles);
 
-    // Build tag data from articles (label  { count, hex })  same approach as Tags view
-    const computeTagData = (subset, includeNone = true) => {
+    // Which category (or categories — an article can carry several
+    // affiliation countries) an article belongs to under a given grouping
+    // dimension. Shared by every chart type below and by the year chart's
+    // per-year stacking, so "group by X" means the same thing everywhere.
+    const NONE_LABELS = { tag: 'None', doctype: 'Unknown Type', country: 'No Country Data' };
+    const getArticleCategories = (a, groupBy) => {
+      if (groupBy === 'doctype') {
+        const key = normalizeDocTypeKey(a.docType, a.source);
+        return key ? [{ key, label: formatDocTypeLabel(key), hex: hueColor(key) }] : [];
+      }
+      if (groupBy === 'country') {
+        return getAffiliationCountries(a).map(c => ({ key: c.code, label: c.name, hex: hueColor(c.code) }));
+      }
+      const hasNamedTag = a.tag && a.tag !== 'None';
+      return hasNamedTag ? [{ key: a.tag, label: a.tag, hex: tagColor(projectData, a.color) || '#888' }] : [];
+    };
+
+    // Build category data from articles (label -> { count, hex }) for the
+    // doughnut/bars charts. An article missing the chosen dimension (no
+    // tag, no doc type, no country data) falls into a "None"/"Unknown"
+    // bucket, same as the old tag-only behavior.
+    const computeGroupedData = (subset, groupBy, includeNone = true) => {
       const labelMap = new Map();
       for (const a of subset) {
-        const hasNamedTag = a.tag && a.tag !== 'None';
-        const label = hasNamedTag ? a.tag : 'None';
-        if (!hasNamedTag && !includeNone) continue;
-        if (!labelMap.has(label)) {
-          const hex = hasNamedTag ? (tagColor(projectData, a.color) || '#888') : 'var(--surface-3)';
-          labelMap.set(label, { count: 0, hex });
+        const cats = getArticleCategories(a, groupBy);
+        if (cats.length === 0) {
+          if (!includeNone) continue;
+          if (!labelMap.has(TAG_FILTER_NONE)) labelMap.set(TAG_FILTER_NONE, { label: NONE_LABELS[groupBy] || 'None', hex: 'var(--surface-3)', count: 0 });
+          labelMap.get(TAG_FILTER_NONE).count++;
+          continue;
         }
-        labelMap.get(label).count++;
+        for (const c of cats) {
+          if (!labelMap.has(c.key)) labelMap.set(c.key, { label: c.label, hex: c.hex, count: 0 });
+          labelMap.get(c.key).count++;
+        }
       }
       const bars = [...labelMap.entries()]
-        .map(([name, { count, hex }]) => ({ name, hex, count }))
+        .map(([key, { label, hex, count }]) => ({ name: label, key, hex, count }))
         .sort((a, b) => b.count - a.count);
       return { total: subset.length, bars };
     };
@@ -2491,9 +2550,9 @@ window.SLRViews = (() => {
     : mode === 'corpus'   ? articles.filter(a => a.corpus)
     : articles;
 
-      const renderBars = (mode, includeNone) => {
-      const { total, bars } = computeTagData(getSubset(mode), includeNone);
-      if (bars.length === 0) return `<div class="viz-empty-bars">No tag data in this selection.</div>`;
+      const renderBars = (mode, groupBy, includeNone) => {
+      const { total, bars } = computeGroupedData(getSubset(mode), groupBy, includeNone);
+      if (bars.length === 0) return `<div class="viz-empty-bars">No data in this selection.</div>`;
       const maxCount = bars[0].count;
       return bars.map(d => {
         const pct    = total > 0 ? (d.count / total * 100).toFixed(1) : '0.0';
@@ -2509,9 +2568,9 @@ window.SLRViews = (() => {
       }).join('');
     };
 
-      const renderDoughnut = (mode, showLegend, includeNone) => {
-      const { bars: rawBars } = computeTagData(getSubset(mode), includeNone);
-      if (rawBars.length === 0) return `<div class="viz-empty-bars">No tag data in this selection.</div>`;
+      const renderDoughnut = (mode, groupBy, showLegend, includeNone) => {
+      const { bars: rawBars } = computeGroupedData(getSubset(mode), groupBy, includeNone);
+      if (rawBars.length === 0) return `<div class="viz-empty-bars">No data in this selection.</div>`;
       // Sort by hue so visually similar colours are adjacent in the ring
       const hexHue = hex => {
         const r = parseInt(hex.slice(1,3),16)/255, g = parseInt(hex.slice(3,5),16)/255, b = parseInt(hex.slice(5,7),16)/255;
@@ -2551,6 +2610,7 @@ window.SLRViews = (() => {
           <span class="viz-bar-pct">${pct}%</span>
         </div>`;
       }).join('');
+        const centerSub = groupBy === 'doctype' ? 'typed' : groupBy === 'country' ? 'assignments' : 'tagged';
         return `<div class="viz-doughnut-wrap${showLegend ? '' : ' legend-hidden'}">
         <svg class="viz-doughnut-svg" viewBox="0 0 340 340" aria-hidden="true">
           <circle cx="${cx}" cy="${cy}" r="${r}" fill="none"
@@ -2559,27 +2619,31 @@ window.SLRViews = (() => {
           <text x="${cx}" y="${cy - 12}" text-anchor="middle"
                 class="viz-doughnut-num">${sum}</text>
           <text x="${cx}" y="${cy + 20}" text-anchor="middle"
-                class="viz-doughnut-sub">tagged</text>
+                class="viz-doughnut-sub">${esc(centerSub)}</text>
         </svg>
           ${showLegend ? `<div class="viz-legend">${legend}</div>` : ''}
       </div>`;
     };
 
-    //  Year distribution (stacked by tag) 
-    const computeYearData = (subset, includeNone = true) => {
-      const yearMap = new Map(); // year  Map<label, {count, hex}>
+    //  Year distribution (stacked by the selected grouping dimension)
+    const computeYearData = (subset, groupBy, includeNone = true) => {
+      const yearMap = new Map(); // year -> Map<key, {count, hex, label}>
       for (const a of subset) {
         const yr = a.yearNum;
         if (!yr || yr < 1900 || yr > 2100) continue;
         if (!yearMap.has(yr)) yearMap.set(yr, new Map());
-        const hasNamedTag = a.tag && a.tag !== 'None';
-        if (!hasNamedTag && !includeNone) continue;
-        const label = hasNamedTag ? a.tag : 'None';
-        const hex   = hasNamedTag ? (tagColor(projectData, a.color) || '#888') : 'var(--surface-3)';
-        const key   = hasNamedTag ? label : '__none__';
-        const tm    = yearMap.get(yr);
-        if (!tm.has(key)) tm.set(key, { count: 0, hex, label });
-        tm.get(key).count++;
+        const tm = yearMap.get(yr);
+        const cats = getArticleCategories(a, groupBy);
+        if (cats.length === 0) {
+          if (!includeNone) continue;
+          if (!tm.has(TAG_FILTER_NONE)) tm.set(TAG_FILTER_NONE, { count: 0, hex: 'var(--surface-3)', label: NONE_LABELS[groupBy] || 'None' });
+          tm.get(TAG_FILTER_NONE).count++;
+          continue;
+        }
+        for (const c of cats) {
+          if (!tm.has(c.key)) tm.set(c.key, { count: 0, hex: c.hex, label: c.label });
+          tm.get(c.key).count++;
+        }
       }
       const years = [...yearMap.entries()].sort((a, b) => a[0] - b[0]);
       const maxTotal = years.reduce((m, [, tm]) => {
@@ -2606,8 +2670,8 @@ window.SLRViews = (() => {
         return ticks;
       };
 
-      const renderYearBars = (mode, showLegend, includeNone) => {
-      const { years, maxTotal } = computeYearData(getSubset(mode), includeNone);
+      const renderYearBars = (mode, groupBy, showLegend, includeNone) => {
+      const { years, maxTotal } = computeYearData(getSubset(mode), groupBy, includeNone);
       if (years.length === 0) return `<div class="viz-empty-bars">No year data available.</div>`;
 
       // Build unique tag list ordered by total count (for legend)
@@ -2696,8 +2760,8 @@ window.SLRViews = (() => {
       // relative: each step's percentage and bar width vs its direct predecessor
       const relPct  = (n, of) => of > 0 ? (n / of * 100).toFixed(1) : '0.0';
 
-      const mkBox = (stage, n, desc, meta, color, bw) => `
-        <div class="prisma-box" style="border-left-color:${color}">
+      const mkBox = (stageKey, stage, n, desc, meta, color, bw) => `
+        <div class="prisma-box prisma-box-clickable" data-prisma-stage="${esc(stageKey)}" style="border-left-color:${color}" tabindex="0" role="button" aria-label="View ${esc(stage)} records">
           <div class="prisma-box-stage">${esc(stage)}</div>
           <div class="prisma-box-body">
             <span class="prisma-box-n">${n.toLocaleString()}</span>
@@ -2709,8 +2773,8 @@ window.SLRViews = (() => {
           <div class="prisma-pbar"><div class="prisma-pbar-fill" style="width:${bw}%;background:${color}"></div></div>
         </div>`;
 
-      const mkConn = (n, label, reason) => `
-        <div class="prisma-step-connector">
+      const mkConn = (exclKey, n, label, reason) => `
+        <div class="prisma-step-connector prisma-step-connector-clickable" data-prisma-excl="${esc(exclKey)}" tabindex="0" role="button" aria-label="View ${esc(label)}">
           <div class="prisma-sc-vline"></div>
           <div class="prisma-sc-right">
             <div class="prisma-sc-excl">
@@ -2723,29 +2787,50 @@ window.SLRViews = (() => {
           </div>
         </div>`;
 
+      // Per-source breakdown for the Identification stage \u2014 e.g. "1 query on
+      // Scopus, 2 on OpenAlex" \u2014 computed from the same searchLog runs that
+      // feed nRaw/nQueries above, so it always agrees with those numbers.
+      const sourceStats = new Map();
+      for (const run of history) {
+        const viewKey = (run.view || 'scopus').toLowerCase();
+        const key   = DB_SOURCE_KEY[viewKey] || 'scopus';
+        const label = DB_LABELS[viewKey] || run.view || 'Scopus';
+        const records = Array.isArray(run.results) ? run.results.length : (run.count || 0);
+        if (!sourceStats.has(key)) sourceStats.set(key, { label, queries: 0, records: 0 });
+        const s = sourceStats.get(key);
+        s.queries++;
+        s.records += records;
+      }
+      const sourcesHTML = [...sourceStats.entries()].map(([key, s]) => `
+        <span class="badge badge-source badge-source-${esc(key)} prisma-source-chip" data-source-key="${esc(key)}" role="button" tabindex="0" title="Show ${esc(s.label)} queries">
+          ${esc(s.label)} <strong>${s.queries}</strong> quer${s.queries === 1 ? 'y' : 'ies'} &middot; ${s.records.toLocaleString()} records
+        </span>`).join('');
+
       return `
         <div class="prisma-wrap">
           <div class="prisma-steps">
-            ${mkBox('Identification', nRaw,
+            ${mkBox('identification', 'Identification', nRaw,
               'Records identified from database searches',
               `${nQueries} search quer${nQueries===1?'y':'ies'} \u00b7 starting point`,
               '#64A8FF', 100)}
-            ${mkConn(nDups,  'Records removed before screening', 'Duplicates removed (same EID or DOI across queries)')}
-            ${mkBox('Screening', nDedup,
+            ${sourcesHTML ? `<div class="prisma-sources">${sourcesHTML}</div>` : ''}
+            ${mkConn('duplicates', nDups,  'Records removed before screening', 'Duplicates removed (same EID or DOI across queries)')}
+            ${mkBox('screening', 'Screening', nDedup,
               'Records screened after deduplication',
               `${relPct(nDedup, nRaw)}% of identified \u00b7 ${nDedup.toLocaleString()} unique articles`,
               '#7BD3D3', +relPct(nDedup, nRaw))}
-            ${mkConn(nExcl, 'Records excluded', 'Not marked as selected in title / abstract screening')}
-            ${mkBox('Eligibility', stats.selected,
+            ${mkConn('screening-excluded', nExcl, 'Records excluded', 'Not marked as selected in title / abstract screening')}
+            ${mkBox('eligibility', 'Eligibility', stats.selected,
               'Records assessed for eligibility',
               `${relPct(stats.selected, nDedup)}% of screening \u00b7 selected for full-text review`,
               '#81C995', +relPct(stats.selected, nDedup))}
-            ${mkConn(nDrop, 'Records excluded', 'Selected but not included in corpus after full-text review')}
-            ${mkBox('Included', stats.corpus,
+            ${mkConn('eligibility-excluded', nDrop, 'Records excluded', 'Selected but not included in corpus after full-text review')}
+            ${mkBox('included', 'Included', stats.corpus,
               'Studies included in review corpus',
               `${relPct(stats.corpus, stats.selected)}% of eligibility \u00b7 final corpus`,
               '#00aa55', +relPct(stats.corpus, stats.selected))}
           </div>
+          <p class="prisma-hint">Click a stage to jump to its records, or an exclusion step to see what was removed.</p>
         </div>`;
     };
 
@@ -2757,23 +2842,30 @@ window.SLRViews = (() => {
         <div class="viz-section">
           <div class="viz-section-controls">
             <div class="viz-controls-row viz-controls-row--top">
-              <div class="viz-mode-tabs">
-                <button class="viz-mode-tab active" data-mode="all">All&nbsp;(${stats.total})</button>
-                <button class="viz-mode-tab" data-mode="selected">Selected&nbsp;(${stats.selected})</button>
-                <button class="viz-mode-tab" data-mode="corpus">Corpus&nbsp;(${stats.corpus})</button>
+              <div class="viz-controls-left">
+                <select class="filter-select viz-chart-select" id="viz-chart-select" title="Chart type">
+                  <option value="doughnut">Tag Distribution — Doughnut</option>
+                  <option value="bars">Tag Distribution — Bars</option>
+                  <option value="year">Year Distribution</option>
+                  <option value="world">World Map</option>
+                  <option value="prisma">Screening Flow (PRISMA)</option>
+                </select>
+                <select class="filter-select viz-groupby-select" id="viz-groupby-select" title="Group by">
+                  <option value="tag">Group by Tag</option>
+                  <option value="doctype">Group by Document Type</option>
+                  <option value="country">Group by Country</option>
+                </select>
               </div>
-              <select class="filter-select viz-chart-select" id="viz-chart-select" title="Chart type">
-                <option value="doughnut">Tag Distribution — Doughnut</option>
-                <option value="bars">Tag Distribution — Bars</option>
-                <option value="year">Year Distribution</option>
-                <option value="world">World Map</option>
-                <option value="prisma">Screening Flow (PRISMA)</option>
-              </select>
-            </div>
-            <div class="viz-controls-row">
-              <button class="viz-legend-toggle" id="viz-none-toggle">Hide None</button>
-              <button class="viz-legend-toggle" id="viz-legend-toggle">Hide Legend</button>
-              <button class="viz-legend-toggle viz-export-btn" id="viz-export-btn" title="Export current chart as PNG">${SLRIcons.download}&nbsp;Export&nbsp;PNG</button>
+              <div class="viz-controls-right">
+                <div class="viz-mode-tabs">
+                  <button class="viz-mode-tab active" data-mode="all">All&nbsp;(${stats.total})</button>
+                  <button class="viz-mode-tab" data-mode="selected">Selected&nbsp;(${stats.selected})</button>
+                  <button class="viz-mode-tab" data-mode="corpus">Corpus&nbsp;(${stats.corpus})</button>
+                </div>
+                <button class="viz-legend-toggle" id="viz-none-toggle">Hide None</button>
+                <button class="viz-legend-toggle" id="viz-legend-toggle">Hide Legend</button>
+                <button class="viz-legend-toggle viz-export-btn" id="viz-export-btn" title="Export current chart as PNG">${SLRIcons.download}&nbsp;Export&nbsp;PNG</button>
+              </div>
             </div>
           </div>
           <h3 id="viz-chart-title" class="viz-chart-heading">Tag Distribution</h3>
@@ -2783,10 +2875,11 @@ window.SLRViews = (() => {
       </div>`;
 
     // State
-      let currentMode  = 'all';
-      let currentChart = 'doughnut';
-      let showLegend   = true;
-      let showNone     = true;
+      let currentMode    = 'all';
+      let currentChart   = 'doughnut';
+      let currentGroupBy = 'tag';
+      let showLegend     = true;
+      let showNone       = true;
 
     // Lets the year chart's bar height be dragged instead of being locked to
     // a viewport-height-derived clamp() (the old source of portrait being
@@ -2928,6 +3021,108 @@ window.SLRViews = (() => {
         const reset = () => rows.forEach(r => r.classList.remove('viz-row-dim'));
         rows.forEach((r, i) => { r.addEventListener('mouseenter', () => activate(i)); r.addEventListener('mouseleave', reset); });
       }
+      if (chartType === 'prisma') {
+        const overlay = document.getElementById('modal-overlay');
+        const history = projectData.searchLog || [];
+
+        const rowsOrEmpty = (rows, emptyMsg) => rows.length
+          ? rows.join('')
+          : `<p style="color:var(--text-faint);padding:8px 0">${esc(emptyMsg)}</p>`;
+
+        const openArticleListModal = (title, subsetArticles) => {
+          if (!overlay) return;
+          const rows = subsetArticles.map(a => {
+            const hex  = tagColor(projectData, a.color);
+            const year = a.yearNum || '';
+            return `<div class="history-result-item">
+              <div class="history-result-dot" ${hex ? `style="background:${esc(hex)}"` : ''}></div>
+              <div class="history-result-title">${esc(a.title)}</div>
+              <div class="history-result-year">${esc(String(year))}</div>
+            </div>`;
+          });
+          renderPrismaDetailModal(overlay, {
+            title,
+            subtitle: `${subsetArticles.length.toLocaleString()} record${subsetArticles.length !== 1 ? 's' : ''}`,
+            bodyHTML: rowsOrEmpty(rows, 'No records in this group.'),
+          });
+        };
+
+        const openQueryListModal = (title, runs) => {
+          if (!overlay) return;
+          const rows = runs.map(run => {
+            const viewKey = (run.view || 'scopus').toLowerCase();
+            const dbLabel = DB_LABELS[viewKey] || run.view || 'Scopus';
+            const count   = run.count || (run.results ? run.results.length : 0);
+            const preview = (run.query || '').replace(/\s+/g, ' ').slice(0, 140);
+            return `<div class="prisma-modal-row">
+              <div class="prisma-modal-row-title">${esc(dbLabel)} · ${count.toLocaleString()} record${count !== 1 ? 's' : ''}</div>
+              <div class="prisma-modal-row-meta">${esc(run.timestamp || '')} — ${esc(preview)}${run.query && run.query.length > 140 ? '…' : ''}</div>
+            </div>`;
+          });
+          renderPrismaDetailModal(overlay, {
+            title,
+            subtitle: `${runs.length.toLocaleString()} search quer${runs.length !== 1 ? 'ies' : 'y'}`,
+            bodyHTML: rowsOrEmpty(rows, 'No queries in this group.'),
+          });
+        };
+
+        const openDuplicatesModal = () => {
+          if (!overlay) return;
+          const dups = computeDuplicates(history);
+          const rows = dups.map(d => {
+            const viewKey = (d.view || 'scopus').toLowerCase();
+            const dbLabel = DB_LABELS[viewKey] || d.view || 'Scopus';
+            return `<div class="prisma-modal-row">
+              <div class="prisma-modal-row-title">${esc(d.title || 'Untitled')}</div>
+              <div class="prisma-modal-row-meta">Duplicate found in ${esc(dbLabel)} · ${esc(d.timestamp || '')}</div>
+            </div>`;
+          });
+          renderPrismaDetailModal(overlay, {
+            title: 'Removed Duplicates',
+            subtitle: `${dups.length.toLocaleString()} record${dups.length !== 1 ? 's' : ''} removed as duplicates`,
+            bodyHTML: rowsOrEmpty(rows, 'No duplicates found.'),
+          });
+        };
+
+        el.querySelectorAll('[data-prisma-stage]').forEach(box => {
+          const activate = () => {
+            const stage = box.dataset.prismaStage;
+            if (stage === 'identification') openQueryListModal('Identification — All Searches', history);
+            else if (stage === 'screening') SLRApp.navigate('articles');
+            else if (stage === 'eligibility') SLRApp.navigate('selected');
+            else if (stage === 'included') SLRApp.navigate('corpus');
+          };
+          box.addEventListener('click', activate);
+          box.addEventListener('keydown', ev => {
+            if (ev.key === 'Enter' || ev.key === ' ') { ev.preventDefault(); activate(); }
+          });
+        });
+
+        el.querySelectorAll('[data-prisma-excl]').forEach(conn => {
+          const activate = () => {
+            const excl = conn.dataset.prismaExcl;
+            if (excl === 'duplicates') openDuplicatesModal();
+            else if (excl === 'screening-excluded') openArticleListModal('Excluded in Screening', articles.filter(a => !a.selected));
+            else if (excl === 'eligibility-excluded') openArticleListModal('Excluded after Eligibility', articles.filter(a => a.selected && !a.corpus));
+          };
+          conn.addEventListener('click', activate);
+          conn.addEventListener('keydown', ev => {
+            if (ev.key === 'Enter' || ev.key === ' ') { ev.preventDefault(); activate(); }
+          });
+        });
+
+        el.querySelectorAll('.prisma-source-chip[data-source-key]').forEach(chip => {
+          const activate = () => {
+            const key = chip.dataset.sourceKey;
+            const runs = history.filter(run => (DB_SOURCE_KEY[(run.view || 'scopus').toLowerCase()] || 'scopus') === key);
+            openQueryListModal(`Identification — ${DB_LABELS[key] || key}`, runs);
+          };
+          chip.addEventListener('click', ev => { ev.stopPropagation(); activate(); });
+          chip.addEventListener('keydown', ev => {
+            if (ev.key === 'Enter' || ev.key === ' ') { ev.preventDefault(); ev.stopPropagation(); activate(); }
+          });
+        });
+      }
     };
 
     const CHART_TITLES = {
@@ -2939,13 +3134,15 @@ window.SLRViews = (() => {
     };
 
     const updateChart = () => {
-      const el        = container.querySelector('#viz-chart');
-      const titleEl   = container.querySelector('#viz-chart-title');
-        const modeTabs  = container.querySelector('.viz-mode-tabs');
-        const legendBtn = container.querySelector('#viz-legend-toggle');
-        const noneBtn   = container.querySelector('#viz-none-toggle');
-      const legendSupported = currentChart === 'doughnut' || currentChart === 'year' || currentChart === 'world';
-      const noneSupported = currentChart === 'doughnut' || currentChart === 'year' || currentChart === 'bars';
+      const el          = container.querySelector('#viz-chart');
+      const titleEl     = container.querySelector('#viz-chart-title');
+        const modeTabs    = container.querySelector('.viz-mode-tabs');
+        const legendBtn   = container.querySelector('#viz-legend-toggle');
+        const noneBtn     = container.querySelector('#viz-none-toggle');
+        const groupBySel  = container.querySelector('#viz-groupby-select');
+      const legendSupported  = currentChart === 'doughnut' || currentChart === 'year' || currentChart === 'world';
+      const noneSupported    = currentChart === 'doughnut' || currentChart === 'year' || currentChart === 'bars';
+      const groupBySupported = currentChart === 'doughnut' || currentChart === 'year' || currentChart === 'bars';
       // Update heading to reflect active chart
       if (titleEl) titleEl.textContent = CHART_TITLES[currentChart] || 'Visualizations';
       // Mode tabs are always visible; dim them when irrelevant (PRISMA doesn't use mode)
@@ -2963,16 +3160,21 @@ window.SLRViews = (() => {
           noneBtn.disabled = !noneSupported;
           noneBtn.style.opacity = noneSupported ? '1' : '0.45';
         }
+        if (groupBySel) {
+          groupBySel.disabled = !groupBySupported;
+          groupBySel.style.opacity = groupBySupported ? '1' : '0.45';
+          groupBySel.title = groupBySupported ? 'Group by' : 'Not applicable to this chart';
+        }
       el.className = currentChart === 'bars' ? 'viz-bars' : currentChart === 'world' ? 'viz-world' : '';
         el.innerHTML = currentChart === 'doughnut'
-          ? renderDoughnut(currentMode, showLegend, showNone)
+          ? renderDoughnut(currentMode, currentGroupBy, showLegend, showNone)
         : currentChart === 'year'
-            ? renderYearBars(currentMode, showLegend, showNone)
+            ? renderYearBars(currentMode, currentGroupBy, showLegend, showNone)
           : currentChart === 'world'
             ? SLRWorldMap.renderWorldMap(getSubset(currentMode), showLegend)
           : currentChart === 'prisma'
             ? renderPrisma()
-            : renderBars(currentMode, showNone);
+            : renderBars(currentMode, currentGroupBy, showNone);
       wireChartInteractivity(el, currentChart);
       if (currentChart === 'year') {
         const chartWrap = el.querySelector('.viz-col-chart-wrap');
@@ -2983,6 +3185,11 @@ window.SLRViews = (() => {
 
     container.querySelector('#viz-chart-select')?.addEventListener('change', e => {
       currentChart = e.target.value;
+      updateChart();
+    });
+
+    container.querySelector('#viz-groupby-select')?.addEventListener('change', e => {
+      currentGroupBy = e.target.value;
       updateChart();
     });
 
@@ -4555,7 +4762,28 @@ window.SLRViews = (() => {
     });
   }
 
-  //  New Project modal 
+  //  Generic read-only list modal — used by the PRISMA diagram to show which
+  //  records sit behind a given box/connector (duplicates, excluded records,
+  //  search queries) without needing a dedicated view for each.
+  function renderPrismaDetailModal(overlay, { title, subtitle, bodyHTML }) {
+    overlay.classList.remove('hidden');
+    overlay.innerHTML = `
+      <div class="modal modal-prisma-detail" role="dialog" aria-modal="true" aria-labelledby="prisma-modal-title">
+        <div class="modal-header">
+          <div>
+            <h3 id="prisma-modal-title">${esc(title)}</h3>
+            ${subtitle ? `<p class="modal-subtitle">${esc(subtitle)}</p>` : ''}
+          </div>
+          <button class="icon-btn" id="prisma-modal-close" aria-label="Close">${SLRIcons.close}</button>
+        </div>
+        <div class="modal-body modal-body-scroll">${bodyHTML}</div>
+      </div>`;
+    const closeModal = () => { overlay.classList.add('hidden'); overlay.innerHTML = ''; };
+    overlay.querySelector('#prisma-modal-close').addEventListener('click', closeModal);
+    overlay.addEventListener('click', e => { if (e.target === overlay) closeModal(); });
+  }
+
+  //  New Project modal
 
   function renderNewProjectModal(overlay) {
     overlay.classList.remove('hidden');
