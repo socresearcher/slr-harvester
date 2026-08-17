@@ -232,6 +232,25 @@ window.SLRDataLocal = (() => {
   }
 
   /**
+   * Set (or clear) the archive/trash status of a search_log.json entry by
+   * index (requires write access). status: 'active' | 'archived' | 'trashed'
+   * — 'active' removes the field entirely so old projects stay clean.
+   */
+  async function setSearchResultStatus(folderName, index, status) {
+    const hasWrite = await ensureWriteAccess();
+    if (!hasWrite) throw new Error('Write access required. Please grant write permission to update queries.');
+    const projectsDir = await getSubdir(_rootHandle, 'projects');
+    if (!projectsDir) throw new Error('projects/ folder not found');
+    const projDir = await getSubdir(projectsDir, folderName);
+    if (!projDir) throw new Error(`Project folder "${folderName}" not found`);
+    const existing = (await readJSON(projDir, 'search_log.json')) || [];
+    if (index < 0 || index >= existing.length) throw new Error('Invalid query index');
+    if (status === 'active') delete existing[index].status;
+    else existing[index].status = status;
+    await writeJSON(projDir, 'search_log.json', existing);
+  }
+
+  /**
    * Merge new terms into query_history.json (sorted alphabetically).
    */
   async function saveQueryTerms(folderName, newTerms) {
@@ -559,6 +578,7 @@ window.SLRDataLocal = (() => {
     loadProjectData,
     appendSearchResult,
     deleteSearchResult,
+    setSearchResultStatus,
     patchSearchLogAbstracts,
     patchSearchLogDocTypes,
     patchSearchLogAuthors,

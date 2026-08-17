@@ -41,7 +41,7 @@ window.SLRData = (() => {
   const FORWARDED_METHODS = [
     'hasWorkspace', 'openFolder', 'restoreFolder', 'restoreSession', 'loadProjects', 'saveProjectMeta',
     'loadConfig', 'saveConfig', 'loadProjectData', 'appendSearchResult',
-    'deleteSearchResult', 'patchSearchLogAbstracts', 'patchSearchLogDocTypes',
+    'deleteSearchResult', 'setSearchResultStatus', 'patchSearchLogAbstracts', 'patchSearchLogDocTypes',
     'patchSearchLogAuthors', 'patchSearchLogAffiliations', 'saveQueryTerms',
     'deleteQueryTerm', 'updateArticleAnnotation', 'bulkUpdateAnnotations',
     'saveTagAliases', 'saveTagsConfig', 'createProject', 'ensureWriteAccess',
