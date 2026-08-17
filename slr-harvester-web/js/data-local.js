@@ -527,6 +527,24 @@ window.SLRDataLocal = (() => {
     return proj;
   }
 
+  /**
+   * Set (or clear, passing null) a project's card icon: { type: 'emoji'|
+   * 'svg'|'text', value: string }. Local-only counterpart to the
+   * localStorage fallback used on the cloud backend, where the `projects`
+   * table has no icon column to write to.
+   */
+  async function saveProjectIcon(folderName, icon) {
+    const hasWrite = await ensureWriteAccess();
+    if (!hasWrite) throw new Error('Write access required.');
+    const existing = (await readJSON(_rootHandle, 'projects.json')) || { projects: [] };
+    if (!Array.isArray(existing.projects)) existing.projects = [];
+    const proj = existing.projects.find(p => p.workspace_folder === folderName);
+    if (!proj) throw new Error('Project not found in projects.json');
+    if (icon) proj.icon = icon; else delete proj.icon;
+    await writeJSON(_rootHandle, 'projects.json', existing);
+    return proj;
+  }
+
   return {
     get rootHandle() { return _rootHandle; },
     hasWorkspace: () => !!_rootHandle,
@@ -535,6 +553,7 @@ window.SLRDataLocal = (() => {
     restoreFolder,
     loadProjects,
     saveProjectMeta,
+    saveProjectIcon,
     loadConfig,
     saveConfig,
     loadProjectData,

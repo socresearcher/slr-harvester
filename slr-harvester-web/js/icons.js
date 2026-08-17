@@ -15,11 +15,18 @@ window.SLRIcons = (() => {
 
   return {
 
-    // App logo — open book
-    logo: base(
-      `<path d="M2 3h6a4 4 0 0 1 4 4v14a3 3 0 0 0-3-3H2z"/>
-       <path d="M22 3h-6a4 4 0 0 0-4 4v14a3 3 0 0 1 3-3h7z"/>`
-    ),
+    // App logo — six curved "petal" facets in a woven checkerboard of gold
+    // and teal. Gold is a fixed brand color (matches the favicon exactly);
+    // teal uses currentColor so it still tracks whatever accent shade the
+    // container sets, same as the old book logo and every other icon here.
+    logo: `<svg viewBox="0 0 216 298" xmlns="http://www.w3.org/2000/svg">
+      <path d="M 44.44 30.03 Q 40.00 26.00 40.00 32.00 L 40.00 80.00 L 99.50 134.00 L 99.50 88.00 Q 99.50 80.00 93.58 74.62 L 44.44 30.03 Z" fill="#e8a317"/>
+      <path d="M 171.56 30.03 Q 176.00 26.00 176.00 32.00 L 176.00 80.00 L 116.50 134.00 L 116.50 88.00 Q 116.50 80.00 122.42 74.62 L 171.56 30.03 Z" fill="currentColor"/>
+      <path d="M 44.44 101.03 Q 40.00 97.00 40.00 103.00 L 40.00 151.00 L 99.50 205.00 L 99.50 159.00 Q 99.50 151.00 93.58 145.62 L 44.44 101.03 Z" fill="currentColor"/>
+      <path d="M 171.56 101.03 Q 176.00 97.00 176.00 103.00 L 176.00 151.00 L 116.50 205.00 L 116.50 159.00 Q 116.50 151.00 122.42 145.62 L 171.56 101.03 Z" fill="#e8a317"/>
+      <path d="M 44.44 172.03 Q 40.00 168.00 40.00 174.00 L 40.00 222.00 Q 40.00 276.00 99.50 276.00 L 99.50 230.00 Q 99.50 222.00 93.58 216.62 L 44.44 172.03 Z" fill="#e8a317"/>
+      <path d="M 171.56 172.03 Q 176.00 168.00 176.00 174.00 L 176.00 222.00 Q 176.00 276.00 116.50 276.00 L 116.50 230.00 Q 116.50 222.00 122.42 216.62 L 171.56 172.03 Z" fill="currentColor"/>
+    </svg>`,
 
     // Home — house
     home: base(
