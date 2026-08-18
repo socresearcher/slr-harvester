@@ -36,7 +36,15 @@
      more visually prominent, not as invisible-dark-on-dark. */
   --heat-low:     #17322e;
   --heat-high:    #5ff0e0;
-  --sidebar-w:    256px;
+  /* "SLR Harvester Web" (.app-name) is the widest label the sidebar ever
+     has to fit, so this is sized off that: 17px header padding + 22px logo
+     + 13px logo-gap + ~117px text + ~18px breathing room + 30px toggle
+     button + 10px padding ≈ 227px, rounded up a touch as a safety margin
+     for font metrics running wider on some systems (was 256px — ~30px/
+     0.8cm of pure dead space past the toggle button on desktop). The
+     900px/640px breakpoints below already override this tighter on their
+     own (216px / 56px icon-rail) and don't need adjusting. */
+  --sidebar-w:    228px;
   --sidebar-collapsed-w: 56px;
   --topbar-h:     52px;
   /* Shared left inset for the sidebar's icon column (logo, nav icons,
@@ -431,6 +439,17 @@ a:hover {
   background: var(--surface);
   flex-shrink: 0;
   gap: 12px;
+  /* Same fix as .sidebar above, same reason: without an explicit stacking
+     context the Home view's viewport-fixed particle canvas (z-index:-1
+     inside .welcome-view's own isolated context) can still show through
+     this otherwise-opaque bar on some browsers/GPUs — observed on desktop,
+     not mobile, which is exactly the kind of compositor-layering quirk
+     position:relative + z-index + a promoted layer forecloses outright,
+     the same way it already does for the sidebar. Never let the header
+     read as transparent in any view, on any device. */
+  position: relative;
+  z-index: 100;
+  transform: translateZ(0);
 }
 
 .view-title {
@@ -1086,7 +1105,9 @@ a:hover {
   justify-content: center;
   gap: 6px;
   font-size: 11px;
-  color: var(--text-faint);
+  /* --text-faint fails WCAG AA against --bg in both themes (~2:1) — this
+     line should read as quiet, not be functionally invisible. */
+  color: var(--text-muted);
   user-select: none;
 }
 
@@ -1757,9 +1778,15 @@ a:hover {
   gap: 10px;
 }
 
+/* .article-badges comes before .article-main in the DOM (see
+   articleItemHTML in views.js) so that at the narrow-phone breakpoint
+   below, floating it lets the title wrap around it. This "order" pair
+   restores the original visual left-title/right-badges arrangement for
+   every flex-based layout (i.e. everywhere above that breakpoint). */
 .article-main {
   flex: 1;
   min-width: 0;
+  order: 1;
 }
 
 .article-title {
@@ -1776,6 +1803,7 @@ a:hover {
   gap: 4px;
   flex-shrink: 0;
   margin-top: 1px;
+  order: 2;
 }
 
 .article-badges-row {
@@ -1908,6 +1936,33 @@ a:hover {
 .meta-sep {
   margin: 0 5px;
   color: var(--text-faint);
+}
+
+/* Phone portrait: flex can't make text "wrap around a box for N lines,
+   then take the full width back" — a float can, since a float only
+   constrains the line boxes that overlap its own height, and everything
+   after that flows at full width automatically. Switching the header to
+   block layout and floating .article-badges (naturally ~3 title-lines
+   tall, from its own two badge rows) gets exactly that: the title wraps
+   beside the badges for as many lines as they take, then any further
+   title lines — and .article-meta below, always, via clear — use the
+   full row width instead of being squeezed for the article's whole
+   height. (.article-badges must precede .article-main in the DOM for
+   this wrap to happen at all; the order:1/2 pair above puts them back
+   the other way round for every wider, flex-based layout.) */
+@media (max-width: 480px) {
+  .article-item-header {
+    display: block;
+  }
+
+  .article-badges {
+    float: right;
+    margin: 1px 0 6px 10px;
+  }
+
+  .article-meta {
+    clear: both;
+  }
 }
 
 .abstract-indicator {
@@ -3984,14 +4039,37 @@ a.db-link:visited {
 .autotag-card-header {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: 6px;
   margin-bottom: 10px;
 }
 
+.autotag-card-swatch-wrap {
+  position: relative;
+  display: flex;
+  flex-shrink: 0;
+  cursor: pointer;
+}
+
+.autotag-card-swatch-wrap:hover .autotag-card-swatch {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+.autotag-swatch-picker {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  opacity: 0;
+  cursor: pointer;
+  padding: 0;
+  border: none;
+}
+
 .autotag-card-swatch {
-  width: 12px;
-  height: 12px;
-  border-radius: 3px;
+  width: 14px;
+  height: 14px;
+  border-radius: 4px;
   flex-shrink: 0;
 }
 
@@ -4001,6 +4079,7 @@ a.db-link:visited {
   color: var(--text);
   flex: 1;
   min-width: 0;
+  word-break: break-word;
 }
 
 .autotag-card-count {
@@ -4016,27 +4095,35 @@ a.db-link:visited {
   margin-bottom: 10px;
 }
 
+.autotag-kw-empty {
+  font-size: 11.5px;
+  color: var(--text-faint, var(--text-muted));
+  font-style: italic;
+}
+
 .autotag-kw-chip {
   display: inline-flex;
   align-items: center;
   gap: 4px;
   font-size: 11.5px;
   line-height: 1.4;
-  padding: 3px 8px;
+  padding: 3px 4px 3px 8px;
   border-radius: 999px;
   border: 1px solid var(--border);
-}
-
-.autotag-kw-chip--default {
   background: var(--surface-2);
-  color: var(--text-muted);
+  color: var(--text);
 }
 
-.autotag-kw-chip--custom {
-  background: color-mix(in srgb, var(--accent) 14%, var(--surface));
-  border-color: color-mix(in srgb, var(--accent) 45%, transparent);
-  color: var(--text);
-  padding-right: 4px;
+.autotag-kw-chip svg {
+  width: 11px;
+  height: 11px;
+  color: var(--warning);
+  flex-shrink: 0;
+}
+
+.autotag-kw-chip--conflict {
+  background: color-mix(in srgb, var(--warning) 16%, var(--surface));
+  border-color: color-mix(in srgb, var(--warning) 50%, transparent);
 }
 
 .autotag-kw-remove {

@@ -72,10 +72,16 @@ create table public.user_settings (
   inst_token               text,
   openalex_key             text,
   openalex_email           text,
-  -- User-specific auto-tag keyword additions, layered on top of the app's
-  -- built-in journal-name rules: { "Social Sciences": ["keyword", ...], ... }.
-  -- Cross-project by design — one set per account, edited from the
-  -- Auto-Tag Rules view, not per-project like projects.tags_config.
+  -- Full user override of the app's built-in auto-tag categories: null
+  -- means "use the shipped defaults as-is"; once the user adds/renames/
+  -- recolors/deletes a category or a keyword in the Auto-Tag Rules view,
+  -- this holds their complete edited copy — [{ tag, color, hex, keywords:
+  -- [...] }, ...]. Cross-project by design, one set per account, not
+  -- per-project like projects.tags_config.
+  auto_tag_rules           jsonb,
+  -- Superseded by auto_tag_rules above — kept only so existing rows can
+  -- still be read and migrated once (see hydrateSettingsFromConfig in
+  -- app.js); the app never writes to this column anymore.
   auto_tag_custom_keywords jsonb not null default '{}'::jsonb,
   updated_at               timestamptz not null default now()
 );
@@ -174,6 +180,13 @@ grant execute on function public.merge_global_tags(text, jsonb) to authenticated
 -- yet, so an already-set-up project needs this line specifically).
 alter table public.projects add column if not exists icon jsonb;
 
--- Same deal for the Auto-Tag Rules editor's per-account keyword additions —
--- run this once if user_settings already existed before this column did.
+-- Same deal for the Auto-Tag Rules editor's older per-account keyword
+-- additions — run this once if user_settings already existed before this
+-- column did. The app no longer writes to it (see auto_tag_rules below),
+-- but keeping it lets already-saved keywords still be read and migrated.
 alter table public.user_settings add column if not exists auto_tag_custom_keywords jsonb not null default '{}'::jsonb;
+
+-- The Auto-Tag Rules editor's current column — full category CRUD (add/
+-- rename/recolor/delete categories, not just keyword additions). Run this
+-- once if user_settings already existed before this column did.
+alter table public.user_settings add column if not exists auto_tag_rules jsonb;
