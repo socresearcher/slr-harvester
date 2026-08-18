@@ -62,6 +62,7 @@ window.SLRAppUI = (() => {
       corpus: SLRIcons.corpus,
       chart: SLRIcons.chart,
       project: SLRIcons.project,
+      autotag: SLRIcons.wand,
       settings: SLRIcons.settings,
       info: SLRIcons.info,
     };
@@ -84,8 +85,9 @@ window.SLRAppUI = (() => {
       articles: 'Articles',
       selected: 'Selected',
       corpus: 'Corpus',
-      visualizations: 'Visualizations',
+      visualizations: 'Visualisations',
       tags: 'Tags',
+      'autotag-rules': 'Auto-Tag Rules',
       settings: 'Settings',
       about: 'About',
       databases: 'Databases',
