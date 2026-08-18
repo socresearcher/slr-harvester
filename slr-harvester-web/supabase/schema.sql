@@ -52,6 +52,7 @@ create table public.projects (
   description       text default 'No description',
   created           date not null default current_date,
   workspace_folder  text not null,           -- same "YYYYMMDD_HHMMSS" id shape as local
+  icon              jsonb,                   -- project card icon: { type: 'emoji'|'svg'|'text', value }
   search_log        jsonb not null default '[]'::jsonb,
   global_tags       jsonb not null default '{}'::jsonb,
   tags_config       jsonb not null default '{}'::jsonb,
@@ -66,12 +67,17 @@ create index projects_user_id_idx on public.projects(user_id);
 -- ── user_settings ─────────────────────────────────────────────────────────
 -- One row per user; equivalent of slr_config.json (API keys).
 create table public.user_settings (
-  user_id        uuid primary key references auth.users(id) on delete cascade,
-  api_key        text,
-  inst_token     text,
-  openalex_key   text,
-  openalex_email text,
-  updated_at     timestamptz not null default now()
+  user_id                  uuid primary key references auth.users(id) on delete cascade,
+  api_key                  text,
+  inst_token               text,
+  openalex_key             text,
+  openalex_email           text,
+  -- User-specific auto-tag keyword additions, layered on top of the app's
+  -- built-in journal-name rules: { "Social Sciences": ["keyword", ...], ... }.
+  -- Cross-project by design — one set per account, edited from the
+  -- Auto-Tag Rules view, not per-project like projects.tags_config.
+  auto_tag_custom_keywords jsonb not null default '{}'::jsonb,
+  updated_at               timestamptz not null default now()
 );
 
 -- ── Grants ────────────────────────────────────────────────────────────────
@@ -159,3 +165,15 @@ $$;
 
 grant execute on function public.append_search_log(text, jsonb) to authenticated;
 grant execute on function public.merge_global_tags(text, jsonb) to authenticated;
+
+-- ── Migrations ────────────────────────────────────────────────────────────
+-- Ran this whole script before the `icon` column existed above? Paste just
+-- this one line into the SQL editor and run it once — safe to re-run, and
+-- safe to run even if you also re-run the full script from the top (the
+-- CREATE TABLE above only fires on a project that doesn't have the table
+-- yet, so an already-set-up project needs this line specifically).
+alter table public.projects add column if not exists icon jsonb;
+
+-- Same deal for the Auto-Tag Rules editor's per-account keyword additions —
+-- run this once if user_settings already existed before this column did.
+alter table public.user_settings add column if not exists auto_tag_custom_keywords jsonb not null default '{}'::jsonb;

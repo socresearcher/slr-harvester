@@ -172,7 +172,7 @@ window.SLRDataCloud = (() => {
     const client = requireAuth();
     const { data, error } = await client
       .from('projects')
-      .select('name, description, created, workspace_folder')
+      .select('name, description, created, workspace_folder, icon')
       .order('created', { ascending: false });
     if (error) throw error;
     return data || [];
@@ -183,7 +183,7 @@ window.SLRDataCloud = (() => {
     if (!client || !_user) return null;
     const { data, error } = await client
       .from('user_settings')
-      .select('api_key, inst_token, openalex_key, openalex_email')
+      .select('api_key, inst_token, openalex_key, openalex_email, auto_tag_custom_keywords')
       .eq('user_id', _user.id)
       .maybeSingle();
     if (error || !data) return null;
@@ -192,6 +192,8 @@ window.SLRDataCloud = (() => {
       InstToken: data.inst_token || '',
       OpenAlexKey: data.openalex_key || '',
       OpenAlexEmail: data.openalex_email || '',
+      AutoTagCustomKeywords: (data.auto_tag_custom_keywords && typeof data.auto_tag_custom_keywords === 'object')
+        ? data.auto_tag_custom_keywords : {},
     };
   }
 
@@ -203,6 +205,7 @@ window.SLRDataCloud = (() => {
     if (patch.InstToken !== undefined)   row.inst_token = patch.InstToken;
     if (patch.OpenAlexKey !== undefined) row.openalex_key = patch.OpenAlexKey;
     if (patch.OpenAlexEmail !== undefined) row.openalex_email = patch.OpenAlexEmail;
+    if (patch.AutoTagCustomKeywords !== undefined) row.auto_tag_custom_keywords = patch.AutoTagCustomKeywords;
     const { error } = await client.from('user_settings').upsert(row, { onConflict: 'user_id' });
     return !error;
   }
@@ -393,6 +396,25 @@ window.SLRDataCloud = (() => {
     return data;
   }
 
+  /**
+   * Set (or clear, passing null) a project's card icon: { type: 'emoji'|
+   * 'svg'|'text', value: string }. Cloud counterpart to
+   * SLRDataLocal.saveProjectIcon — requires the `icon` jsonb column from
+   * supabase/schema.sql's migration section (older projects created before
+   * that column existed need to run the ALTER TABLE there once).
+   */
+  async function saveProjectIcon(folderName, icon) {
+    const client = requireAuth();
+    const { data, error } = await client
+      .from('projects')
+      .update({ icon: icon || null })
+      .eq('workspace_folder', folderName)
+      .select('workspace_folder, icon')
+      .single();
+    if (error) throw error;
+    return data;
+  }
+
   // ── search_log read/write helpers (shared by the patch* functions below) ──
 
   async function loadSearchLog(client, folderName) {
@@ -514,6 +536,7 @@ window.SLRDataCloud = (() => {
     // Same surface as data-local.js
     loadProjects,
     saveProjectMeta,
+    saveProjectIcon,
     loadConfig,
     saveConfig,
     loadProjectData,

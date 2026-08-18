@@ -78,6 +78,14 @@ window.SLRApp = (() => {
 			})(),
 		},
 
+		// User-specific auto-tag keyword additions, layered on top of the
+		// built-in JOURNAL_TAG_RULES rather than replacing them: { [tagName]:
+		// string[] }. Persisted through SLRData.saveConfig alongside API keys
+		// (slr_config.json locally, the user_settings table on cloud), so it's
+		// shared across every project in the workspace/account, not per-project
+		// like tagsConfig/tagAliases. Hydrated in hydrateSettingsFromConfig.
+		autoTagCustomKeywords: {},
+
 		fetchMode: localStorage.getItem('slr-fetch-mode') === 'all' ? 'all' : 'missing',
 		projectsSort: localStorage.getItem('slr-projects-sort') || 'newest',
 		pinnedProjects: (() => {
@@ -503,6 +511,9 @@ window.SLRApp = (() => {
 			case 'tags':
 				SLRViews.renderTags(_container, state.articles, state.projectData);
 				break;
+			case 'autotag-rules':
+				SLRViews.renderAutoTagRules(_container, getAutoTagCategories(), state.autoTagCustomKeywords, state.folderName);
+				break;
 			default:
 				SLRViews.renderError(_container, `Unknown view: ${state.view}`);
 				break;
@@ -589,8 +600,9 @@ window.SLRApp = (() => {
 		state.projects = await SLRData.loadProjects();
 
 		// Fill in icons for projects that don't already carry one from the
-		// backend (always true on cloud, since that table has no icon column —
-		// this localStorage cache is their only persistence).
+		// backend — covers projects saved before this device last synced, and
+		// cloud projects whose Supabase `projects` table predates the `icon`
+		// column migration in supabase/schema.sql.
 		let iconMap;
 		try {
 			iconMap = JSON.parse(localStorage.getItem('slr-project-icons') || '{}');
@@ -629,6 +641,10 @@ window.SLRApp = (() => {
 		localStorage.setItem('slr-insttoken', state.settings.instToken);
 		localStorage.setItem('slr-openalex-key', state.settings.openAlexKey);
 		localStorage.setItem('slr-openalex-email', state.settings.openAlexEmail);
+
+		const customKeywords = config && config.AutoTagCustomKeywords;
+		state.autoTagCustomKeywords = (customKeywords && typeof customKeywords === 'object' && !Array.isArray(customKeywords))
+			? customKeywords : {};
 	}
 
 	async function openFolder() {
@@ -760,11 +776,11 @@ window.SLRApp = (() => {
 	}
 
 	// Project card icons: { type: 'emoji'|'svg'|'text', value }. Always
-	// cached client-side in localStorage (works the same on every backend);
-	// additionally written to projects.json on the local backend so it
-	// round-trips across sessions/devices sharing that folder — the cloud
-	// backend's `projects` table has no icon column to migrate here, so
-	// cloud projects fall back to this browser's cache only.
+	// cached client-side in localStorage first (instant, and a fallback for
+	// projects saved before either backend could persist icons), then
+	// persisted through the active backend — projects.json on local,
+	// the `projects.icon` column on cloud (see supabase/schema.sql; older
+	// Supabase projects need that column's migration run once).
 	async function setProjectIcon(folder, icon) {
 		if (!folder) return;
 		let iconMap;
@@ -780,9 +796,7 @@ window.SLRApp = (() => {
 		if (idx >= 0) state.projects[idx] = { ...state.projects[idx], icon: icon || undefined };
 		renderCurrentView();
 
-		if (SLRData.getBackend() === 'local' && typeof SLRDataLocal !== 'undefined' && SLRDataLocal.saveProjectIcon) {
-			try { await SLRDataLocal.saveProjectIcon(folder, icon); } catch (_) { /* best-effort */ }
-		}
+		try { await SLRData.saveProjectIcon(folder, icon); } catch (_) { /* best-effort */ }
 	}
 
 	function setCorpusFilter(patch) {
@@ -2288,6 +2302,7 @@ window.SLRApp = (() => {
 	async function autoTagByJournal(force = false, scopeIds) {
 		if (!state.currentFolder || !state.projectData) return;
 		const tagsConfig = state.projectData.tagsConfig || {};
+		const customKeywords = state.autoTagCustomKeywords || {};
 
 		const scoped = scopedArticles(scopeIds);
 		const toProcess = force
@@ -2341,7 +2356,14 @@ window.SLRApp = (() => {
 			for (const rule of JOURNAL_TAG_RULES) {
 				if (!enabledCategories.has(rule.tag)) continue;
 				if (!tagsConfig[rule.color] && tagsConfig[rule.color] !== undefined) continue;
-				let score = fields.reduce((sum, field) => sum + scoreRuleMatch(field.text, rule, field.weight), 0);
+				// User-added keywords (Auto-Tag Rules view) supplement this rule's
+				// built-in list rather than replacing it — same scoring, just more
+				// surface to match against.
+				const extraKeywords = customKeywords[rule.tag];
+				const scoredRule = (Array.isArray(extraKeywords) && extraKeywords.length)
+					? { keywords: rule.keywords.concat(extraKeywords) }
+					: rule;
+				let score = fields.reduce((sum, field) => sum + scoreRuleMatch(field.text, scoredRule, field.weight), 0);
 				if (rule.tag === 'Psychology & Psychotherapy' && psychContextHits > 0) {
 					score += psychContextHits * 4;
 				}
@@ -2435,6 +2457,65 @@ window.SLRApp = (() => {
 			hideFetchProgress();
 			showToast('Auto-tag failed: ' + (err.message || String(err)), true);
 		}
+	}
+
+	// ── Auto-Tag Rules editor (js/views.js renderAutoTagRules) ────────────────
+	// Read-only view of the built-in categories, plus CRUD over the
+	// user-specific keyword additions layered on top of them inside
+	// autoTagByJournal above. Cross-project by design: persisted via
+	// SLRData.saveConfig, the same place API keys live, not per-project
+	// tagsConfig/tagAliases.
+
+	function getAutoTagCategories() {
+		return JOURNAL_TAG_RULES.map(r => ({ color: r.color, tag: r.tag, defaultKeywords: r.keywords }));
+	}
+
+	async function persistAutoTagCustomKeywords() {
+		try {
+			await SLRData.saveConfig({ AutoTagCustomKeywords: state.autoTagCustomKeywords });
+		} catch (err) {
+			showToast('Could not save auto-tag keywords: ' + (err.message || String(err)), true);
+		}
+	}
+
+	async function addAutoTagKeyword(tag, keyword) {
+		const rule = JOURNAL_TAG_RULES.find(r => r.tag === tag);
+		if (!rule) return;
+		const normalized = normalizeRuleText(keyword);
+		if (!normalized) return;
+		const existing = state.autoTagCustomKeywords[tag] || [];
+		const alreadyBuiltIn = rule.keywords.some(k => normalizeRuleText(k) === normalized);
+		const alreadyCustom  = existing.some(k => normalizeRuleText(k) === normalized);
+		if (alreadyBuiltIn || alreadyCustom) {
+			showToast('That keyword is already part of this category.', true);
+			return;
+		}
+		state.autoTagCustomKeywords = { ...state.autoTagCustomKeywords, [tag]: [...existing, keyword.trim()] };
+		renderCurrentView();
+		await persistAutoTagCustomKeywords();
+	}
+
+	async function removeAutoTagKeyword(tag, keyword) {
+		const existing = state.autoTagCustomKeywords[tag];
+		if (!Array.isArray(existing)) return;
+		const next = existing.filter(k => k !== keyword);
+		const updated = { ...state.autoTagCustomKeywords };
+		if (next.length) updated[tag] = next; else delete updated[tag];
+		state.autoTagCustomKeywords = updated;
+		renderCurrentView();
+		await persistAutoTagCustomKeywords();
+	}
+
+	async function resetAutoTagCustomKeywords() {
+		if (!Object.keys(state.autoTagCustomKeywords).length) {
+			showToast('No custom auto-tag keywords to reset.', false);
+			return;
+		}
+		if (!confirm('Remove all your custom auto-tag keywords and restore the built-in defaults only? This cannot be undone.')) return;
+		state.autoTagCustomKeywords = {};
+		renderCurrentView();
+		await persistAutoTagCustomKeywords();
+		showToast('Auto-tag keywords reset to defaults.', false);
 	}
 
 	async function addTag(colorKey, hex, aliasLabel) {
@@ -2708,6 +2789,10 @@ window.SLRApp = (() => {
 		setHistorySortDir,
 		deleteQueryTerm,
 		autoTagByJournal,
+		getAutoTagCategories,
+		addAutoTagKeyword,
+		removeAutoTagKeyword,
+		resetAutoTagCustomKeywords,
 		fetchAbstractsViaDOI,
 		fetchAuthorsViaDOI,
 		fetchTypesViaDOI,
