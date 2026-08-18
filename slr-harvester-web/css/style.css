@@ -97,6 +97,14 @@ html, body {
      rounding ever leaves a sliver at the viewport edge, it reads as the
      app's own background instead of the browser's default white canvas. */
   background: var(--bg);
+  /* Opt out of mobile browsers' automatic text-inflation ("font boosting").
+     Without this, rotating a phone to landscape can grow text (e.g. article
+     titles) and rotating back to portrait doesn't shrink it back — the
+     browser's heuristic only recomputes for the wider layout it last saw.
+     Every font-size in this file is a fixed px value already, so there's
+     nothing here that actually needs auto-adjusting. */
+  text-size-adjust: 100%;
+  -webkit-text-size-adjust: 100%;
 }
 
 body {
@@ -1493,6 +1501,15 @@ a:hover {
   height: 100%;
 }
 
+/* Wraps the stats banner + toolbar + "Showing N of M" line as a single
+   collapsible unit above the article list. Plain block on desktop (its
+   .collapsible-inner children just stack normally); on mobile/tablet
+   (see the max-width:900px rule below) it becomes the collapse/reveal
+   target for wireListHeaderCollapse's scroll listener in views.js. */
+.list-header-collapsible {
+  flex-shrink: 0;
+}
+
 /* List toolbar — shared by Articles / Selected / Corpus.
    Row 1: Filter toggle + Fetch/Tag/Export action buttons. Row 2-3 (only
    when the filter toggle is active): tag chips, year range. Row 4:
@@ -1667,6 +1684,54 @@ a:hover {
   margin-bottom: 12px;
 }
 
+/* Swipe right selects an article then adds it to corpus; swipe left undoes
+   the same steps in reverse — mirrors .history-item-swipe. Touch only;
+   mouse/pen keep the tap-visible badge buttons in .article-tag-row-actions
+   instead (see wireArticleSwipeGestures in views.js). */
+.article-item-swipe {
+  position: relative;
+  overflow: hidden;
+  touch-action: pan-y;
+}
+
+.article-swipe-action {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: 96px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  font-size: 11px;
+  font-weight: 600;
+  color: #fff;
+  cursor: pointer;
+}
+
+.article-swipe-action svg {
+  width: 20px;
+  height: 20px;
+}
+
+.article-swipe-reveal-left {
+  right: 0;
+}
+
+.article-swipe-reveal-right {
+  left: 0;
+}
+
+.article-swipe-danger {
+  background: var(--danger);
+}
+
+.article-swipe-accent {
+  background: var(--accent);
+  color: var(--bg);
+}
+
 /* Article item */
 .article-item {
   border-left: 3px solid var(--tag-color, transparent);
@@ -1674,6 +1739,7 @@ a:hover {
   border-bottom: 1px solid var(--border-subtle);
   cursor: pointer;
   position: relative;
+  background: var(--bg);
 }
 
 .article-item:hover {
@@ -4968,6 +5034,18 @@ a.db-link:visited {
   gap: 10px;
 }
 
+/* Height is user-resizable via the shared .viz-col-resize-handle below
+   (inline style sets the actual px value, see getChartHeight in views.js)
+   — this is just a sane first-paint fallback. */
+.viz-bars-scroll {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  height: 320px;
+  overflow-y: auto;
+  padding-right: 4px;
+}
+
 .viz-bar-row {
   display: flex;
   align-items: center;
@@ -5077,12 +5155,25 @@ a.db-link:visited {
 
 /* Doughnut chart — centered, legend below, same stacked layout as the
    Year and World charts instead of the old side-by-side arrangement. */
+/* Height is user-resizable via the shared .viz-col-resize-handle below
+   (inline style sets the actual px value, see getChartHeight in views.js)
+   — this is just a sane first-paint fallback. */
+.viz-doughnut-scroll {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  height: 320px;
+  overflow-y: auto;
+  overflow-x: hidden;
+}
+
 .viz-doughnut-wrap {
   display: flex;
   flex-direction: column;
   align-items: center;
   gap: 16px;
   padding: 4px 0;
+  width: 100%;
 }
 
 .viz-doughnut-svg {
@@ -5576,23 +5667,68 @@ a.db-link:visited {
   margin-top: 14px;
 }
 
-/* Per-source query breakdown chips under the Identification box */
-.prisma-sources {
+/* Per-source query breakdown — a row of small cards (Scopus / OpenAlex / …)
+   feeding into the Identification box right below them. */
+.prisma-sources-row {
   display: flex;
   flex-wrap: wrap;
-  gap: 6px;
+  gap: 10px;
   justify-content: center;
-  padding: 10px 0 18px;
+  padding-bottom: 14px;
+}
+
+.prisma-box-source {
+  flex: 1 1 150px;
+  max-width: 220px;
+  padding: 10px 14px 8px;
+}
+
+.prisma-box-source .prisma-box-n {
+  font-size: 24px;
+  min-width: 40px;
+}
+
+.prisma-box-source .prisma-box-body {
+  margin-bottom: 8px;
+}
+
+.prisma-box-source .prisma-box-desc {
+  font-size: 12px;
+}
+
+.prisma-box-source .prisma-box-meta {
+  font-size: 10px;
+}
+
+/* Merges the source-boxes row down into the single Identification box. */
+.prisma-sources-connector {
+  width: 2px;
+  height: 18px;
+  background: var(--border);
+  margin: 0 auto 14px;
+  position: relative;
+}
+
+.prisma-sources-connector::after {
+  content: '';
+  position: absolute;
+  left: 50%;
+  bottom: -1px;
+  transform: translateX(-50%);
+  border-left: 5px solid transparent;
+  border-right: 5px solid transparent;
+  border-top: 7px solid var(--border);
 }
 
 .prisma-source-chip {
   cursor: pointer;
-  transition: opacity .15s;
+  transition: opacity .15s, background .15s, border-color .15s;
 }
 
 .prisma-source-chip:hover,
 .prisma-source-chip:focus-visible {
-  opacity: 0.75;
+  opacity: 0.85;
+  background: var(--surface-2);
   outline: none;
 }
 
@@ -5941,6 +6077,30 @@ a.db-link:visited {
      silently clipped by .app-logo's overflow:hidden. */
   .app-name {
     font-size: 14px;
+  }
+
+  /* Scroll-to-collapse list header (Articles / Selected / Corpus): a phone
+     or tablet screen doesn't have room for the stats banner + toolbar +
+     search row AND a useful number of article cards at once, so
+     wireListHeaderCollapse (views.js) toggles .is-collapsed on scroll
+     direction and this grid-row trick animates the whole stack to zero
+     height without needing to know its actual (variable — the filter panel
+     can add rows) content height, the way a max-height transition would.
+     Desktop never gets this rule at all, so the header there is always
+     static/visible regardless of the class. */
+  .list-header-collapsible {
+    display: grid;
+    grid-template-rows: 1fr;
+    transition: grid-template-rows .25s ease;
+  }
+
+  .list-header-collapsible-inner {
+    overflow: hidden;
+    min-height: 0;
+  }
+
+  .list-header-collapsible.is-collapsed {
+    grid-template-rows: 0fr;
   }
 }
 
