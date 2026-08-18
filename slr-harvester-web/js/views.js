@@ -132,6 +132,11 @@ window.SLRViews = (() => {
     pubmed: 'pubmed', arxiv: 'arxiv', s2: 's2', openalex: 'openalex',
     SCOPUS: 'scopus', PUBMED: 'pubmed', ARXIV: 'arxiv', S2: 's2', OPENALEX: 'openalex',
   };
+  // Same per-source colors as the .badge-source-* CSS, reused for the PRISMA
+  // Identification source boxes so a database reads as the same color everywhere.
+  const DB_COLORS = {
+    scopus: '#e07020', arxiv: '#e05555', pubmed: '#6faad4', s2: '#7aaee8', openalex: '#3ab09e',
+  };
 
   // Deterministic string -> color, for grouping dimensions (document type,
   // country) that have no user-configured color the way tags do via
@@ -987,6 +992,7 @@ window.SLRViews = (() => {
     container.innerHTML = `
       <div class="articles-view">
 
+        <div class="list-header-collapsible"><div class="list-header-collapsible-inner">
         <div class="corpus-banner">
           <span class="corpus-banner-stat">
             ${SLRIcons.articles}
@@ -1023,6 +1029,7 @@ window.SLRViews = (() => {
           <span class="stats-sep">|</span>
           <span><strong>${totalCorpus}</strong> in corpus</span>
         </div>
+        </div></div>
 
         <div class="article-list" id="article-list">
           ${listHTML}
@@ -1046,9 +1053,13 @@ window.SLRViews = (() => {
       if (e.target.tagName === 'A') return;
       if (e.target.closest('[data-action]')) return;
       if (e.target.closest('.article-id-copy')) return;
+      const swipeEl = item.closest('.article-item-swipe');
+      if (swipeEl && swipeEl.dataset.suppressClick === '1') { delete swipeEl.dataset.suppressClick; return; }
       item.classList.toggle('expanded');
     });
     wireArticleActions(container.querySelector('#article-list'), projectData);
+    wireArticleSwipeGestures(container.querySelector('#article-list'), projectData, 'all');
+    wireListHeaderCollapse(container, container.querySelector('#article-list'));
   }
 
   function articleItemHTML(a, projectData) {
@@ -1148,62 +1159,87 @@ window.SLRViews = (() => {
     const comment = a.comment
       ? `<div class="article-comment">${esc(a.comment)}</div>` : '';
 
+    // Swipe right moves an article forward (select, then add to corpus);
+    // swipe left undoes in reverse (remove from corpus first, then
+    // deselect) — whichever step applies next is derived from the
+    // article's current selected/corpus flags, so there's no separate
+    // undo-stack to track: state itself is the source of truth.
+    const swipeRight = (a.selected && a.corpus) ? null
+      : !a.selected ? { action: 'select',      icon: SLRIcons.selected, label: 'Select',         cls: 'accent', title: 'Mark as Selected' }
+      :                { action: 'add-corpus',  icon: SLRIcons.corpus,  label: 'Add to Corpus',   cls: 'accent', title: 'Add to Corpus' };
+    const swipeLeft = a.corpus ? { action: 'remove-corpus', icon: SLRIcons.close, label: 'Remove Corpus', cls: 'danger', title: 'Remove from Corpus' }
+      : a.selected              ? { action: 'deselect',      icon: SLRIcons.close, label: 'Deselect',      cls: 'danger', title: 'Remove from Selected' }
+      : null;
+    const eidAttr = esc(eidId);
+    const swipeLeftHTML = swipeLeft ? `
+          <div class="article-swipe-action article-swipe-reveal-left article-swipe-${swipeLeft.cls}" data-swipe-action="${swipeLeft.action}" data-eid="${eidAttr}" title="${esc(swipeLeft.title)}">
+            ${swipeLeft.icon}<span>${esc(swipeLeft.label)}</span>
+          </div>` : '';
+    const swipeRightHTML = swipeRight ? `
+          <div class="article-swipe-action article-swipe-reveal-right article-swipe-${swipeRight.cls}" data-swipe-action="${swipeRight.action}" data-eid="${eidAttr}" title="${esc(swipeRight.title)}">
+            ${swipeRight.icon}<span>${esc(swipeRight.label)}</span>
+          </div>` : '';
+
     return `
-      <div class="article-item" ${styleAttr}
-           data-eid="${esc(a.eid || a._id || '')}"
-           data-selected="${a.selected ? 'true' : 'false'}"
-           data-corpus="${a.corpus ? 'true' : 'false'}">
-        <div class="article-item-header">
-          <div class="article-main">
-            <div class="article-title">${esc(a.title)}</div>
-            <div class="article-meta">
-              ${a.authors ? `<span>${esc(a.authors)}</span><span class="meta-sep">&middot;</span>` : ''}
-              ${a.publicationName ? `<span>${esc(a.publicationName)}</span><span class="meta-sep">&middot;</span>` : ''}
-              ${year ? `<span>${esc(year)}</span><span class="meta-sep">&middot;</span>` : ''}
-              <span>${a.citedby || 0} cited</span>
+      <div class="article-item-swipe">
+        ${swipeLeftHTML}
+        ${swipeRightHTML}
+        <div class="article-item" ${styleAttr}
+             data-eid="${esc(a.eid || a._id || '')}"
+             data-selected="${a.selected ? 'true' : 'false'}"
+             data-corpus="${a.corpus ? 'true' : 'false'}">
+          <div class="article-item-header">
+            <div class="article-main">
+              <div class="article-title">${esc(a.title)}</div>
+              <div class="article-meta">
+                ${a.authors ? `<span>${esc(a.authors)}</span><span class="meta-sep">&middot;</span>` : ''}
+                ${a.publicationName ? `<span>${esc(a.publicationName)}</span><span class="meta-sep">&middot;</span>` : ''}
+                ${year ? `<span>${esc(year)}</span><span class="meta-sep">&middot;</span>` : ''}
+                <span>${a.citedby || 0} cited</span>
+              </div>
+            </div>
+            <div class="article-badges">
+              <div class="article-badges-row">
+                ${sourceBadge}
+                ${docTypeBadge}
+              </div>
+              <div class="article-badges-row">
+                <button class="article-tag-pill ${tagName ? 'tag-pill-set' : 'tag-pill-unset'}"
+                        data-action="open-tag-picker"
+                        title="${tagName ? 'Change tag: ' + tagName : 'Set tag'}">
+                  ${tagName ? `<span class="tag-dot" ${hex ? `style="background:${esc(hex)}"` : ''}></span>${esc(tagName)}` : `<span class="tag-dot tag-dot-empty"></span>No tag`}
+                </button>
+              </div>
             </div>
           </div>
-          <div class="article-badges">
-            <div class="article-badges-row">
-              ${sourceBadge}
-              ${docTypeBadge}
-            </div>
-            <div class="article-badges-row">
-              <button class="article-tag-pill ${tagName ? 'tag-pill-set' : 'tag-pill-unset'}"
-                      data-action="open-tag-picker"
-                      title="${tagName ? 'Change tag: ' + tagName : 'Set tag'}">
-                ${tagName ? `<span class="tag-dot" ${hex ? `style="background:${esc(hex)}"` : ''}></span>${esc(tagName)}` : `<span class="tag-dot tag-dot-empty"></span>No tag`}
-              </button>
-            </div>
-          </div>
-        </div>
 
-        <div class="article-tag-row">
-          <span class="article-tag-row-indicators">
-            <span class="abstract-indicator ${a.abstract ? 'has-abstract' : 'no-abstract'}"
-                  title="${a.abstract ? 'Abstract available' : 'No abstract'}">
-              ${a.abstract ? SLRIcons.eye : SLRIcons.eyeOff}
+          <div class="article-tag-row">
+            <span class="article-tag-row-indicators">
+              <span class="abstract-indicator ${a.abstract ? 'has-abstract' : 'no-abstract'}"
+                    title="${a.abstract ? 'Abstract available' : 'No abstract'}">
+                ${a.abstract ? SLRIcons.eye : SLRIcons.eyeOff}
+              </span>
+              ${affiliationBadge}
             </span>
-            ${affiliationBadge}
-          </span>
-          <span class="article-tag-row-actions">
-            <button class="badge badge-toggle ${a.selected ? 'badge-selected' : 'badge-dim'}"
-                    data-action="toggle-selected"
-                    title="${a.selected ? 'Remove from Selected' : 'Mark as Selected'}"
-                    aria-label="${a.selected ? 'Remove from Selected' : 'Mark as Selected'}">${SLRIcons.selected}</button>
-            <button class="badge badge-toggle ${a.corpus ? 'badge-corpus' : 'badge-dim'}"
-                    data-action="toggle-corpus"
-                    title="${a.corpus ? 'Remove from Corpus' : 'Add to Corpus'}"
-                    aria-label="${a.corpus ? 'Remove from Corpus' : 'Add to Corpus'}">${SLRIcons.corpus}</button>
-          </span>
-        </div>
+            <span class="article-tag-row-actions">
+              <button class="badge badge-toggle ${a.selected ? 'badge-selected' : 'badge-dim'}"
+                      data-action="toggle-selected"
+                      title="${a.selected ? 'Remove from Selected' : 'Mark as Selected'}"
+                      aria-label="${a.selected ? 'Remove from Selected' : 'Mark as Selected'}">${SLRIcons.selected}</button>
+              <button class="badge badge-toggle ${a.corpus ? 'badge-corpus' : 'badge-dim'}"
+                      data-action="toggle-corpus"
+                      title="${a.corpus ? 'Remove from Corpus' : 'Add to Corpus'}"
+                      aria-label="${a.corpus ? 'Remove from Corpus' : 'Add to Corpus'}">${SLRIcons.corpus}</button>
+            </span>
+          </div>
 
-        <div class="article-detail">
-          ${abstract}
-          ${affiliationCountryDetail}
-          ${affiliationsDetail}
-          ${idRow}
-          ${comment}
+          <div class="article-detail">
+            ${abstract}
+            ${affiliationCountryDetail}
+            ${affiliationsDetail}
+            ${idRow}
+            ${comment}
+          </div>
         </div>
       </div>`;
   }
@@ -1256,6 +1292,138 @@ window.SLRViews = (() => {
         openTagPickerPopup(btn, eid, projectData);
       }
     });
+  }
+
+  // Swipe right selects, then adds to corpus; swipe left undoes the same
+  // steps in reverse (see the swipeLeft/swipeRight computation in
+  // articleItemHTML). Mirrors the touch-only swipe used by the History view
+  // (mouse/pen still use the tap-visible badge buttons instead — dragging
+  // the header with a mouse would fight with click-to-expand).
+  //
+  // listMode identifies which filtered list this is wired into ('all' |
+  // 'selected' | 'corpus') — a left-swipe that would remove the article
+  // from the list currently being viewed (deselecting in the Selected list,
+  // removing from corpus in the Corpus list) asks for confirmation first,
+  // since that swipe makes the card disappear immediately; the same actions
+  // performed from the main Articles list never need confirmation because
+  // the article stays visible there regardless of its selected/corpus state.
+  function wireArticleSwipeGestures(listEl, projectData, listMode) {
+    if (!listEl || !projectData) return;
+    const REVEAL = 96, THRESHOLD = 56;
+
+    const runSwipeAction = (action, eid) => {
+      if (!eid) return false;
+      if (action === 'select') {
+        SLRApp.updateAnnotation(eid, { selected: true });
+        return true;
+      }
+      if (action === 'add-corpus') {
+        SLRApp.updateAnnotation(eid, { corpus: true });
+        return true;
+      }
+      if (action === 'deselect') {
+        if (listMode === 'selected' && !confirm('Remove this article from Selected?')) return false;
+        SLRApp.updateAnnotation(eid, { selected: false });
+        return true;
+      }
+      if (action === 'remove-corpus') {
+        if (listMode === 'corpus' && !confirm('Remove this article from the Corpus?')) return false;
+        SLRApp.updateAnnotation(eid, { corpus: false });
+        return true;
+      }
+      return false;
+    };
+
+    listEl.addEventListener('click', ev => {
+      const swipeAction = ev.target.closest('.article-swipe-action');
+      if (!swipeAction) return;
+      ev.stopPropagation();
+      const swipeEl = swipeAction.closest('.article-item-swipe');
+      const card = swipeEl ? swipeEl.querySelector('.article-item') : null;
+      if (!card) return;
+      if (!runSwipeAction(swipeAction.dataset.swipeAction, swipeAction.dataset.eid)) {
+        card.style.transition = 'transform .2s ease';
+        card.style.transform = '';
+      }
+    });
+
+    listEl.querySelectorAll('.article-item-swipe').forEach(swipeEl => {
+      const card   = swipeEl.querySelector('.article-item');
+      const header = swipeEl.querySelector('.article-item-header');
+      if (!card || !header) return;
+      const hasLeft  = !!swipeEl.querySelector('.article-swipe-reveal-left');
+      const hasRight = !!swipeEl.querySelector('.article-swipe-reveal-right');
+      if (!hasLeft && !hasRight) return;
+      let startX = null, startY = 0, baseX = 0, dx = 0, dragging = false, openDir = 0;
+
+      const setX = (x, animate) => {
+        card.style.transition = animate ? 'transform .2s ease' : 'none';
+        card.style.transform = x ? `translateX(${x}px)` : '';
+      };
+
+      header.addEventListener('pointerdown', e => {
+        if (e.pointerType !== 'touch') return;
+        startX = e.clientX;
+        startY = e.clientY;
+        dragging = false;
+        baseX = openDir === -1 ? -REVEAL : openDir === 1 ? REVEAL : 0;
+      });
+
+      header.addEventListener('pointermove', e => {
+        if (e.pointerType !== 'touch' || startX === null) return;
+        const rawDx = e.clientX - startX;
+        if (!dragging) {
+          if (Math.abs(rawDx) < 8 || Math.abs(rawDx) < Math.abs(e.clientY - startY)) return;
+          dragging = true;
+          try { header.setPointerCapture(e.pointerId); } catch (_) { /* ignore */ }
+        }
+        const minX = hasLeft ? -REVEAL : 0;
+        const maxX = hasRight ? REVEAL : 0;
+        dx = Math.max(minX, Math.min(maxX, baseX + rawDx));
+        setX(dx, false);
+        e.preventDefault();
+      });
+
+      const finish = () => {
+        if (dragging) {
+          if (dx <= -THRESHOLD && hasLeft) { setX(-REVEAL, true); openDir = -1; }
+          else if (dx >= THRESHOLD && hasRight) { setX(REVEAL, true); openDir = 1; }
+          else { setX(0, true); openDir = 0; }
+          swipeEl.dataset.suppressClick = '1';
+        } else if (openDir !== 0 && startX !== null) {
+          setX(0, true);
+          openDir = 0;
+          swipeEl.dataset.suppressClick = '1';
+        }
+        startX = null;
+        dragging = false;
+      };
+
+      header.addEventListener('pointerup', finish);
+      header.addEventListener('pointercancel', finish);
+    });
+  }
+
+  // Hides the stats banner / toolbar / search row above an article list
+  // while the user scrolls the list down, and brings it back on scroll-up
+  // or once back near the top — there's only enough vertical room on a
+  // phone/tablet to show the header stack OR a useful number of article
+  // cards, not both. The collapse itself is pure CSS (a grid-template-rows
+  // 1fr/0fr transition on .list-header-collapsible, scoped to the existing
+  // max-width:900px breakpoint in style.css) so this listener has no visual
+  // effect at desktop widths even though it still runs there.
+  function wireListHeaderCollapse(container, listEl) {
+    const wrap = container.querySelector('.list-header-collapsible');
+    if (!wrap || !listEl) return;
+    let lastTop = listEl.scrollTop;
+    listEl.addEventListener('scroll', () => {
+      const top = listEl.scrollTop;
+      const delta = top - lastTop;
+      if (top <= 8) wrap.classList.remove('is-collapsed');
+      else if (delta > 6) wrap.classList.add('is-collapsed');
+      else if (delta < -6) wrap.classList.remove('is-collapsed');
+      lastTop = top;
+    }, { passive: true });
   }
 
   function openTagPickerPopup(triggerEl, eid, projectData) {
@@ -2131,6 +2299,7 @@ window.SLRViews = (() => {
     container.innerHTML = `
       <div class="articles-view">
 
+        <div class="list-header-collapsible"><div class="list-header-collapsible-inner">
         <div class="corpus-banner">
           <span class="corpus-banner-stat">
             ${SLRIcons.corpus}
@@ -2161,6 +2330,7 @@ window.SLRViews = (() => {
           ${formatActiveTagsLabel(filter.tags)}
           ${filter.search ? `<span class="stats-sep">|</span><span>Search: "${esc(filter.search)}"</span>` : ''}
         </div>
+        </div></div>
 
         <div class="article-list" id="corpus-list">
           ${listHTML}
@@ -2182,9 +2352,13 @@ window.SLRViews = (() => {
       if (!item || e.target.tagName === 'A') return;
       if (e.target.closest('[data-action]')) return;
       if (e.target.closest('.article-id-copy')) return;
+      const swipeEl = item.closest('.article-item-swipe');
+      if (swipeEl && swipeEl.dataset.suppressClick === '1') { delete swipeEl.dataset.suppressClick; return; }
       item.classList.toggle('expanded');
     });
     wireArticleActions(container.querySelector('#corpus-list'), projectData);
+    wireArticleSwipeGestures(container.querySelector('#corpus-list'), projectData, 'corpus');
+    wireListHeaderCollapse(container, container.querySelector('#corpus-list'));
   }
 
   //  Selected view 
@@ -2202,6 +2376,7 @@ window.SLRViews = (() => {
 
     container.innerHTML = `
       <div class="articles-view">
+        <div class="list-header-collapsible"><div class="list-header-collapsible-inner">
         <div class="corpus-banner" style="border-left-color:var(--accent)">
           <span class="corpus-banner-stat">
             ${SLRIcons.selected}
@@ -2236,6 +2411,7 @@ window.SLRViews = (() => {
           ${formatActiveTagsLabel(filter.tags)}
           ${filter.search ? `<span class="stats-sep">|</span><span>Search: "${esc(filter.search)}"</span>` : ''}
         </div>
+        </div></div>
 
         <div class="article-list" id="selected-list">${listHTML}</div>
       </div>`;
@@ -2255,9 +2431,13 @@ window.SLRViews = (() => {
       if (!item || e.target.tagName === 'A') return;
       if (e.target.closest('[data-action]')) return;
       if (e.target.closest('.article-id-copy')) return;
+      const swipeEl = item.closest('.article-item-swipe');
+      if (swipeEl && swipeEl.dataset.suppressClick === '1') { delete swipeEl.dataset.suppressClick; return; }
       item.classList.toggle('expanded');
     });
     wireArticleActions(container.querySelector('#selected-list'), projectData);
+    wireArticleSwipeGestures(container.querySelector('#selected-list'), projectData, 'selected');
+    wireListHeaderCollapse(container, container.querySelector('#selected-list'));
   }
 
   //  Visualizations view 
@@ -2550,11 +2730,28 @@ window.SLRViews = (() => {
     : mode === 'corpus'   ? articles.filter(a => a.corpus)
     : articles;
 
+    // Height is user-resizable (drag handle below each chart) and persisted
+    // per chart type — but the *first-paint* default (before a user has ever
+    // dragged that particular chart) is shared across bars/doughnut/year and
+    // depends on the viewport's current orientation, so a fresh project shows
+    // a taller chart in portrait (more vertical room) than in landscape,
+    // without ever locking the chart to a viewport-height clamp() (that used
+    // to make charts towering in portrait and squashed in landscape).
+    const CHART_HEIGHT_MIN = 160, CHART_HEIGHT_MAX = 700;
+    const getDefaultChartHeight = () => {
+      const portrait = typeof window.matchMedia === 'function' && window.matchMedia('(orientation: portrait)').matches;
+      return portrait ? 440 : 320;
+    };
+    const getChartHeight = (storageKey) => {
+      const saved = parseInt(localStorage.getItem(storageKey), 10);
+      return (Number.isFinite(saved) && saved >= CHART_HEIGHT_MIN && saved <= CHART_HEIGHT_MAX) ? saved : getDefaultChartHeight();
+    };
+
       const renderBars = (mode, groupBy, includeNone) => {
       const { total, bars } = computeGroupedData(getSubset(mode), groupBy, includeNone);
       if (bars.length === 0) return `<div class="viz-empty-bars">No data in this selection.</div>`;
       const maxCount = bars[0].count;
-      return bars.map(d => {
+      const rowsHTML = bars.map(d => {
         const pct    = total > 0 ? (d.count / total * 100).toFixed(1) : '0.0';
         const barPct = maxCount > 0 ? (d.count / maxCount * 100).toFixed(1) : '0';
         return `
@@ -2566,6 +2763,15 @@ window.SLRViews = (() => {
             <div class="viz-bar-count"><strong>${d.count}</strong> <span class="viz-bar-pct">${pct}%</span></div>
           </div>`;
       }).join('');
+      const chartHeight = getChartHeight('slr-bars-chart-height');
+      return `
+        <div class="viz-resizable-chart-block">
+          <div class="viz-bars-scroll" id="viz-bars-area" style="height:${chartHeight}px">${rowsHTML}</div>
+          <div class="viz-col-resize-handle" id="viz-bars-resize-handle"
+               title="Drag to resize chart height" role="separator" aria-orientation="horizontal">
+            <span class="viz-col-resize-grip"></span>
+          </div>
+        </div>`;
     };
 
       const renderDoughnut = (mode, groupBy, showLegend, includeNone) => {
@@ -2611,18 +2817,28 @@ window.SLRViews = (() => {
         </div>`;
       }).join('');
         const centerSub = groupBy === 'doctype' ? 'typed' : groupBy === 'country' ? 'assignments' : 'tagged';
-        return `<div class="viz-doughnut-wrap${showLegend ? '' : ' legend-hidden'}">
-        <svg class="viz-doughnut-svg" viewBox="0 0 340 340" aria-hidden="true">
-          <circle cx="${cx}" cy="${cy}" r="${r}" fill="none"
-                  stroke="var(--surface-2)" stroke-width="58"/>
-          ${segments}
-          <text x="${cx}" y="${cy - 12}" text-anchor="middle"
-                class="viz-doughnut-num">${sum}</text>
-          <text x="${cx}" y="${cy + 20}" text-anchor="middle"
-                class="viz-doughnut-sub">${esc(centerSub)}</text>
-        </svg>
-          ${showLegend ? `<div class="viz-legend">${legend}</div>` : ''}
-      </div>`;
+        const chartHeight = getChartHeight('slr-doughnut-chart-height');
+        return `
+        <div class="viz-resizable-chart-block">
+          <div class="viz-doughnut-scroll" id="viz-doughnut-area" style="height:${chartHeight}px">
+            <div class="viz-doughnut-wrap${showLegend ? '' : ' legend-hidden'}">
+              <svg class="viz-doughnut-svg" viewBox="0 0 340 340" aria-hidden="true">
+                <circle cx="${cx}" cy="${cy}" r="${r}" fill="none"
+                        stroke="var(--surface-2)" stroke-width="58"/>
+                ${segments}
+                <text x="${cx}" y="${cy - 12}" text-anchor="middle"
+                      class="viz-doughnut-num">${sum}</text>
+                <text x="${cx}" y="${cy + 20}" text-anchor="middle"
+                      class="viz-doughnut-sub">${esc(centerSub)}</text>
+              </svg>
+              ${showLegend ? `<div class="viz-legend">${legend}</div>` : ''}
+            </div>
+          </div>
+          <div class="viz-col-resize-handle" id="viz-doughnut-resize-handle"
+               title="Drag to resize chart height" role="separator" aria-orientation="horizontal">
+            <span class="viz-col-resize-grip"></span>
+          </div>
+        </div>`;
     };
 
     //  Year distribution (stacked by the selected grouping dimension)
@@ -2719,15 +2935,10 @@ window.SLRViews = (() => {
         </div>`
       ).join('');
 
-      // Height is user-resizable (drag handle below) and persisted — a flat
-      // default independent of viewport height, unlike the old vh-based
-      // clamp() that made the chart towering in portrait and squashed in
-      // landscape.
-      const savedHeight = parseInt(localStorage.getItem('slr-year-chart-height'), 10);
-      const chartHeight = (Number.isFinite(savedHeight) && savedHeight >= 160 && savedHeight <= 700) ? savedHeight : 320;
+      const chartHeight = getChartHeight('slr-year-chart-height');
 
       return `
-        <div class="viz-year-chart-block">
+        <div class="viz-resizable-chart-block">
           <div class="viz-col-chart-wrap${showLegend ? '' : ' legend-hidden'}">
             <div class="viz-col-chart">
               <div class="viz-col-counts">${counts}</div>
@@ -2801,19 +3012,33 @@ window.SLRViews = (() => {
         s.queries++;
         s.records += records;
       }
-      const sourcesHTML = [...sourceStats.entries()].map(([key, s]) => `
-        <span class="badge badge-source badge-source-${esc(key)} prisma-source-chip" data-source-key="${esc(key)}" role="button" tabindex="0" title="Show ${esc(s.label)} queries">
-          ${esc(s.label)} <strong>${s.queries}</strong> quer${s.queries === 1 ? 'y' : 'ies'} &middot; ${s.records.toLocaleString()} records
-        </span>`).join('');
+      // Rendered as its own row of small cards feeding into the Identification
+      // box below \u2014 same .prisma-box look as the main stages, just narrower \u2014
+      // instead of the old badge-chip row that used to sit under that box.
+      const sourceBoxesHTML = [...sourceStats.entries()].map(([key, s]) => {
+        const color = DB_COLORS[key] || '#888';
+        return `
+        <div class="prisma-box prisma-box-source prisma-box-clickable prisma-source-chip" data-source-key="${esc(key)}" style="border-left-color:${color}" tabindex="0" role="button" aria-label="View ${esc(s.label)} queries">
+          <div class="prisma-box-stage">${esc(s.label)}</div>
+          <div class="prisma-box-body">
+            <span class="prisma-box-n">${s.records.toLocaleString()}</span>
+            <div class="prisma-box-text">
+              <span class="prisma-box-desc">record${s.records === 1 ? '' : 's'} identified</span>
+              <span class="prisma-box-meta">${s.queries} quer${s.queries === 1 ? 'y' : 'ies'}</span>
+            </div>
+          </div>
+          <div class="prisma-pbar"><div class="prisma-pbar-fill" style="width:${relPct(s.records, nRaw)}%;background:${color}"></div></div>
+        </div>`;
+      }).join('');
 
       return `
         <div class="prisma-wrap">
           <div class="prisma-steps">
+            ${sourceBoxesHTML ? `<div class="prisma-sources-row">${sourceBoxesHTML}</div><div class="prisma-sources-connector"></div>` : ''}
             ${mkBox('identification', 'Identification', nRaw,
               'Records identified from database searches',
               `${nQueries} search quer${nQueries===1?'y':'ies'} \u00b7 starting point`,
               '#64A8FF', 100)}
-            ${sourcesHTML ? `<div class="prisma-sources">${sourcesHTML}</div>` : ''}
             ${mkConn('duplicates', nDups,  'Records removed before screening', 'Duplicates removed (same EID or DOI across queries)')}
             ${mkBox('screening', 'Screening', nDedup,
               'Records screened after deduplication',
@@ -2881,32 +3106,33 @@ window.SLRViews = (() => {
       let showLegend     = true;
       let showNone       = true;
 
-    // Lets the year chart's bar height be dragged instead of being locked to
-    // a viewport-height-derived clamp() (the old source of portrait being
-    // towering and landscape being squashed). Persists across renders/views.
-    const YEAR_CHART_MIN_H = 160, YEAR_CHART_MAX_H = 700;
-    const wireYearChartResize = (el) => {
-      const handle   = el.querySelector('#viz-year-resize-handle');
-      const barsArea = el.querySelector('#viz-year-bars-area');
-      if (!handle || !barsArea) return;
+    // Lets a chart's height be dragged instead of being locked to a fixed or
+    // viewport-derived value (the old source of portrait being towering and
+    // landscape being squashed). Shared by every resizable chart (bars,
+    // doughnut, year) — each just passes its own handle/area ids and
+    // localStorage key so their heights persist independently.
+    const wireChartResize = (el, { handleId, areaId, storageKey }) => {
+      const handle = el.querySelector('#' + handleId);
+      const area   = el.querySelector('#' + areaId);
+      if (!handle || !area) return;
       let dragging = false, startY = 0, startH = 0;
       handle.addEventListener('pointerdown', ev => {
         dragging = true;
         startY = ev.clientY;
-        startH = barsArea.getBoundingClientRect().height;
+        startH = area.getBoundingClientRect().height;
         handle.classList.add('is-dragging');
         handle.setPointerCapture(ev.pointerId);
       });
       handle.addEventListener('pointermove', ev => {
         if (!dragging) return;
-        const newH = Math.max(YEAR_CHART_MIN_H, Math.min(YEAR_CHART_MAX_H, startH + (ev.clientY - startY)));
-        barsArea.style.height = newH + 'px';
+        const newH = Math.max(CHART_HEIGHT_MIN, Math.min(CHART_HEIGHT_MAX, startH + (ev.clientY - startY)));
+        area.style.height = newH + 'px';
       });
       const endDrag = ev => {
         if (!dragging) return;
         dragging = false;
         handle.classList.remove('is-dragging');
-        localStorage.setItem('slr-year-chart-height', String(Math.round(barsArea.getBoundingClientRect().height)));
+        localStorage.setItem(storageKey, String(Math.round(area.getBoundingClientRect().height)));
         if (ev && handle.releasePointerCapture && ev.pointerId != null) {
           try { handle.releasePointerCapture(ev.pointerId); } catch (_) { /* noop */ }
         }
@@ -2929,6 +3155,7 @@ window.SLRViews = (() => {
         };
         segs.forEach((s, i)  => { s.addEventListener('mouseenter', () => activate(i)); s.addEventListener('mouseleave', reset); });
         items.forEach((li, i) => { li.addEventListener('mouseenter', () => activate(i)); li.addEventListener('mouseleave', reset); });
+        wireChartResize(el, { handleId: 'viz-doughnut-resize-handle', areaId: 'viz-doughnut-area', storageKey: 'slr-doughnut-chart-height' });
       }
       if (chartType === 'year') {
         const segs  = [...el.querySelectorAll('.viz-col-seg[data-tag-key]')];
@@ -2943,7 +3170,7 @@ window.SLRViews = (() => {
         };
         segs.forEach(s   => { s.addEventListener('mouseenter', () => activate(s.dataset.tagKey)); s.addEventListener('mouseleave', reset); });
         items.forEach(li => { li.addEventListener('mouseenter', () => activate(li.dataset.tagKey)); li.addEventListener('mouseleave', reset); });
-        wireYearChartResize(el);
+        wireChartResize(el, { handleId: 'viz-year-resize-handle', areaId: 'viz-year-bars-area', storageKey: 'slr-year-chart-height' });
       }
       if (chartType === 'world') {
         const countries = [...el.querySelectorAll('.viz-world-country-has-data[data-country-key]')];
@@ -3020,6 +3247,7 @@ window.SLRViews = (() => {
         const activate = (i) => rows.forEach((r, j) => r.classList.toggle('viz-row-dim', j !== i));
         const reset = () => rows.forEach(r => r.classList.remove('viz-row-dim'));
         rows.forEach((r, i) => { r.addEventListener('mouseenter', () => activate(i)); r.addEventListener('mouseleave', reset); });
+        wireChartResize(el, { handleId: 'viz-bars-resize-handle', areaId: 'viz-bars-area', storageKey: 'slr-bars-chart-height' });
       }
       if (chartType === 'prisma') {
         const overlay = document.getElementById('modal-overlay');
