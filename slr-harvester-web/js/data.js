@@ -40,6 +40,7 @@ window.SLRData = (() => {
   // just forward the call to whichever one is currently active.
   const FORWARDED_METHODS = [
     'hasWorkspace', 'openFolder', 'restoreFolder', 'restoreSession', 'loadProjects', 'saveProjectMeta',
+    'saveProjectIcon',
     'loadConfig', 'saveConfig', 'loadProjectData', 'appendSearchResult',
     'deleteSearchResult', 'setSearchResultStatus', 'patchSearchLogAbstracts', 'patchSearchLogDocTypes',
     'patchSearchLogAuthors', 'patchSearchLogAffiliations', 'saveQueryTerms',

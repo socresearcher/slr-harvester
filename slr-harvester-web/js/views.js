@@ -4990,6 +4990,102 @@ window.SLRViews = (() => {
     });
   }
 
+  //  Auto-Tag Rules view
+
+  // User-level (not per-project) editor for the keyword rules Auto-tag (in
+  // Articles) matches journal names/titles/abstracts against. Built-in
+  // categories/keywords (JOURNAL_TAG_RULES in app.js) are shown read-only;
+  // a user can only ADD keywords on top of them, never edit/remove a
+  // built-in one — "reset" clears every addition, restoring pure defaults.
+  function renderAutoTagRules(container, categories, customKeywords, folderName) {
+    if (!folderName) {
+      container.innerHTML = `
+        <div class="autotag-view">
+          <div class="no-project-notice">
+            <p>Connect a workspace (open a local folder, or sign in to Cloud Sync) to manage Auto-Tag Rules — these keyword additions apply across every project in your workspace/account, not just one.</p>
+            <button class="btn-secondary" data-action="goto-projects">${SLRIcons.projects} Go to Projects</button>
+          </div>
+        </div>`;
+      return;
+    }
+
+    const custom = customKeywords || {};
+    const totalCustom = Object.values(custom).reduce((sum, arr) => sum + (Array.isArray(arr) ? arr.length : 0), 0);
+
+    const cardsHTML = categories.map(cat => {
+      const hex   = (SLRData.DEFAULT_TAGS_CONFIG && SLRData.DEFAULT_TAGS_CONFIG[cat.color]) || '#888';
+      const extra = Array.isArray(custom[cat.tag]) ? custom[cat.tag] : [];
+
+      const defaultChips = cat.defaultKeywords.map(kw =>
+        `<span class="autotag-kw-chip autotag-kw-chip--default" title="Built-in keyword — not editable here">${esc(kw)}</span>`
+      ).join('');
+      const customChips = extra.map(kw => `
+        <span class="autotag-kw-chip autotag-kw-chip--custom">
+          ${esc(kw)}
+          <button type="button" class="autotag-kw-remove" data-remove-tag="${esc(cat.tag)}" data-remove-kw="${esc(kw)}" title="Remove this keyword" aria-label="Remove keyword ${esc(kw)}">${SLRIcons.close}</button>
+        </span>`).join('');
+
+      return `
+        <div class="autotag-card">
+          <div class="autotag-card-header">
+            <span class="autotag-card-swatch" style="background:${esc(hex)}"></span>
+            <span class="autotag-card-name">${esc(cat.tag)}</span>
+            <span class="autotag-card-count">${cat.defaultKeywords.length} built-in${extra.length ? ` + ${extra.length} custom` : ''}</span>
+          </div>
+          <div class="autotag-kw-list">${defaultChips}${customChips}</div>
+          <div class="autotag-add-row">
+            <input type="text" class="autotag-add-input" data-tag="${esc(cat.tag)}" placeholder="Add a keyword or phrase…" maxlength="60">
+            <button type="button" class="btn-secondary btn-sm autotag-add-btn" data-tag="${esc(cat.tag)}">${SLRIcons.plus} Add</button>
+          </div>
+        </div>`;
+    }).join('');
+
+    container.innerHTML = `
+      <div class="autotag-view">
+        <div class="tags-header">
+          <div class="tags-summary">
+            ${SLRIcons.wand}
+            <span>${categories.length} built-in categories &mdash; ${totalCustom} custom keyword${totalCustom !== 1 ? 's' : ''} added</span>
+          </div>
+          <button class="btn-secondary" id="autotag-reset-btn" ${totalCustom === 0 ? 'disabled' : ''}>${SLRIcons.refresh} Reset to Defaults</button>
+        </div>
+
+        <div class="tags-auto-note">
+          ${SLRIcons.info}
+          <span>Auto-tag (in Articles) scores each article's journal name, title, and abstract against these keyword rules and assigns the highest-scoring category. Built-in keywords (dimmed) can't be changed here, but you can add your own on top of any category — additions apply the next time you run Auto-tag, in every project. Turn whole categories on/off per project from Settings &rarr; Auto-tag disciplines.</span>
+        </div>
+
+        <div class="autotag-grid">${cardsHTML}</div>
+      </div>`;
+
+    container.querySelector('#autotag-reset-btn')?.addEventListener('click', () => {
+      SLRApp.resetAutoTagCustomKeywords();
+    });
+
+    const submitKeyword = tag => {
+      const input = container.querySelector(`.autotag-add-input[data-tag="${CSS.escape(tag)}"]`);
+      const val = input ? input.value.trim() : '';
+      if (!val) return;
+      SLRApp.addAutoTagKeyword(tag, val);
+    };
+
+    container.querySelectorAll('.autotag-add-btn').forEach(btn => {
+      btn.addEventListener('click', () => submitKeyword(btn.dataset.tag));
+    });
+    container.querySelectorAll('.autotag-add-input').forEach(input => {
+      input.addEventListener('keydown', e => {
+        if (e.key !== 'Enter') return;
+        e.preventDefault();
+        submitKeyword(input.dataset.tag);
+      });
+    });
+    container.querySelectorAll('.autotag-kw-remove').forEach(btn => {
+      btn.addEventListener('click', () => {
+        SLRApp.removeAutoTagKeyword(btn.dataset.removeTag, btn.dataset.removeKw);
+      });
+    });
+  }
+
   //  Generic read-only list modal — used by the PRISMA diagram to show which
   //  records sit behind a given box/connector (duplicates, excluded records,
   //  search queries) without needing a dedicated view for each.
@@ -5251,6 +5347,7 @@ window.SLRViews = (() => {
     renderAbout,
     renderPrivacy,
     renderTags,
+    renderAutoTagRules,
     renderNewProjectModal,
     renderSupabaseAuthModal,
   };
