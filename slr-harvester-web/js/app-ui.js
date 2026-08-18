@@ -85,7 +85,7 @@ window.SLRAppUI = (() => {
       articles: 'Articles',
       selected: 'Selected',
       corpus: 'Corpus',
-      visualizations: 'Visualizations',
+      visualizations: 'Visualisations',
       tags: 'Tags',
       'autotag-rules': 'Auto-Tag Rules',
       settings: 'Settings',

@@ -979,6 +979,17 @@ window.SLRViews = (() => {
     const totalCorpus   = articles.filter(a => a.corpus).length;
     const totalTagged   = new Set(articles.filter(a => a.color && a.color !== 'None').map(a => a.color)).size;
 
+    // Only the first page's worth of matches become real DOM — with
+    // thousands of articles, mounting every one of them at once (each with
+    // its own swipe wrapper and half a dozen badges) was the app's biggest
+    // source of render/scroll jank. More of `filtered` loads in as the user
+    // scrolls near the bottom (wireInfiniteScroll below); the "Showing N of
+    // M" stats further down still describe the full filtered set, not just
+    // what's currently mounted.
+    const renderLimit = filter.renderLimit || 200;
+    const visible = filtered.slice(0, renderLimit);
+    const hasMore = visible.length < filtered.length;
+
     // Build article HTML
     const listHTML = !projectData
       ? renderNoProjectNotice()
@@ -987,7 +998,7 @@ window.SLRViews = (() => {
            ${SLRIcons.articles}
            <p>No articles match the current filters.</p>
          </div>`
-      : filtered.map(a => articleItemHTML(a, projectData)).join('');
+      : visible.map(a => articleItemHTML(a, projectData)).join('');
 
     container.innerHTML = `
       <div class="articles-view">
@@ -1060,6 +1071,7 @@ window.SLRViews = (() => {
     wireArticleActions(container.querySelector('#article-list'), projectData);
     wireArticleSwipeGestures(container.querySelector('#article-list'), projectData, 'all');
     wireListHeaderCollapse(container, container.querySelector('#article-list'));
+    wireInfiniteScroll(container.querySelector('#article-list'), hasMore, () => SLRApp.bumpArticlesRenderLimit());
   }
 
   function articleItemHTML(a, projectData) {
@@ -1189,15 +1201,6 @@ window.SLRViews = (() => {
              data-selected="${a.selected ? 'true' : 'false'}"
              data-corpus="${a.corpus ? 'true' : 'false'}">
           <div class="article-item-header">
-            <div class="article-main">
-              <div class="article-title">${esc(a.title)}</div>
-              <div class="article-meta">
-                ${a.authors ? `<span>${esc(a.authors)}</span><span class="meta-sep">&middot;</span>` : ''}
-                ${a.publicationName ? `<span>${esc(a.publicationName)}</span><span class="meta-sep">&middot;</span>` : ''}
-                ${year ? `<span>${esc(year)}</span><span class="meta-sep">&middot;</span>` : ''}
-                <span>${a.citedby || 0} cited</span>
-              </div>
-            </div>
             <div class="article-badges">
               <div class="article-badges-row">
                 ${sourceBadge}
@@ -1209,6 +1212,15 @@ window.SLRViews = (() => {
                         title="${tagName ? 'Change tag: ' + tagName : 'Set tag'}">
                   ${tagName ? `<span class="tag-dot" ${hex ? `style="background:${esc(hex)}"` : ''}></span>${esc(tagName)}` : `<span class="tag-dot tag-dot-empty"></span>No tag`}
                 </button>
+              </div>
+            </div>
+            <div class="article-main">
+              <div class="article-title">${esc(a.title)}</div>
+              <div class="article-meta">
+                ${a.authors ? `<span>${esc(a.authors)}</span><span class="meta-sep">&middot;</span>` : ''}
+                ${a.publicationName ? `<span>${esc(a.publicationName)}</span><span class="meta-sep">&middot;</span>` : ''}
+                ${year ? `<span>${esc(year)}</span><span class="meta-sep">&middot;</span>` : ''}
+                <span>${a.citedby || 0} cited</span>
               </div>
             </div>
           </div>
@@ -1347,61 +1359,76 @@ window.SLRViews = (() => {
       }
     });
 
-    listEl.querySelectorAll('.article-item-swipe').forEach(swipeEl => {
-      const card   = swipeEl.querySelector('.article-item');
-      const header = swipeEl.querySelector('.article-item-header');
-      if (!card || !header) return;
+    // Delegated to listEl itself instead of one set of listeners per
+    // article card — at large list sizes (thousands of articles), binding
+    // 4 listeners per card on every render was the single biggest render
+    // cost in the app. Only one touch gesture can ever be in progress at
+    // once, so a single "active drag" record here does the same job every
+    // one of those per-item closures used to. Each card's open/closed
+    // state (needed so a second swipe starting from an already-revealed
+    // position computes the right baseX) persists across separate gestures
+    // via a data attribute on the card instead of a closure variable.
+    const setX = (card, x, animate) => {
+      card.style.transition = animate ? 'transform .2s ease' : 'none';
+      card.style.transform = x ? `translateX(${x}px)` : '';
+    };
+
+    let active = null;
+
+    listEl.addEventListener('pointerdown', e => {
+      if (e.pointerType !== 'touch') return;
+      const header = e.target.closest('.article-item-header');
+      if (!header) return;
+      const swipeEl = header.closest('.article-item-swipe');
+      const card = swipeEl ? swipeEl.querySelector('.article-item') : null;
+      if (!swipeEl || !card) return;
       const hasLeft  = !!swipeEl.querySelector('.article-swipe-reveal-left');
       const hasRight = !!swipeEl.querySelector('.article-swipe-reveal-right');
       if (!hasLeft && !hasRight) return;
-      let startX = null, startY = 0, baseX = 0, dx = 0, dragging = false, openDir = 0;
-
-      const setX = (x, animate) => {
-        card.style.transition = animate ? 'transform .2s ease' : 'none';
-        card.style.transform = x ? `translateX(${x}px)` : '';
+      const openDir = Number(swipeEl.dataset.openDir) || 0;
+      active = {
+        swipeEl, card, header, hasLeft, hasRight, openDir,
+        pointerId: e.pointerId,
+        startX: e.clientX, startY: e.clientY,
+        baseX: openDir === -1 ? -REVEAL : openDir === 1 ? REVEAL : 0,
+        dx: 0, dragging: false,
       };
-
-      header.addEventListener('pointerdown', e => {
-        if (e.pointerType !== 'touch') return;
-        startX = e.clientX;
-        startY = e.clientY;
-        dragging = false;
-        baseX = openDir === -1 ? -REVEAL : openDir === 1 ? REVEAL : 0;
-      });
-
-      header.addEventListener('pointermove', e => {
-        if (e.pointerType !== 'touch' || startX === null) return;
-        const rawDx = e.clientX - startX;
-        if (!dragging) {
-          if (Math.abs(rawDx) < 8 || Math.abs(rawDx) < Math.abs(e.clientY - startY)) return;
-          dragging = true;
-          try { header.setPointerCapture(e.pointerId); } catch (_) { /* ignore */ }
-        }
-        const minX = hasLeft ? -REVEAL : 0;
-        const maxX = hasRight ? REVEAL : 0;
-        dx = Math.max(minX, Math.min(maxX, baseX + rawDx));
-        setX(dx, false);
-        e.preventDefault();
-      });
-
-      const finish = () => {
-        if (dragging) {
-          if (dx <= -THRESHOLD && hasLeft) { setX(-REVEAL, true); openDir = -1; }
-          else if (dx >= THRESHOLD && hasRight) { setX(REVEAL, true); openDir = 1; }
-          else { setX(0, true); openDir = 0; }
-          swipeEl.dataset.suppressClick = '1';
-        } else if (openDir !== 0 && startX !== null) {
-          setX(0, true);
-          openDir = 0;
-          swipeEl.dataset.suppressClick = '1';
-        }
-        startX = null;
-        dragging = false;
-      };
-
-      header.addEventListener('pointerup', finish);
-      header.addEventListener('pointercancel', finish);
     });
+
+    listEl.addEventListener('pointermove', e => {
+      if (!active || e.pointerType !== 'touch' || e.pointerId !== active.pointerId) return;
+      const rawDx = e.clientX - active.startX;
+      if (!active.dragging) {
+        if (Math.abs(rawDx) < 8 || Math.abs(rawDx) < Math.abs(e.clientY - active.startY)) return;
+        active.dragging = true;
+        try { active.header.setPointerCapture(e.pointerId); } catch (_) { /* ignore */ }
+      }
+      const minX = active.hasLeft ? -REVEAL : 0;
+      const maxX = active.hasRight ? REVEAL : 0;
+      active.dx = Math.max(minX, Math.min(maxX, active.baseX + rawDx));
+      setX(active.card, active.dx, false);
+      e.preventDefault();
+    });
+
+    const finishSwipe = e => {
+      if (!active || (e && e.pointerId !== active.pointerId)) return;
+      const { swipeEl, card, hasLeft, hasRight, dx, dragging, openDir } = active;
+      if (dragging) {
+        let newDir = 0;
+        if (dx <= -THRESHOLD && hasLeft) { setX(card, -REVEAL, true); newDir = -1; }
+        else if (dx >= THRESHOLD && hasRight) { setX(card, REVEAL, true); newDir = 1; }
+        else { setX(card, 0, true); newDir = 0; }
+        swipeEl.dataset.openDir = String(newDir);
+        swipeEl.dataset.suppressClick = '1';
+      } else if (openDir !== 0) {
+        setX(card, 0, true);
+        swipeEl.dataset.openDir = '0';
+        swipeEl.dataset.suppressClick = '1';
+      }
+      active = null;
+    };
+    listEl.addEventListener('pointerup', finishSwipe);
+    listEl.addEventListener('pointercancel', finishSwipe);
   }
 
   // Hides the stats banner / toolbar / search row above an article list
@@ -1423,6 +1450,25 @@ window.SLRViews = (() => {
       else if (delta > 6) wrap.classList.add('is-collapsed');
       else if (delta < -6) wrap.classList.remove('is-collapsed');
       lastTop = top;
+    }, { passive: true });
+  }
+
+  // Grows a paginated article list's render limit (see ARTICLE_PAGE_SIZE /
+  // filter.renderLimit in app.js) once the user scrolls within one
+  // viewport-height of the bottom, so a huge filtered list still feels
+  // like an ordinary scroll instead of hitting a hard wall at page 1.
+  // `onBumpLimit` triggers a full re-render with a larger slice; the fresh
+  // #list element that produces gets its own fresh listener/flag next
+  // time this runs, so there's nothing to reset here after firing once.
+  function wireInfiniteScroll(listEl, hasMore, onBumpLimit) {
+    if (!listEl || !hasMore) return;
+    let firedAlready = false;
+    listEl.addEventListener('scroll', () => {
+      if (firedAlready) return;
+      const distanceToBottom = listEl.scrollHeight - listEl.scrollTop - listEl.clientHeight;
+      if (distanceToBottom > listEl.clientHeight) return;
+      firedAlready = true;
+      onBumpLimit();
     }, { passive: true });
   }
 
@@ -2290,11 +2336,14 @@ window.SLRViews = (() => {
     const stats          = SLRData.getStats(corpusArticles);
 
     const filtered = applyFilter(corpusArticles, Object.assign({}, filter, { mode: 'corpus' }), projectData);
+    const renderLimit = filter.renderLimit || 200;
+    const visible = filtered.slice(0, renderLimit);
+    const hasMore = visible.length < filtered.length;
     const listHTML = !projectData
       ? renderNoProjectNotice()
       : filtered.length === 0
       ? `<div class="article-list-empty">${SLRIcons.corpus}<p>No corpus articles match the current filters.</p></div>`
-      : filtered.map(a => articleItemHTML(a, projectData)).join('');
+      : visible.map(a => articleItemHTML(a, projectData)).join('');
 
     container.innerHTML = `
       <div class="articles-view">
@@ -2359,6 +2408,7 @@ window.SLRViews = (() => {
     wireArticleActions(container.querySelector('#corpus-list'), projectData);
     wireArticleSwipeGestures(container.querySelector('#corpus-list'), projectData, 'corpus');
     wireListHeaderCollapse(container, container.querySelector('#corpus-list'));
+    wireInfiniteScroll(container.querySelector('#corpus-list'), hasMore, () => SLRApp.bumpCorpusRenderLimit());
   }
 
   //  Selected view 
@@ -2368,11 +2418,14 @@ window.SLRViews = (() => {
     const stats = SLRData.getStats(selectedArticles);
 
     const filtered = applyFilter(selectedArticles, Object.assign({}, filter, { mode: 'selected' }), projectData);
+    const renderLimit = filter.renderLimit || 200;
+    const visible = filtered.slice(0, renderLimit);
+    const hasMore = visible.length < filtered.length;
     const listHTML = !projectData
       ? renderNoProjectNotice()
       : filtered.length === 0
       ? `<div class="article-list-empty">${SLRIcons.selected}<p>No selected articles match the current filters.</p></div>`
-      : filtered.map(a => articleItemHTML(a, projectData)).join('');
+      : visible.map(a => articleItemHTML(a, projectData)).join('');
 
     container.innerHTML = `
       <div class="articles-view">
@@ -2438,6 +2491,7 @@ window.SLRViews = (() => {
     wireArticleActions(container.querySelector('#selected-list'), projectData);
     wireArticleSwipeGestures(container.querySelector('#selected-list'), projectData, 'selected');
     wireListHeaderCollapse(container, container.querySelector('#selected-list'));
+    wireInfiniteScroll(container.querySelector('#selected-list'), hasMore, () => SLRApp.bumpSelectedRenderLimit());
   }
 
   //  Visualizations view 
@@ -3372,7 +3426,7 @@ window.SLRViews = (() => {
       const noneSupported    = currentChart === 'doughnut' || currentChart === 'year' || currentChart === 'bars';
       const groupBySupported = currentChart === 'doughnut' || currentChart === 'year' || currentChart === 'bars';
       // Update heading to reflect active chart
-      if (titleEl) titleEl.textContent = CHART_TITLES[currentChart] || 'Visualizations';
+      if (titleEl) titleEl.textContent = CHART_TITLES[currentChart] || 'Visualisations';
       // Mode tabs are always visible; dim them when irrelevant (PRISMA doesn't use mode)
       if (modeTabs) modeTabs.style.opacity = currentChart === 'prisma' ? '0.35' : '';
       if (modeTabs) modeTabs.style.pointerEvents = currentChart === 'prisma' ? 'none' : '';
@@ -3439,7 +3493,7 @@ window.SLRViews = (() => {
       const btn = container.querySelector('#viz-export-btn');
       if (btn) btn.disabled = true;
       try {
-        await exportVizAsPNG(el, CHART_TITLES[currentChart] || 'visualization', currentChart);
+        await exportVizAsPNG(el, CHART_TITLES[currentChart] || 'visualisation', currentChart);
       } catch (err) {
         if (typeof SLRApp !== 'undefined' && SLRApp.showToast) {
           SLRApp.showToast('Export failed: ' + (err.message || String(err)), true);
@@ -3493,7 +3547,7 @@ window.SLRViews = (() => {
       note: 'Literature discovery, citation mapping, and AI-assisted research tools.',
       items: [
         { label: 'Elicit',           abbr: 'El', color: '#7C4DFF', url: 'https://elicit.com',                   desc: 'AI assistant for research workflows' },
-        { label: 'Litmaps',          abbr: 'Lm', color: '#00897B', url: 'https://www.litmaps.com',              desc: 'Citation-network visualization tool' },
+        { label: 'Litmaps',          abbr: 'Lm', color: '#00897B', url: 'https://www.litmaps.com',              desc: 'Citation-network visualisation tool' },
         { label: 'Connected Papers', abbr: 'CP', color: '#2D7DD2', url: 'https://www.connectedpapers.com',      desc: 'Graph view of related papers' },
       ],
     },
@@ -4647,10 +4701,10 @@ window.SLRViews = (() => {
             <li><span class="about-li-icon" aria-hidden="true">${SLRIcons.databases}</span><span><strong>Multi-database search</strong> &mdash; Scopus, PubMed and OpenAlex integrated directly in the Search view</span></li>
             <li><span class="about-li-icon" aria-hidden="true">${SLRIcons.refresh}</span><span><strong>Data enrichment via Crossref</strong> &mdash; fetch missing abstracts, full author lists and document types by DOI</span></li>
             <li><span class="about-li-icon" aria-hidden="true">${SLRIcons.search}</span><span><strong>Advanced article-list search</strong> &mdash; use semicolon-separated terms for AND logic (e.g., <code>companion; ethnography</code>) across title, abstract and journal fields</span></li>
-            <li><span class="about-li-icon" aria-hidden="true">${SLRIcons.palette}</span><span><strong>Color scheme engine</strong> &mdash; 17 built-in palettes plus cycling monochrome; applied directly to your project's tag colors</span></li>
+            <li><span class="about-li-icon" aria-hidden="true">${SLRIcons.palette}</span><span><strong>Colour scheme engine</strong> &mdash; 17 built-in palettes plus cycling monochrome; applied directly to your project's tag colours</span></li>
             <li><span class="about-li-icon" aria-hidden="true">${SLRIcons.tag}</span><span><strong>Tag aliasing</strong> &mdash; map multiple tag names to one canonical label for unified filtering</span></li>
             <li><span class="about-li-icon" aria-hidden="true">${SLRIcons.corpus}</span><span><strong>Corpus &amp; Selected screening</strong> &mdash; two-stage inclusion workflow, identical to the desktop app</span></li>
-            <li><span class="about-li-icon" aria-hidden="true">${SLRIcons.chart}</span><span><strong>Visualizations</strong> &mdash; year distribution, tag distribution and selection funnel charts (Canvas, no libraries)</span></li>
+            <li><span class="about-li-icon" aria-hidden="true">${SLRIcons.chart}</span><span><strong>Visualisations</strong> &mdash; year distribution, tag distribution and selection funnel charts (Canvas, no libraries)</span></li>
             <li><span class="about-li-icon" aria-hidden="true">${SLRIcons.history}</span><span><strong>Query history panel</strong> &mdash; browse past searches with full result counts and article previews</span></li>
             <li><span class="about-li-icon" aria-hidden="true">${SLRIcons.check}</span><span><strong>Zero-dependency</strong> &mdash; no frameworks, no build step, no CDN. Opens as a plain HTML file.</span></li>
             <li><span class="about-li-icon" aria-hidden="true">${SLRIcons.sun}</span><span><strong>Dark &amp; light theme</strong> &mdash; persisted in <code>localStorage</code>, full CSS custom property design system</span></li>
@@ -4667,7 +4721,7 @@ window.SLRViews = (() => {
             <li><span class="about-li-icon" aria-hidden="true">${SLRIcons.search}</span><span>Scopus search with full field-code query builder</span></li>
             <li><span class="about-li-icon" aria-hidden="true">${SLRIcons.folder}</span><span>Project-based storage (JSON files, identical format)</span></li>
             <li><span class="about-li-icon" aria-hidden="true">${SLRIcons.selected}</span><span>Two-stage inclusion: Selected &rarr; Corpus, with per-article comments</span></li>
-            <li><span class="about-li-icon" aria-hidden="true">${SLRIcons.tag}</span><span>Tag management and color assignment</span></li>
+            <li><span class="about-li-icon" aria-hidden="true">${SLRIcons.tag}</span><span>Tag management and colour assignment</span></li>
             <li><span class="about-li-icon" aria-hidden="true">${SLRIcons.externalLink}</span><span>Export to <code>.bib</code>, <code>.ris</code>, <code>.csv</code></span></li>
             <li><span class="about-li-icon" aria-hidden="true">${SLRIcons.chart}</span><span>Charts as <code>.png</code> via Matplotlib</span></li>
             <li><span class="about-li-icon" aria-hidden="true">${SLRIcons.warning}</span><span>Requires Python 3.10+ and institutional Scopus API key</span></li>
@@ -4750,7 +4804,7 @@ window.SLRViews = (() => {
         <div class="settings-section">
           <h3>Version &amp; License</h3>
           <p style="font-size:13px;color:var(--text-muted)">SLR Harvester Web &mdash; 2026</p>
-          <p style="font-size:12px;color:var(--text-faint);margin-top:4px">&copy; 2026 Gregor Hobersdorfer &mdash; All rights reserved. Non-commercial use permitted with attribution.</p>
+          <p style="font-size:12px;color:var(--text-muted);margin-top:4px">&copy; 2026 Gregor Hobersdorfer &mdash; All rights reserved. Non-commercial use permitted with attribution.</p>
         </div>
       </div>`;
     const gotoBtn = container.querySelector('#about-goto-settings');
@@ -4808,7 +4862,7 @@ window.SLRViews = (() => {
       const count = countMap[colorKey] || 0;
       return `
         <div class="tag-card" data-colorkey="${esc(colorKey)}">
-          <div class="tag-card-swatch-wrap" title="Click to change color">
+          <div class="tag-card-swatch-wrap" title="Click to change colour">
             <div class="tag-card-swatch" style="background:${esc(hex)}"></div>
             <input type="color" class="tag-swatch-picker" value="${esc(hex)}" data-colorkey="${esc(colorKey)}">
           </div>
@@ -4905,9 +4959,9 @@ window.SLRViews = (() => {
         </div>
 
         <div class="tags-section">
-          <h3>Color Schemes</h3>
+          <h3>Colour Schemes</h3>
           <div class="scheme-panel">
-            <p class="scheme-panel-intro">Apply a preset color scheme to all existing tags at once.</p>
+            <p class="scheme-panel-intro">Apply a preset colour scheme to all existing tags at once.</p>
             <div class="scheme-grid">${schemeBtnsHTML}</div>
           </div>
         </div>
@@ -4993,49 +5047,71 @@ window.SLRViews = (() => {
   //  Auto-Tag Rules view
 
   // User-level (not per-project) editor for the keyword rules Auto-tag (in
-  // Articles) matches journal names/titles/abstracts against. Built-in
-  // categories/keywords (JOURNAL_TAG_RULES in app.js) are shown read-only;
-  // a user can only ADD keywords on top of them, never edit/remove a
-  // built-in one — "reset" clears every addition, restoring pure defaults.
-  function renderAutoTagRules(container, categories, customKeywords, folderName) {
+  // Articles) matches journal names/titles/abstracts against. Every
+  // category — built-in or user-created — is fully editable: rename,
+  // recolor, delete, and add/remove individual keywords, mirroring the
+  // Tags view's own card interactions. "Reset to Defaults" discards the
+  // whole edited copy and goes back to the shipped rule set.
+  function renderAutoTagRules(container, rules, isCustomized, folderName) {
     if (!folderName) {
       container.innerHTML = `
         <div class="autotag-view">
           <div class="no-project-notice">
-            <p>Connect a workspace (open a local folder, or sign in to Cloud Sync) to manage Auto-Tag Rules — these keyword additions apply across every project in your workspace/account, not just one.</p>
+            <p>Connect a workspace (open a local folder, or sign in to Cloud Sync) to manage Auto-Tag Rules — these categories and keywords apply across every project in your workspace/account, not just one.</p>
             <button class="btn-secondary" data-action="goto-projects">${SLRIcons.projects} Go to Projects</button>
           </div>
         </div>`;
       return;
     }
 
-    const custom = customKeywords || {};
-    const totalCustom = Object.values(custom).reduce((sum, arr) => sum + (Array.isArray(arr) ? arr.length : 0), 0);
+    // Cross-category duplicates are worth flagging (an article can only end
+    // up in one category, so the same phrase pulling for two is a real
+    // ambiguity) but not worth blocking — the user may want the overlap.
+    const normKw = s => String(s || '').trim().toLowerCase();
+    const keywordOwners = new Map(); // normalized keyword -> Set<tag>
+    for (const rule of rules) {
+      for (const kw of rule.keywords) {
+        const key = normKw(kw);
+        if (!key) continue;
+        if (!keywordOwners.has(key)) keywordOwners.set(key, new Set());
+        keywordOwners.get(key).add(rule.tag);
+      }
+    }
 
-    const cardsHTML = categories.map(cat => {
-      const hex   = (SLRData.DEFAULT_TAGS_CONFIG && SLRData.DEFAULT_TAGS_CONFIG[cat.color]) || '#888';
-      const extra = Array.isArray(custom[cat.tag]) ? custom[cat.tag] : [];
+    const totalKeywords = rules.reduce((sum, r) => sum + r.keywords.length, 0);
 
-      const defaultChips = cat.defaultKeywords.map(kw =>
-        `<span class="autotag-kw-chip autotag-kw-chip--default" title="Built-in keyword — not editable here">${esc(kw)}</span>`
-      ).join('');
-      const customChips = extra.map(kw => `
-        <span class="autotag-kw-chip autotag-kw-chip--custom">
-          ${esc(kw)}
-          <button type="button" class="autotag-kw-remove" data-remove-tag="${esc(cat.tag)}" data-remove-kw="${esc(kw)}" title="Remove this keyword" aria-label="Remove keyword ${esc(kw)}">${SLRIcons.close}</button>
-        </span>`).join('');
+    const cardsHTML = rules.map(rule => {
+      const chipsHTML = rule.keywords.map(kw => {
+        const owners = keywordOwners.get(normKw(kw));
+        const otherTags = owners ? [...owners].filter(t => t !== rule.tag) : [];
+        const conflictCls = otherTags.length ? ' autotag-kw-chip--conflict' : '';
+        const conflictTitle = otherTags.length
+          ? `Also used by: ${otherTags.join(', ')} — the same phrase pulling toward two categories can make matches ambiguous`
+          : 'Remove this keyword';
+        return `
+          <span class="autotag-kw-chip${conflictCls}">
+            ${otherTags.length ? SLRIcons.warning : ''}
+            ${esc(kw)}
+            <button type="button" class="autotag-kw-remove" data-color="${esc(rule.color)}" data-kw="${esc(kw)}" title="${esc(conflictTitle)}" aria-label="Remove keyword ${esc(kw)}">${SLRIcons.close}</button>
+          </span>`;
+      }).join('');
 
       return `
-        <div class="autotag-card">
+        <div class="autotag-card" data-color="${esc(rule.color)}">
           <div class="autotag-card-header">
-            <span class="autotag-card-swatch" style="background:${esc(hex)}"></span>
-            <span class="autotag-card-name">${esc(cat.tag)}</span>
-            <span class="autotag-card-count">${cat.defaultKeywords.length} built-in${extra.length ? ` + ${extra.length} custom` : ''}</span>
+            <div class="autotag-card-swatch-wrap" title="Click to change colour">
+              <span class="autotag-card-swatch" style="background:${esc(rule.hex)}"></span>
+              <input type="color" class="autotag-swatch-picker" value="${esc(rule.hex)}" data-color="${esc(rule.color)}">
+            </div>
+            <span class="autotag-card-name" id="autotag-name-${esc(rule.color)}">${esc(rule.tag)}</span>
+            <span class="autotag-card-count">${rule.keywords.length} keyword${rule.keywords.length !== 1 ? 's' : ''}</span>
+            <button type="button" class="tag-card-btn" data-rename="${esc(rule.color)}" title="Rename category">${SLRIcons.pencil}</button>
+            <button type="button" class="tag-card-btn tag-card-delete-btn" data-delete="${esc(rule.color)}" title="Delete category">${SLRIcons.trash}</button>
           </div>
-          <div class="autotag-kw-list">${defaultChips}${customChips}</div>
+          <div class="autotag-kw-list">${chipsHTML || `<span class="autotag-kw-empty">No keywords yet.</span>`}</div>
           <div class="autotag-add-row">
-            <input type="text" class="autotag-add-input" data-tag="${esc(cat.tag)}" placeholder="Add a keyword or phrase…" maxlength="60">
-            <button type="button" class="btn-secondary btn-sm autotag-add-btn" data-tag="${esc(cat.tag)}">${SLRIcons.plus} Add</button>
+            <input type="text" class="autotag-add-input" data-color="${esc(rule.color)}" placeholder="Add a keyword or phrase…" maxlength="60">
+            <button type="button" class="btn-secondary btn-sm autotag-add-btn" data-color="${esc(rule.color)}">${SLRIcons.plus} Add</button>
           </div>
         </div>`;
     }).join('');
@@ -5045,43 +5121,112 @@ window.SLRViews = (() => {
         <div class="tags-header">
           <div class="tags-summary">
             ${SLRIcons.wand}
-            <span>${categories.length} built-in categories &mdash; ${totalCustom} custom keyword${totalCustom !== 1 ? 's' : ''} added</span>
+            <span>${rules.length} categor${rules.length !== 1 ? 'ies' : 'y'} &mdash; ${totalKeywords} keyword${totalKeywords !== 1 ? 's' : ''} total</span>
           </div>
-          <button class="btn-secondary" id="autotag-reset-btn" ${totalCustom === 0 ? 'disabled' : ''}>${SLRIcons.refresh} Reset to Defaults</button>
+          <div style="display:flex;gap:8px">
+            <button class="btn-secondary projects-add-btn tag-add-btn" id="autotag-add-category-open">${SLRIcons.plus} Add Category</button>
+            <button class="btn-secondary" id="autotag-reset-btn" ${isCustomized ? '' : 'disabled'}>${SLRIcons.refresh} Reset to Defaults</button>
+          </div>
         </div>
 
         <div class="tags-auto-note">
           ${SLRIcons.info}
-          <span>Auto-tag (in Articles) scores each article's journal name, title, and abstract against these keyword rules and assigns the highest-scoring category. Built-in keywords (dimmed) can't be changed here, but you can add your own on top of any category — additions apply the next time you run Auto-tag, in every project. Turn whole categories on/off per project from Settings &rarr; Auto-tag disciplines.</span>
+          <span>Auto-tag (in Articles) scores each article's journal name, title, and abstract against these keyword rules and assigns the highest-scoring category. Rename, recolour, delete, or add categories and keywords freely — changes apply across every project. Turn whole categories on/off per project from Settings &rarr; Auto-tag disciplines.</span>
+        </div>
+
+        <div class="tag-add-form" id="autotag-add-category-form" style="display:none">
+          <div class="tag-add-form-inner">
+            <input type="color" class="tag-color-input" id="autotag-new-color" value="#64A8FF">
+            <input type="text"  class="tag-name-input"  id="autotag-new-name" placeholder="Category name" maxlength="40">
+            <button class="btn-primary btn-sm" id="autotag-add-category-confirm">Add</button>
+            <button class="btn-secondary btn-sm" id="autotag-add-category-cancel">Cancel</button>
+          </div>
         </div>
 
         <div class="autotag-grid">${cardsHTML}</div>
       </div>`;
 
     container.querySelector('#autotag-reset-btn')?.addEventListener('click', () => {
-      SLRApp.resetAutoTagCustomKeywords();
+      SLRApp.resetAutoTagRules();
     });
 
-    const submitKeyword = tag => {
-      const input = container.querySelector(`.autotag-add-input[data-tag="${CSS.escape(tag)}"]`);
+    // Add category
+    container.querySelector('#autotag-add-category-open').addEventListener('click', () => {
+      const f = container.querySelector('#autotag-add-category-form');
+      f.style.display = f.style.display === 'none' ? '' : 'none';
+    });
+    container.querySelector('#autotag-add-category-cancel').addEventListener('click', () => {
+      container.querySelector('#autotag-add-category-form').style.display = 'none';
+    });
+    container.querySelector('#autotag-add-category-confirm').addEventListener('click', () => {
+      const hex  = container.querySelector('#autotag-new-color').value;
+      const name = container.querySelector('#autotag-new-name').value.trim();
+      if (!name) return;
+      SLRApp.addAutoTagCategory(name, hex);
+    });
+
+    // Recolor
+    container.querySelectorAll('.autotag-swatch-picker').forEach(picker => {
+      picker.addEventListener('input', () => {
+        const swatch = picker.previousElementSibling;
+        if (swatch) swatch.style.background = picker.value;
+      });
+      picker.addEventListener('change', () => {
+        SLRApp.recolorAutoTagCategory(picker.dataset.color, picker.value);
+      });
+    });
+
+    // Rename
+    container.querySelectorAll('[data-rename]').forEach(btn => {
+      btn.addEventListener('click', () => {
+        const color = btn.dataset.rename;
+        const nameEl = container.querySelector(`#autotag-name-${CSS.escape(color)}`);
+        if (!nameEl) return;
+        const current = nameEl.textContent;
+        nameEl.innerHTML = `<input class="tag-inline-input" value="${esc(current)}" maxlength="40">`;
+        const input = nameEl.querySelector('input');
+        input.focus();
+        input.select();
+        const commit = () => {
+          const newName = input.value.trim();
+          if (newName && newName !== current) SLRApp.renameAutoTagCategory(color, newName);
+          else renderAutoTagRules(container, rules, isCustomized, folderName);
+        };
+        input.addEventListener('blur', commit);
+        input.addEventListener('keydown', e => {
+          if (e.key === 'Enter') commit();
+          if (e.key === 'Escape') renderAutoTagRules(container, rules, isCustomized, folderName);
+        });
+      });
+    });
+
+    // Delete category
+    container.querySelectorAll('[data-delete]').forEach(btn => {
+      btn.addEventListener('click', () => {
+        SLRApp.deleteAutoTagCategory(btn.dataset.delete);
+      });
+    });
+
+    // Add/remove keywords
+    const submitKeyword = color => {
+      const input = container.querySelector(`.autotag-add-input[data-color="${CSS.escape(color)}"]`);
       const val = input ? input.value.trim() : '';
       if (!val) return;
-      SLRApp.addAutoTagKeyword(tag, val);
+      SLRApp.addAutoTagKeyword(color, val);
     };
-
     container.querySelectorAll('.autotag-add-btn').forEach(btn => {
-      btn.addEventListener('click', () => submitKeyword(btn.dataset.tag));
+      btn.addEventListener('click', () => submitKeyword(btn.dataset.color));
     });
     container.querySelectorAll('.autotag-add-input').forEach(input => {
       input.addEventListener('keydown', e => {
         if (e.key !== 'Enter') return;
         e.preventDefault();
-        submitKeyword(input.dataset.tag);
+        submitKeyword(input.dataset.color);
       });
     });
     container.querySelectorAll('.autotag-kw-remove').forEach(btn => {
       btn.addEventListener('click', () => {
-        SLRApp.removeAutoTagKeyword(btn.dataset.removeTag, btn.dataset.removeKw);
+        SLRApp.removeAutoTagKeyword(btn.dataset.color, btn.dataset.kw);
       });
     });
   }

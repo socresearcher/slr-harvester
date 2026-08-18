@@ -7,6 +7,15 @@
 
 window.SLRApp = (() => {
 
+	// How many article cards a single render puts into the DOM at once —
+	// large projects (thousands of articles) were visibly slow to render
+	// and scroll with every one of them mounted at once. filter.renderLimit/
+	// corpusFilter.renderLimit/selectedFilter.renderLimit (below) each start
+	// at this and grow by another page when the user scrolls near the
+	// bottom (see bumpArticlesRenderLimit and its siblings); any real filter
+	// change resets back to this via setFilter et al.
+	const ARTICLE_PAGE_SIZE = 200;
+
 	const state = {
 		view: 'welcome',
 		theme: localStorage.getItem('slr-theme') || 'dark',
@@ -31,6 +40,7 @@ window.SLRApp = (() => {
 			yearTo: '',
 			sort: 'newest',
 			search: '',
+			renderLimit: ARTICLE_PAGE_SIZE,
 		},
 
 		corpusFilter: {
@@ -39,6 +49,7 @@ window.SLRApp = (() => {
 			yearTo: '',
 			sort: 'newest',
 			search: '',
+			renderLimit: ARTICLE_PAGE_SIZE,
 		},
 
 		selectedFilter: {
@@ -47,6 +58,7 @@ window.SLRApp = (() => {
 			yearTo: '',
 			sort: 'newest',
 			search: '',
+			renderLimit: ARTICLE_PAGE_SIZE,
 		},
 
 		// Shared across Articles/Selected/Corpus (one preference, not per-view)
@@ -78,13 +90,20 @@ window.SLRApp = (() => {
 			})(),
 		},
 
-		// User-specific auto-tag keyword additions, layered on top of the
-		// built-in JOURNAL_TAG_RULES rather than replacing them: { [tagName]:
-		// string[] }. Persisted through SLRData.saveConfig alongside API keys
-		// (slr_config.json locally, the user_settings table on cloud), so it's
-		// shared across every project in the workspace/account, not per-project
-		// like tagsConfig/tagAliases. Hydrated in hydrateSettingsFromConfig.
-		autoTagCustomKeywords: {},
+		// User-editable override of the built-in JOURNAL_TAG_RULES: null means
+		// "use the shipped defaults verbatim, untouched"; once the user adds/
+		// renames/recolors/deletes a category or a keyword, this becomes a full
+		// array of { id, tag, color, hex, keywords } that entirely REPLACES
+		// JOURNAL_TAG_RULES for matching (see getEffectiveAutoTagRules) — a
+		// materialized copy the user can freely edit, not a diff on top of the
+		// defaults, so renaming/deleting a formerly-built-in category is just
+		// normal array editing. Persisted through SLRData.saveConfig alongside
+		// API keys (slr_config.json locally, user_settings.auto_tag_rules on
+		// cloud), so it's shared across every project in the workspace/account,
+		// not per-project like tagsConfig/tagAliases. Hydrated (and migrated
+		// from the older AutoTagCustomKeywords shape if needed) in
+		// hydrateSettingsFromConfig.
+		autoTagRules: null,
 
 		fetchMode: localStorage.getItem('slr-fetch-mode') === 'all' ? 'all' : 'missing',
 		projectsSort: localStorage.getItem('slr-projects-sort') || 'newest',
@@ -497,7 +516,7 @@ window.SLRApp = (() => {
 					autoTagEnabled: state.settings.autoTagEnabled,
 					autoRunScope: state.settings.autoRunScope,
 					autoTagCategories: state.settings.autoTagCategories,
-					allTagCategories: JOURNAL_TAG_RULES.map(r => r.tag),
+					allTagCategories: getEffectiveAutoTagRules().map(r => r.tag),
 					fetchMode: state.fetchMode,
 					folderName: state.folderName,
 				});
@@ -512,7 +531,7 @@ window.SLRApp = (() => {
 				SLRViews.renderTags(_container, state.articles, state.projectData);
 				break;
 			case 'autotag-rules':
-				SLRViews.renderAutoTagRules(_container, getAutoTagCategories(), state.autoTagCustomKeywords, state.folderName);
+				SLRViews.renderAutoTagRules(_container, getAutoTagRules(), Array.isArray(state.autoTagRules), state.folderName);
 				break;
 			default:
 				SLRViews.renderError(_container, `Unknown view: ${state.view}`);
@@ -530,6 +549,7 @@ window.SLRApp = (() => {
 		if (view === 'projects') state.projectsDetailFolder = null;
 		state.view = view;
 		renderCurrentView();
+		persistActiveProjectView();
 		// 'projects' and 'search' complete on a meaningful action (opening a
 		// project / running a search), not merely on visiting the tab.
 		if (view !== 'projects' && view !== 'search') markOnboardingStep(view);
@@ -568,6 +588,25 @@ window.SLRApp = (() => {
 		section.addEventListener('animationend', () => section.classList.remove('section-hint-pulse'), { once: true });
 	}
 
+	// Remembers which project (and which view within it) was open, purely so
+	// a page reload can resume there instead of always landing back on the
+	// Projects list — reconnecting the workspace/session (restoreFolder /
+	// restoreSession) only restores the folder handle or auth session, not
+	// which project the user was actually working in.
+	const LAST_ACTIVE_FOLDER_KEY = 'slr-last-active-folder';
+	const LAST_ACTIVE_VIEW_KEY   = 'slr-last-active-view';
+
+	function persistActiveProjectView() {
+		if (!state.currentFolder) return;
+		localStorage.setItem(LAST_ACTIVE_FOLDER_KEY, state.currentFolder);
+		localStorage.setItem(LAST_ACTIVE_VIEW_KEY, state.view);
+	}
+
+	function clearActiveProjectView() {
+		localStorage.removeItem(LAST_ACTIVE_FOLDER_KEY);
+		localStorage.removeItem(LAST_ACTIVE_VIEW_KEY);
+	}
+
 	async function hydrateProject(folderName) {
 		const project = state.projects.find(p => p.workspace_folder === folderName) || null;
 		if (!project) throw new Error('Project not found');
@@ -590,6 +629,7 @@ window.SLRApp = (() => {
 				state.view = 'articles';
 			}
 			renderCurrentView();
+			persistActiveProjectView();
 			markOnboardingStep('projects');
 		} catch (err) {
 			SLRViews.renderError(_container, err.message || String(err));
@@ -642,9 +682,27 @@ window.SLRApp = (() => {
 		localStorage.setItem('slr-openalex-key', state.settings.openAlexKey);
 		localStorage.setItem('slr-openalex-email', state.settings.openAlexEmail);
 
-		const customKeywords = config && config.AutoTagCustomKeywords;
-		state.autoTagCustomKeywords = (customKeywords && typeof customKeywords === 'object' && !Array.isArray(customKeywords))
-			? customKeywords : {};
+		const rawRules = config && config.AutoTagRules;
+		if (Array.isArray(rawRules)) {
+			state.autoTagRules = rawRules;
+		} else {
+			// One-time migration from the older per-tag keyword-overlay shape
+			// (AutoTagCustomKeywords: { [tag]: string[] } — no renamed/added/
+			// deleted categories could exist under it) into the current full
+			// rule-array shape, then persist so future loads read it directly.
+			const legacyKeywords = config && config.AutoTagCustomKeywords;
+			if (legacyKeywords && typeof legacyKeywords === 'object' && !Array.isArray(legacyKeywords) && Object.keys(legacyKeywords).length) {
+				const materialized = materializeDefaultAutoTagRules();
+				for (const rule of materialized) {
+					const extra = legacyKeywords[rule.tag];
+					if (Array.isArray(extra) && extra.length) rule.keywords = rule.keywords.concat(extra);
+				}
+				state.autoTagRules = materialized;
+				persistAutoTagRules();
+			} else {
+				state.autoTagRules = null;
+			}
+		}
 	}
 
 	async function openFolder() {
@@ -687,6 +745,27 @@ window.SLRApp = (() => {
 		state.folderName = SLRData.workspaceLabel || '';
 		await hydrateSettingsFromConfig();
 		await loadProjectsAndStats();
+
+		// Reconnecting the workspace above only restores the folder handle /
+		// auth session — resume the specific project (and view within it) the
+		// user actually had open, so a reload doesn't drop them back on the
+		// Projects list. hydrateProject (not openProject) here since it just
+		// loads data without forcing state.view to 'articles'.
+		const lastFolder = localStorage.getItem(LAST_ACTIVE_FOLDER_KEY);
+		const lastView   = localStorage.getItem(LAST_ACTIVE_VIEW_KEY);
+		if (lastFolder && state.projects.some(p => p.workspace_folder === lastFolder)) {
+			try {
+				await hydrateProject(lastFolder);
+				state.view = (lastView && lastView !== 'welcome') ? lastView : 'articles';
+				renderCurrentView();
+				return;
+			} catch (_) {
+				// Fall through to the plain Projects list below.
+			}
+		} else if (lastFolder) {
+			clearActiveProjectView(); // stale — e.g. the project was deleted/renamed since
+		}
+
 		state.view = 'projects';
 		renderCurrentView();
 	}
@@ -698,6 +777,10 @@ window.SLRApp = (() => {
 		state.articles = [];
 		state.projects = [];
 		state.folderName = '';
+		// Switching backend/signing out means the next restore is a different
+		// workspace entirely — a folder name persisted from the old one could
+		// coincidentally collide with a project in the new one.
+		clearActiveProjectView();
 	}
 
 	function switchBackend(name) {
@@ -746,7 +829,14 @@ window.SLRApp = (() => {
 	}
 
 	function setFilter(patch) {
-		state.filter = { ...state.filter, ...patch };
+		// Any real filter change restarts pagination at the top — see
+		// bumpArticlesRenderLimit, the only place that's allowed to grow it.
+		state.filter = { ...state.filter, ...patch, renderLimit: ARTICLE_PAGE_SIZE };
+		renderCurrentView();
+	}
+
+	function bumpArticlesRenderLimit() {
+		state.filter = { ...state.filter, renderLimit: (state.filter.renderLimit || ARTICLE_PAGE_SIZE) + ARTICLE_PAGE_SIZE };
 		renderCurrentView();
 	}
 
@@ -800,12 +890,22 @@ window.SLRApp = (() => {
 	}
 
 	function setCorpusFilter(patch) {
-		state.corpusFilter = { ...state.corpusFilter, ...patch };
+		state.corpusFilter = { ...state.corpusFilter, ...patch, renderLimit: ARTICLE_PAGE_SIZE };
+		renderCurrentView();
+	}
+
+	function bumpCorpusRenderLimit() {
+		state.corpusFilter = { ...state.corpusFilter, renderLimit: (state.corpusFilter.renderLimit || ARTICLE_PAGE_SIZE) + ARTICLE_PAGE_SIZE };
 		renderCurrentView();
 	}
 
 	function setSelectedFilter(patch) {
-		state.selectedFilter = { ...state.selectedFilter, ...patch };
+		state.selectedFilter = { ...state.selectedFilter, ...patch, renderLimit: ARTICLE_PAGE_SIZE };
+		renderCurrentView();
+	}
+
+	function bumpSelectedRenderLimit() {
+		state.selectedFilter = { ...state.selectedFilter, renderLimit: (state.selectedFilter.renderLimit || ARTICLE_PAGE_SIZE) + ARTICLE_PAGE_SIZE };
 		renderCurrentView();
 	}
 
@@ -2302,7 +2402,7 @@ window.SLRApp = (() => {
 	async function autoTagByJournal(force = false, scopeIds) {
 		if (!state.currentFolder || !state.projectData) return;
 		const tagsConfig = state.projectData.tagsConfig || {};
-		const customKeywords = state.autoTagCustomKeywords || {};
+		const effectiveRules = getEffectiveAutoTagRules();
 
 		const scoped = scopedArticles(scopeIds);
 		const toProcess = force
@@ -2314,14 +2414,24 @@ window.SLRApp = (() => {
 			return;
 		}
 
-		const enabledCategories = new Set(
-			Array.isArray(state.settings.autoTagCategories) && state.settings.autoTagCategories.length
-				? state.settings.autoTagCategories
-				: JOURNAL_TAG_RULES.map(r => r.tag)
-		);
+		// Settings' "Auto-tag disciplines" checkboxes only ever knew about the
+		// 12 shipped categories — a category added/renamed via Auto-Tag Rules
+		// since then can't be in that saved selection yet, so it stays enabled
+		// by default instead of silently never matching until the user also
+		// revisits Settings. Only a *known* built-in tag the user explicitly
+		// unchecked is actually excluded.
+		const knownDefaultTags = new Set(JOURNAL_TAG_RULES.map(r => r.tag));
+		const explicitSelection = Array.isArray(state.settings.autoTagCategories) && state.settings.autoTagCategories.length
+			? new Set(state.settings.autoTagCategories) : null;
+		const isCategoryEnabled = tag => !explicitSelection || explicitSelection.has(tag) || !knownDefaultTags.has(tag);
 
 		function matchRules(article) {
-			const openAlexCategoryMatch = inferTagFromOpenAlexCategories(article, enabledCategories);
+			// OPENALEX_CATEGORY_RULES is a separate, much narrower table (only
+			// used when OpenAlex classification data is present on the article)
+			// that Auto-Tag Rules doesn't expose for editing — deliberately out
+			// of scope, since unifying it with the freely-editable keyword rules
+			// below would mean guessing which edits should carry over to it too.
+			const openAlexCategoryMatch = inferTagFromOpenAlexCategories(article, { has: isCategoryEnabled });
 			if (openAlexCategoryMatch) return openAlexCategoryMatch;
 
 			const fields = [
@@ -2353,17 +2463,10 @@ window.SLRApp = (() => {
 				return sum + (keywordMatches(fullText, kw) ? 1 : 0);
 			}, 0);
 			let best = null;
-			for (const rule of JOURNAL_TAG_RULES) {
-				if (!enabledCategories.has(rule.tag)) continue;
+			for (const rule of effectiveRules) {
+				if (!isCategoryEnabled(rule.tag)) continue;
 				if (!tagsConfig[rule.color] && tagsConfig[rule.color] !== undefined) continue;
-				// User-added keywords (Auto-Tag Rules view) supplement this rule's
-				// built-in list rather than replacing it — same scoring, just more
-				// surface to match against.
-				const extraKeywords = customKeywords[rule.tag];
-				const scoredRule = (Array.isArray(extraKeywords) && extraKeywords.length)
-					? { keywords: rule.keywords.concat(extraKeywords) }
-					: rule;
-				let score = fields.reduce((sum, field) => sum + scoreRuleMatch(field.text, scoredRule, field.weight), 0);
+				let score = fields.reduce((sum, field) => sum + scoreRuleMatch(field.text, rule, field.weight), 0);
 				if (rule.tag === 'Psychology & Psychotherapy' && psychContextHits > 0) {
 					score += psychContextHits * 4;
 				}
@@ -2449,6 +2552,24 @@ window.SLRApp = (() => {
 			await SLRData.saveTagAliases(state.currentFolder, aliases);
 			state.projectData.tagAliases = aliases;
 
+			// A category added via Auto-Tag Rules is user/account-level, so this
+			// project's own tagsConfig has never heard of its color — register it
+			// now (same merge addTag itself does) so the tag renders with its
+			// real color instead of the '#888' fallback in the Tags view.
+			const tagsConfigPatch = { ...(state.projectData.tagsConfig || {}) };
+			let tagsConfigChanged = false;
+			for (const v of Object.values(updates)) {
+				if (v && v.color && !tagsConfigPatch[v.color]) {
+					const rule = effectiveRules.find(r => r.color === v.color);
+					tagsConfigPatch[v.color] = (rule && rule.hex) || '#888888';
+					tagsConfigChanged = true;
+				}
+			}
+			if (tagsConfigChanged) {
+				await SLRData.saveTagsConfig(state.currentFolder, tagsConfigPatch);
+				state.projectData.tagsConfig = tagsConfigPatch;
+			}
+
 			state.articles = SLRData.getArticles(state.projectData);
 			hideFetchProgress();
 			renderCurrentView();
@@ -2460,62 +2581,149 @@ window.SLRApp = (() => {
 	}
 
 	// ── Auto-Tag Rules editor (js/views.js renderAutoTagRules) ────────────────
-	// Read-only view of the built-in categories, plus CRUD over the
-	// user-specific keyword additions layered on top of them inside
-	// autoTagByJournal above. Cross-project by design: persisted via
-	// SLRData.saveConfig, the same place API keys live, not per-project
-	// tagsConfig/tagAliases.
+	// Full CRUD over the matching rule set: add/rename/recolor/delete whole
+	// categories (built-in or user-created) and add/remove individual
+	// keywords, all cross-project — persisted via SLRData.saveConfig, the
+	// same place API keys live, not per-project tagsConfig/tagAliases. Every
+	// rule's `color` field doubles as its stable identifier, exactly like a
+	// tagsConfig color key — there's no separate id to keep in sync.
 
-	function getAutoTagCategories() {
-		return JOURNAL_TAG_RULES.map(r => ({ color: r.color, tag: r.tag, defaultKeywords: r.keywords }));
+	function materializeDefaultAutoTagRules() {
+		return JOURNAL_TAG_RULES.map(r => ({
+			tag: r.tag,
+			color: r.color,
+			hex: (window.SLRData && SLRData.DEFAULT_TAGS_CONFIG && SLRData.DEFAULT_TAGS_CONFIG[r.color]) || '#888888',
+			keywords: [...r.keywords],
+		}));
 	}
 
-	async function persistAutoTagCustomKeywords() {
+	// What matching (autoTagByJournal) and the editor both actually read:
+	// the user's full override once they've touched anything, else the
+	// shipped defaults verbatim.
+	function getEffectiveAutoTagRules() {
+		return Array.isArray(state.autoTagRules) ? state.autoTagRules : JOURNAL_TAG_RULES;
+	}
+
+	// Display-only variant of the above that always carries a `hex`, so the
+	// editor can render a color swatch whether or not the user has ever
+	// materialized their own copy yet.
+	function getAutoTagRules() {
+		return getEffectiveAutoTagRules().map(r => ({
+			tag: r.tag,
+			color: r.color,
+			hex: r.hex || (window.SLRData && SLRData.DEFAULT_TAGS_CONFIG && SLRData.DEFAULT_TAGS_CONFIG[r.color]) || '#888888',
+			keywords: r.keywords,
+		}));
+	}
+
+	// First edit of any kind snapshots the shipped defaults into a mutable
+	// per-user copy; every action below calls this before touching anything.
+	function ensureAutoTagRulesMaterialized() {
+		if (!Array.isArray(state.autoTagRules)) {
+			state.autoTagRules = materializeDefaultAutoTagRules();
+		}
+		return state.autoTagRules;
+	}
+
+	async function persistAutoTagRules() {
 		try {
-			await SLRData.saveConfig({ AutoTagCustomKeywords: state.autoTagCustomKeywords });
+			await SLRData.saveConfig({ AutoTagRules: state.autoTagRules });
 		} catch (err) {
-			showToast('Could not save auto-tag keywords: ' + (err.message || String(err)), true);
+			showToast('Could not save auto-tag rules: ' + (err.message || String(err)), true);
 		}
 	}
 
-	async function addAutoTagKeyword(tag, keyword) {
-		const rule = JOURNAL_TAG_RULES.find(r => r.tag === tag);
+	// Mirrors the Tags view's own "Add Tag" convention (colorKey = capitalized
+	// name) so a category created here looks/behaves the same as one created
+	// there if it's ever registered into a project's tagsConfig.
+	function deriveAutoTagColorKey(name) {
+		const trimmed = (name || '').trim();
+		return trimmed ? trimmed.charAt(0).toUpperCase() + trimmed.slice(1) : '';
+	}
+
+	async function addAutoTagCategory(tagName, hex) {
+		const tag = (tagName || '').trim();
+		if (!tag) return;
+		const color = deriveAutoTagColorKey(tag);
+		const rules = ensureAutoTagRulesMaterialized();
+		if (rules.some(r => r.color === color)) {
+			showToast('A category with that name already exists.', true);
+			return;
+		}
+		state.autoTagRules = [...rules, { tag, color, hex: hex || '#64A8FF', keywords: [] }];
+		renderCurrentView();
+		await persistAutoTagRules();
+	}
+
+	async function renameAutoTagCategory(color, newTag) {
+		const tag = (newTag || '').trim();
+		if (!tag) return;
+		const rules = ensureAutoTagRulesMaterialized();
+		const rule = rules.find(r => r.color === color);
+		if (!rule || rule.tag === tag) return;
+		rule.tag = tag;
+		state.autoTagRules = [...rules];
+		renderCurrentView();
+		await persistAutoTagRules();
+	}
+
+	async function recolorAutoTagCategory(color, hex) {
+		const rules = ensureAutoTagRulesMaterialized();
+		const rule = rules.find(r => r.color === color);
+		if (!rule) return;
+		rule.hex = hex;
+		state.autoTagRules = [...rules];
+		renderCurrentView();
+		await persistAutoTagRules();
+	}
+
+	async function deleteAutoTagCategory(color) {
+		const rules = ensureAutoTagRulesMaterialized();
+		const rule = rules.find(r => r.color === color);
+		if (!rule) return;
+		const n = rule.keywords.length;
+		if (!confirm(`Delete the "${rule.tag}" auto-tag category${n ? ` and its ${n} keyword${n !== 1 ? 's' : ''}` : ''}? Auto-tag will never assign this category again until you re-add it. This cannot be undone.`)) return;
+		state.autoTagRules = rules.filter(r => r.color !== color);
+		renderCurrentView();
+		await persistAutoTagRules();
+	}
+
+	async function addAutoTagKeyword(color, keyword) {
+		const rules = ensureAutoTagRulesMaterialized();
+		const rule = rules.find(r => r.color === color);
 		if (!rule) return;
 		const normalized = normalizeRuleText(keyword);
 		if (!normalized) return;
-		const existing = state.autoTagCustomKeywords[tag] || [];
-		const alreadyBuiltIn = rule.keywords.some(k => normalizeRuleText(k) === normalized);
-		const alreadyCustom  = existing.some(k => normalizeRuleText(k) === normalized);
-		if (alreadyBuiltIn || alreadyCustom) {
+		if (rule.keywords.some(k => normalizeRuleText(k) === normalized)) {
 			showToast('That keyword is already part of this category.', true);
 			return;
 		}
-		state.autoTagCustomKeywords = { ...state.autoTagCustomKeywords, [tag]: [...existing, keyword.trim()] };
+		rule.keywords = [...rule.keywords, keyword.trim()];
+		state.autoTagRules = [...rules];
 		renderCurrentView();
-		await persistAutoTagCustomKeywords();
+		await persistAutoTagRules();
 	}
 
-	async function removeAutoTagKeyword(tag, keyword) {
-		const existing = state.autoTagCustomKeywords[tag];
-		if (!Array.isArray(existing)) return;
-		const next = existing.filter(k => k !== keyword);
-		const updated = { ...state.autoTagCustomKeywords };
-		if (next.length) updated[tag] = next; else delete updated[tag];
-		state.autoTagCustomKeywords = updated;
+	async function removeAutoTagKeyword(color, keyword) {
+		const rules = ensureAutoTagRulesMaterialized();
+		const rule = rules.find(r => r.color === color);
+		if (!rule) return;
+		rule.keywords = rule.keywords.filter(k => k !== keyword);
+		state.autoTagRules = [...rules];
 		renderCurrentView();
-		await persistAutoTagCustomKeywords();
+		await persistAutoTagRules();
 	}
 
-	async function resetAutoTagCustomKeywords() {
-		if (!Object.keys(state.autoTagCustomKeywords).length) {
-			showToast('No custom auto-tag keywords to reset.', false);
+	async function resetAutoTagRules() {
+		if (!Array.isArray(state.autoTagRules)) {
+			showToast('Auto-tag rules are already at their defaults.', false);
 			return;
 		}
-		if (!confirm('Remove all your custom auto-tag keywords and restore the built-in defaults only? This cannot be undone.')) return;
-		state.autoTagCustomKeywords = {};
+		if (!confirm('Reset every auto-tag category and keyword to the built-in defaults? Everything you added, renamed, recolored, or deleted here will be lost. This cannot be undone.')) return;
+		state.autoTagRules = null;
 		renderCurrentView();
-		await persistAutoTagCustomKeywords();
-		showToast('Auto-tag keywords reset to defaults.', false);
+		await persistAutoTagRules();
+		showToast('Auto-tag rules reset to defaults.', false);
 	}
 
 	async function addTag(colorKey, hex, aliasLabel) {
@@ -2765,12 +2973,15 @@ window.SLRApp = (() => {
 		cloudSignOut,
 		openProject,
 		setFilter,
+		bumpArticlesRenderLimit,
 		setFetchMode,
 		setProjectsSort,
 		toggleProjectPin,
 		setProjectIcon,
 		setCorpusFilter,
+		bumpCorpusRenderLimit,
 		setSelectedFilter,
+		bumpSelectedRenderLimit,
 		toggleTagBreakdown,
 		updateAnnotation,
 		updateProjectMeta,
@@ -2789,10 +3000,14 @@ window.SLRApp = (() => {
 		setHistorySortDir,
 		deleteQueryTerm,
 		autoTagByJournal,
-		getAutoTagCategories,
+		getAutoTagRules,
+		addAutoTagCategory,
+		renameAutoTagCategory,
+		recolorAutoTagCategory,
+		deleteAutoTagCategory,
 		addAutoTagKeyword,
 		removeAutoTagKeyword,
-		resetAutoTagCustomKeywords,
+		resetAutoTagRules,
 		fetchAbstractsViaDOI,
 		fetchAuthorsViaDOI,
 		fetchTypesViaDOI,

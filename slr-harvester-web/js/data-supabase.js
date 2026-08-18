@@ -183,7 +183,7 @@ window.SLRDataCloud = (() => {
     if (!client || !_user) return null;
     const { data, error } = await client
       .from('user_settings')
-      .select('api_key, inst_token, openalex_key, openalex_email, auto_tag_custom_keywords')
+      .select('api_key, inst_token, openalex_key, openalex_email, auto_tag_rules, auto_tag_custom_keywords')
       .eq('user_id', _user.id)
       .maybeSingle();
     if (error || !data) return null;
@@ -192,6 +192,10 @@ window.SLRDataCloud = (() => {
       InstToken: data.inst_token || '',
       OpenAlexKey: data.openalex_key || '',
       OpenAlexEmail: data.openalex_email || '',
+      AutoTagRules: Array.isArray(data.auto_tag_rules) ? data.auto_tag_rules : null,
+      // Older shape, read-only from here on — hydrateSettingsFromConfig
+      // (app.js) migrates it into AutoTagRules once, the first time it's
+      // seen with no AutoTagRules already saved.
       AutoTagCustomKeywords: (data.auto_tag_custom_keywords && typeof data.auto_tag_custom_keywords === 'object')
         ? data.auto_tag_custom_keywords : {},
     };
@@ -205,7 +209,7 @@ window.SLRDataCloud = (() => {
     if (patch.InstToken !== undefined)   row.inst_token = patch.InstToken;
     if (patch.OpenAlexKey !== undefined) row.openalex_key = patch.OpenAlexKey;
     if (patch.OpenAlexEmail !== undefined) row.openalex_email = patch.OpenAlexEmail;
-    if (patch.AutoTagCustomKeywords !== undefined) row.auto_tag_custom_keywords = patch.AutoTagCustomKeywords;
+    if (patch.AutoTagRules !== undefined) row.auto_tag_rules = patch.AutoTagRules;
     const { error } = await client.from('user_settings').upsert(row, { onConflict: 'user_id' });
     return !error;
   }
