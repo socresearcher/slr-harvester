@@ -132,7 +132,7 @@ window.SLRApp = (() => {
 
 		search: {
 			query: '',
-			maxResults: 100,
+			maxResults: 500,
 			isSearching: false,
 			abortController: null,
 			progress: 0,
@@ -1640,7 +1640,7 @@ window.SLRApp = (() => {
 		}
 
 		state.search.query = query;
-		state.search.maxResults = Math.max(1, maxResults || 100);
+		state.search.maxResults = Math.max(1, maxResults || 500);
 		state.search.db = db || state.search.db || 'scopus';
 		state.search.error = null;
 		state.search.lastCount = null;
@@ -2880,6 +2880,10 @@ window.SLRApp = (() => {
 				case 'autumn': next[key] = _hslHex(Math.round(40 - t * 40), 75, Math.round(52 - t * 20)); break;
 				case 'candy': next[key] = _hslHex(Math.round(310 - t * 110), 85, 62); break;
 				case 'citrus': next[key] = _hslHex(Math.round(80 - t * 55), 82, 48); break;
+				case 'slr': next[key] = _hslHex(Math.round(169 + t * 10), Math.round(70 + t * 10), Math.round(60 - t * 38)); break;
+				case 'slate': next[key] = _hslHex(212, Math.round(12 + t * 14), Math.round(74 - t * 42)); break;
+				case 'berry': next[key] = _hslHex(Math.round(300 + t * 40), Math.round(55 + t * 12), Math.round(52 - t * 20)); break;
+				case 'meadow': next[key] = _hslHex(Math.round(72 + t * 66), Math.round(58 + t * 10), Math.round(52 - t * 16)); break;
 				default: break;
 			}
 		});
