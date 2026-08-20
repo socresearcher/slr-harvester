@@ -379,6 +379,15 @@ window.SLRDataLocal = (() => {
     return perm === 'granted';
   }
 
+  // Curated reference palette — NOT written into a new project's own
+  // tags_config.json anymore (see createProject below). A tag only ever
+  // gets created when the user adds one manually or auto-tag assigns a
+  // category for the first time; this map is only consulted then, as the
+  // starting hex for whichever color key is needed (auto-tag's built-in
+  // categories use these exact keys — see JOURNAL_TAG_RULES in app.js).
+  // Pre-seeding all 19 into every project used to leave most of them sitting
+  // unused with a color no "Colour Scheme" apply could ever restore once a
+  // scheme redistributed hues across however many tags actually existed.
   const DEFAULT_TAGS_CONFIG = {
     "None": "",
     "Red":        "#ef4444",
@@ -430,7 +439,9 @@ window.SLRDataLocal = (() => {
     await writeJSON(projDir, 'search_log.json',    []);
     await writeJSON(projDir, 'slr_global_tags.json', {});
     await writeJSON(projDir, 'query_history.json', { terms: [] });
-    await writeJSON(projDir, 'tags_config.json',   DEFAULT_TAGS_CONFIG);
+    // A new project starts with no tags at all — one only ever appears once
+    // the user adds it manually or auto-tag assigns it for the first time.
+    await writeJSON(projDir, 'tags_config.json',   { "None": "" });
 
     // Update projects.json
     const existing = (await readJSON(_rootHandle, 'projects.json')) || { projects: [] };

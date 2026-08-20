@@ -33,6 +33,10 @@ window.SLRApp = (() => {
 		// "Project Info" nav item/view.
 		projectsDetailFolder: null,
 
+		// searchFields mirrors views.js's DEFAULT_SEARCH_FIELDS (the "Fields"
+		// multi-select next to each list's search box) — duplicated as a plain
+		// literal like ARTICLE_PAGE_SIZE above since this app has no shared
+		// module system between app.js and views.js.
 		filter: {
 			mode: 'all',
 			tags: [],
@@ -40,6 +44,7 @@ window.SLRApp = (() => {
 			yearTo: '',
 			sort: 'newest',
 			search: '',
+			searchFields: ['title', 'abstract', 'journal'],
 			renderLimit: ARTICLE_PAGE_SIZE,
 		},
 
@@ -49,6 +54,7 @@ window.SLRApp = (() => {
 			yearTo: '',
 			sort: 'newest',
 			search: '',
+			searchFields: ['title', 'abstract', 'journal'],
 			renderLimit: ARTICLE_PAGE_SIZE,
 		},
 
@@ -58,6 +64,7 @@ window.SLRApp = (() => {
 			yearTo: '',
 			sort: 'newest',
 			search: '',
+			searchFields: ['title', 'abstract', 'journal'],
 			renderLimit: ARTICLE_PAGE_SIZE,
 		},
 
@@ -125,7 +132,7 @@ window.SLRApp = (() => {
 
 		search: {
 			query: '',
-			maxResults: 100,
+			maxResults: 500,
 			isSearching: false,
 			abortController: null,
 			progress: 0,
@@ -1633,7 +1640,7 @@ window.SLRApp = (() => {
 		}
 
 		state.search.query = query;
-		state.search.maxResults = Math.max(1, maxResults || 100);
+		state.search.maxResults = Math.max(1, maxResults || 500);
 		state.search.db = db || state.search.db || 'scopus';
 		state.search.error = null;
 		state.search.lastCount = null;
@@ -2555,13 +2562,18 @@ window.SLRApp = (() => {
 			// A category added via Auto-Tag Rules is user/account-level, so this
 			// project's own tagsConfig has never heard of its color — register it
 			// now (same merge addTag itself does) so the tag renders with its
-			// real color instead of the '#888' fallback in the Tags view.
+			// real color instead of the '#888' fallback in the Tags view. Rules
+			// still on the shipped defaults (state.autoTagRules === null) carry no
+			// `hex` of their own (that's only added once materialized), so fall
+			// back to the same curated palette materializeDefaultAutoTagRules
+			// itself pulls from before finally giving up on '#888888'.
 			const tagsConfigPatch = { ...(state.projectData.tagsConfig || {}) };
 			let tagsConfigChanged = false;
 			for (const v of Object.values(updates)) {
 				if (v && v.color && !tagsConfigPatch[v.color]) {
 					const rule = effectiveRules.find(r => r.color === v.color);
-					tagsConfigPatch[v.color] = (rule && rule.hex) || '#888888';
+					const fallbackHex = (window.SLRData && SLRData.DEFAULT_TAGS_CONFIG && SLRData.DEFAULT_TAGS_CONFIG[v.color]) || '#888888';
+					tagsConfigPatch[v.color] = (rule && rule.hex) || fallbackHex;
 					tagsConfigChanged = true;
 				}
 			}
@@ -2868,6 +2880,10 @@ window.SLRApp = (() => {
 				case 'autumn': next[key] = _hslHex(Math.round(40 - t * 40), 75, Math.round(52 - t * 20)); break;
 				case 'candy': next[key] = _hslHex(Math.round(310 - t * 110), 85, 62); break;
 				case 'citrus': next[key] = _hslHex(Math.round(80 - t * 55), 82, 48); break;
+				case 'slr': next[key] = _hslHex(Math.round(169 + t * 10), Math.round(70 + t * 10), Math.round(60 - t * 38)); break;
+				case 'slate': next[key] = _hslHex(212, Math.round(12 + t * 14), Math.round(74 - t * 42)); break;
+				case 'berry': next[key] = _hslHex(Math.round(300 + t * 40), Math.round(55 + t * 12), Math.round(52 - t * 20)); break;
+				case 'meadow': next[key] = _hslHex(Math.round(72 + t * 66), Math.round(58 + t * 10), Math.round(52 - t * 16)); break;
 				default: break;
 			}
 		});
