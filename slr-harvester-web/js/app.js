@@ -2161,6 +2161,7 @@ window.SLRApp = (() => {
 			await fetchAuthorsViaDOI(options.scopeIds);
 			await fetchTypesViaDOI(options.scopeIds);
 			await fetchAffiliationsViaIdentifier(options.scopeIds);
+			await fetchCitationNetworkData(options.scopeIds);
 		});
 		if (!options.fromAutoFetch) {
 			showToast('Fetch All completed.', false);
@@ -2326,6 +2327,84 @@ window.SLRApp = (() => {
 		}
 
 		showFetchReport('Fetch Affiliations report', stats);
+	}
+
+	// Backfills `referencedWorks` (see mapOpenAlexResult) for OpenAlex-sourced
+	// articles that were searched before the citation-network feature shipped
+	// — those records simply never had the field at all, which is why the
+	// network indicator showed unavailable on every article in an older
+	// project even though many of them are OpenAlex-sourced. Batches lookups
+	// 50 IDs at a time (fetchExternalReferencedWorks' OR-filter cap), so a
+	// project with ~2000 OpenAlex articles costs ~40 requests, not ~2000.
+	async function fetchCitationNetworkData(scopeIds) {
+		if (!state.currentFolder || !state.projectData) return;
+
+		const scoped = scopedArticles(scopeIds);
+		const stats = {
+			mode: state.fetchMode,
+			total: scoped.length,
+			eligible: 0,
+			attempted: 0,
+			updated: 0,
+			unchanged: 0,
+			failed: 0,
+			skipped: { notOpenAlex: 0, alreadyComplete: 0 },
+		};
+
+		const targets = [];
+		for (const article of scoped) {
+			if (article.source !== 'openalex' || !article.eid || !article.eid.startsWith('openalex:')) {
+				stats.skipped.notOpenAlex += 1;
+				continue;
+			}
+			if (state.fetchMode === 'missing' && Array.isArray(article.referencedWorks)) {
+				stats.skipped.alreadyComplete += 1;
+				continue;
+			}
+			targets.push(article);
+		}
+		stats.eligible = targets.length;
+		if (!targets.length) {
+			showFetchReport('Fetch Citation Network report', stats);
+			return;
+		}
+
+		const BATCH = 50;
+		const refsMap = {};
+		let done = 0;
+		for (let i = 0; i < targets.length; i += BATCH) {
+			const batch = targets.slice(i, i + BATCH);
+			showFetchProgress('Fetching citation network data', done + 1, targets.length);
+			try {
+				const ids = batch.map(a => a.eid.slice(9));
+				const results = await fetchExternalReferencedWorks(ids, null);
+				const byEid = new Map(results.map(r => [r.eid, r]));
+				for (const article of batch) {
+					stats.attempted += 1;
+					const match = byEid.get(article.eid);
+					if (match) {
+						refsMap[article.eid] = Array.isArray(match.referencedWorks) ? match.referencedWorks : [];
+						stats.updated += 1;
+					} else {
+						stats.failed += 1;
+					}
+				}
+			} catch (_) {
+				stats.failed += batch.length;
+			}
+			done += batch.length;
+			if (i + BATCH < targets.length) await delay(150);
+		}
+
+		hideFetchProgress();
+		const changed = Object.keys(refsMap).length;
+		if (changed) {
+			await SLRData.patchSearchLogReferencedWorks(state.currentFolder, refsMap);
+			await hydrateProject(state.currentFolder);
+			renderCurrentView();
+		}
+
+		showFetchReport('Fetch Citation Network report', stats);
 	}
 
 	// Journal to tag heuristics.
@@ -3131,6 +3210,7 @@ window.SLRApp = (() => {
 		fetchAuthorsViaDOI,
 		fetchTypesViaDOI,
 		fetchAffiliationsViaIdentifier,
+		fetchCitationNetworkData,
 		fetchAllMetadata,
 		renameTag,
 		addTag,

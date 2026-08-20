@@ -1662,7 +1662,7 @@ window.SLRViews = (() => {
         title: 'Fetch affiliation names and country data via DOI / OpenAlex / PMID',
         onClick: () => void SLRApp.fetchAffiliationsViaIdentifier().catch(onErr('Fetch affiliations')) },
       { icon: SLRIcons.refresh, label: 'Fetch Everything',
-        title: 'Fetch abstracts, authors, document types, and affiliations in one run',
+        title: 'Fetch abstracts, authors, document types, affiliations, and citation network data in one run',
         onClick: () => void SLRApp.fetchAllMetadata({ mode: SLRApp.state.fetchMode }).catch(onErr('Fetch all metadata')) },
     ]);
   }
