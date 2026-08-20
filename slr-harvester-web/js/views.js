@@ -10,6 +10,25 @@ window.SLRViews = (() => {
 
   const TAG_FILTER_NONE = '__none__';
 
+  // Which article fields the shared list-toolbar search box matches against
+  // (Articles/Selected/Corpus) — see the "Fields" multi-select next to the
+  // search input, openSearchFieldsPopup, and applyFilter's search block.
+  const SEARCH_FIELD_OPTIONS = [
+    { key: 'title',    label: 'Title',    prop: a => a.title },
+    { key: 'abstract', label: 'Abstract', prop: a => a.abstract },
+    { key: 'journal',  label: 'Journal',  prop: a => a.publicationName },
+    { key: 'authors',  label: 'Authors',  prop: a => a.authors },
+    { key: 'tag',      label: 'Tag',      prop: a => a.tag },
+  ];
+  const DEFAULT_SEARCH_FIELDS = ['title', 'abstract', 'journal'];
+
+  // Which Auto-Tag Rules category cards are currently expanded (by color
+  // key) — a plain UI-only concern kept at module scope so it survives the
+  // full re-render every add/rename/recolor/delete triggers; collapsed by
+  // default so a dozen-plus categories don't turn the view into a wall of
+  // keyword chips.
+  const expandedAutoTagCards = new Set();
+
   //  Welcome view's account menu — document-level listeners bound once
 
   function closeWelcomeAccountMenu() {
@@ -1026,20 +1045,14 @@ window.SLRViews = (() => {
         ${buildListToolbarHTML({
           list: articles, projectData, activeTags: filter.tags,
           filterVisible: !!SLRApp.state.tagBreakdownVisible,
-          searchId: 'list-search', searchValue: filter.search,
+          searchId: 'list-search', searchValue: filter.search, searchFields: filter.searchFields,
           sortId: 'list-sort', sortValue: filter.sort,
           yearFromId: 'list-year-from', yearFromValue: filter.yearFrom,
           yearToId: 'list-year-to', yearToValue: filter.yearTo,
           exportTitle: 'Download current list as .bib, .ris, or .csv',
         })}
 
-        <div class="articles-stats">
-          <span>Showing <strong>${filtered.length}</strong> of <strong>${totalAll}</strong></span>
-          <span class="stats-sep">|</span>
-          <span><strong>${totalSelected}</strong> selected</span>
-          <span class="stats-sep">|</span>
-          <span><strong>${totalCorpus}</strong> in corpus</span>
-        </div>
+        ${buildListStatsHTML(filtered.length, totalAll, '', filter)}
         </div></div>
 
         <div class="article-list" id="article-list">
@@ -1830,17 +1843,20 @@ window.SLRViews = (() => {
       });
     }
 
-    // Search
+    // Search — scoped to whichever fields are checked in the toolbar's
+    // "Fields" multi-select (title/abstract/journal by default, same as the
+    // fixed 3-field search this replaced).
     if (filter.search) {
       const terms = String(filter.search)
         .split(';')
         .map(term => term.trim().toLowerCase())
         .filter(Boolean);
-      if (terms.length > 0) {
+      const fieldKeys = (Array.isArray(filter.searchFields) && filter.searchFields.length)
+        ? filter.searchFields : DEFAULT_SEARCH_FIELDS;
+      const fieldGetters = SEARCH_FIELD_OPTIONS.filter(f => fieldKeys.includes(f.key)).map(f => f.prop);
+      if (terms.length > 0 && fieldGetters.length > 0) {
         list = list.filter(a => {
-          const searchableText = [a.title || '', a.abstract || '', a.publicationName || '']
-            .join(' ')
-            .toLowerCase();
+          const searchableText = fieldGetters.map(getProp => getProp(a) || '').join(' ').toLowerCase();
           return terms.every(term => searchableText.includes(term));
         });
       }
@@ -1894,22 +1910,40 @@ window.SLRViews = (() => {
     return [noneChip, chips].filter(Boolean).join('');
   }
 
-  // "Tag: X" / "Tags: X, Y" summary label shared by Corpus/Selected's stats row.
+  // "Tag: X" / "Tags: X, Y" summary label shared by the stats row below.
   function formatActiveTagsLabel(tags) {
     if (!tags || !tags.length) return '';
     const names = tags.map(t => t === TAG_FILTER_NONE ? 'None' : t);
     return `<span class="stats-sep">|</span><span>${tags.length > 1 ? 'Tags' : 'Tag'}: ${esc(names.join(', '))}</span>`;
   }
 
-  // Toolbar markup shared by Articles / Selected / Corpus:
+  // The small "Showing N of M" line under the toolbar — identical shape in
+  // Articles/Selected/Corpus (no per-view selected/corpus breakdown here;
+  // that's already in the green banner above the toolbar).
+  function buildListStatsHTML(shownCount, totalCount, totalLabel, filter) {
+    return `
+      <div class="articles-stats">
+        <span>Showing <strong>${shownCount}</strong> of <strong>${totalCount}</strong>${totalLabel ? ' ' + esc(totalLabel) : ''}</span>
+        ${formatActiveTagsLabel(filter.tags)}
+        ${filter.search ? `<span class="stats-sep">|</span><span>Search: "${esc(filter.search)}"</span>` : ''}
+      </div>`;
+  }
+
+  // Toolbar markup shared by Articles / Selected / Corpus — same layout in
+  // all three:
   //   Row 1 — Filter toggle, then Fetch / Tag / Export (each opens a choice
   //           popup rather than being 7+ separate buttons).
-  //   Row 2/3 — only while the Filter toggle is on: tag chips, year range.
-  //   Row 4 — search + sort, always visible.
+  //   (only while the Filter toggle is on: tag chips)
+  //   Row 2 — search box + the "Fields" multi-select (which fields the
+  //           search box matches against).
+  //   Row 3 — year range + sort, always visible (used to hide behind the
+  //           Filter toggle along with the tag chips; now it's its own
+  //           permanent row since it's core filtering, not a rarely-needed
+  //           extra like the tag breakdown).
   function buildListToolbarHTML(opts) {
     const {
       list, projectData, activeTags, filterVisible,
-      searchId, searchValue,
+      searchId, searchValue, searchFields,
       sortId, sortValue,
       yearFromId, yearFromValue, yearToId, yearToValue,
       exportTitle,
@@ -1917,12 +1951,13 @@ window.SLRViews = (() => {
 
     const breakdown = buildTagBreakdownHTML(list, projectData, activeTags);
     const activeCount = (activeTags || []).length;
+    const fields = (Array.isArray(searchFields) && searchFields.length) ? searchFields : DEFAULT_SEARCH_FIELDS;
 
     return `
       <div class="list-toolbar">
         <div class="list-toolbar-row">
           <button type="button" class="list-filter-toggle${filterVisible ? ' active' : ''}" id="list-filter-toggle"
-                  title="${filterVisible ? 'Hide' : 'Show'} filters" aria-label="Toggle filters" aria-expanded="${filterVisible ? 'true' : 'false'}">
+                  title="${filterVisible ? 'Hide' : 'Show'} tag filters" aria-label="Toggle tag filters" aria-expanded="${filterVisible ? 'true' : 'false'}">
             ${SLRIcons.filter}
             <span>Filter${activeCount ? ` (${activeCount})` : ''}</span>
           </button>
@@ -1940,25 +1975,28 @@ window.SLRViews = (() => {
           </button>
         </div>
 
-        ${filterVisible ? `
-          ${breakdown ? `<div class="corpus-tag-breakdown">${breakdown}</div>` : ''}
-          <div class="list-toolbar-row">
-            <div class="filter-year-wrap">
-              <input class="year-input" id="${yearFromId}" type="number"
-                     placeholder="From" min="1900" max="2100" value="${esc(yearFromValue)}">
-                   <span>-</span>
-              <input class="year-input" id="${yearToId}" type="number"
-                     placeholder="To" min="1900" max="2100" value="${esc(yearToValue)}">
-            </div>
-          </div>
-        ` : ''}
+        ${filterVisible && breakdown ? `<div class="corpus-tag-breakdown">${breakdown}</div>` : ''}
 
         <div class="list-toolbar-row">
           <div class="search-input-wrap">
             ${SLRIcons.search}
             <input class="search-input" id="${searchId}"
-                   type="text" placeholder="Search title, abstract, journal (use ; for AND)"
+                   type="text" placeholder="Search selected fields (use ; for AND)"
                    value="${esc(searchValue)}" autocomplete="off">
+          </div>
+          <button type="button" class="articles-action-btn search-fields-toggle" id="search-fields-toggle"
+                  data-fields="${esc(fields.join(','))}" title="Choose which fields the search box matches against">
+            ${SLRIcons.filter} Fields (${fields.length})
+          </button>
+        </div>
+
+        <div class="list-toolbar-row">
+          <div class="filter-year-wrap">
+            <input class="year-input" id="${yearFromId}" type="number"
+                   placeholder="From" min="1900" max="2100" value="${esc(yearFromValue)}">
+                 <span>-</span>
+            <input class="year-input" id="${yearToId}" type="number"
+                   placeholder="To" min="1900" max="2100" value="${esc(yearToValue)}">
           </div>
           <select class="filter-select" id="${sortId}" title="Sort order">
             <option value="newest" ${sortValue==='newest'?'selected':''}>Newest first</option>
@@ -1968,6 +2006,55 @@ window.SLRViews = (() => {
           </select>
         </div>
       </div>`;
+  }
+
+  // Multi-select popup for the "Fields" button — unlike openToolbarPopupMenu
+  // (Fetch/Tag/Export), it stays open while the user toggles several
+  // checkboxes instead of closing after the first click, and applies each
+  // change live via onChange.
+  function openSearchFieldsPopup(triggerEl, currentFields, onChange) {
+    document.querySelector('.search-fields-popup')?.remove();
+    const selected = new Set((currentFields && currentFields.length) ? currentFields : DEFAULT_SEARCH_FIELDS);
+    const popup = document.createElement('div');
+    popup.className = 'toolbar-popup-menu search-fields-popup';
+    popup.innerHTML = SEARCH_FIELD_OPTIONS.map(opt => `
+      <label class="settings-category-item search-fields-item">
+        <input type="checkbox" value="${esc(opt.key)}" ${selected.has(opt.key) ? 'checked' : ''}>
+        <span>${esc(opt.label)}</span>
+      </label>`).join('');
+    document.body.appendChild(popup);
+
+    const rect = triggerEl.getBoundingClientRect();
+    const estimatedH = SEARCH_FIELD_OPTIONS.length * 30 + 10;
+    const spaceBelow = window.innerHeight - rect.bottom;
+    if (spaceBelow < estimatedH && rect.top > estimatedH) {
+      popup.style.top = (rect.top - estimatedH - 4) + 'px';
+    } else {
+      popup.style.top = (rect.bottom + 4) + 'px';
+    }
+    popup.style.left = Math.min(rect.left, window.innerWidth - 200) + 'px';
+
+    popup.addEventListener('change', ev => {
+      const cb = ev.target.closest('input[type="checkbox"]');
+      if (!cb) return;
+      if (cb.checked) {
+        selected.add(cb.value);
+      } else {
+        // Never let every field end up unchecked — that would silently
+        // match nothing rather than "search nothing in particular".
+        if (selected.size <= 1) { cb.checked = true; return; }
+        selected.delete(cb.value);
+      }
+      onChange([...selected]);
+    });
+
+    const closeHandler = ev => {
+      if (!popup.contains(ev.target) && ev.target !== triggerEl && !triggerEl.contains(ev.target)) {
+        popup.remove();
+        document.removeEventListener('click', closeHandler, true);
+      }
+    };
+    setTimeout(() => document.addEventListener('click', closeHandler, true), 10);
   }
 
   // Wires the shared toolbar's controls. `onFilter` receives a state patch
@@ -1993,6 +2080,15 @@ window.SLRViews = (() => {
       searchInput.addEventListener('input', () => {
         clearTimeout(searchTimer);
         searchTimer = setTimeout(() => onFilter({ search: searchInput.value }), 220);
+      });
+    }
+
+    const fieldsToggle = container.querySelector('#search-fields-toggle');
+    if (fieldsToggle) {
+      fieldsToggle.addEventListener('click', ev => {
+        ev.stopPropagation();
+        const current = (fieldsToggle.dataset.fields || '').split(',').filter(Boolean);
+        openSearchFieldsPopup(fieldsToggle, current, fields => onFilter({ searchFields: fields }));
       });
     }
 
@@ -2367,18 +2463,14 @@ window.SLRViews = (() => {
         ${buildListToolbarHTML({
           list: corpusArticles, projectData, activeTags: filter.tags,
           filterVisible: !!SLRApp.state.tagBreakdownVisible,
-          searchId: 'list-search', searchValue: filter.search,
+          searchId: 'list-search', searchValue: filter.search, searchFields: filter.searchFields,
           sortId: 'list-sort', sortValue: filter.sort,
           yearFromId: 'list-year-from', yearFromValue: filter.yearFrom,
           yearToId: 'list-year-to', yearToValue: filter.yearTo,
           exportTitle: 'Download current list as .bib, .ris, or .csv',
         })}
 
-        <div class="articles-stats">
-          <span>Showing <strong>${filtered.length}</strong> of <strong>${stats.corpus}</strong> corpus articles</span>
-          ${formatActiveTagsLabel(filter.tags)}
-          ${filter.search ? `<span class="stats-sep">|</span><span>Search: "${esc(filter.search)}"</span>` : ''}
-        </div>
+        ${buildListStatsHTML(filtered.length, stats.corpus, 'corpus articles', filter)}
         </div></div>
 
         <div class="article-list" id="corpus-list">
@@ -2452,18 +2544,14 @@ window.SLRViews = (() => {
         ${buildListToolbarHTML({
           list: selectedArticles, projectData, activeTags: filter.tags,
           filterVisible: !!SLRApp.state.tagBreakdownVisible,
-          searchId: 'list-search', searchValue: filter.search,
+          searchId: 'list-search', searchValue: filter.search, searchFields: filter.searchFields,
           sortId: 'list-sort', sortValue: filter.sort,
           yearFromId: 'list-year-from', yearFromValue: filter.yearFrom,
           yearToId: 'list-year-to', yearToValue: filter.yearTo,
           exportTitle: 'Download current list as .bib, .ris, or .csv',
         })}
 
-        <div class="articles-stats">
-          <span>Showing <strong>${filtered.length}</strong> of <strong>${selectedArticles.length}</strong> selected articles</span>
-          ${formatActiveTagsLabel(filter.tags)}
-          ${filter.search ? `<span class="stats-sep">|</span><span>Search: "${esc(filter.search)}"</span>` : ''}
-        </div>
+        ${buildListStatsHTML(filtered.length, selectedArticles.length, 'selected articles', filter)}
         </div></div>
 
         <div class="article-list" id="selected-list">${listHTML}</div>
@@ -2872,27 +2960,29 @@ window.SLRViews = (() => {
       }).join('');
         const centerSub = groupBy === 'doctype' ? 'typed' : groupBy === 'country' ? 'assignments' : 'tagged';
         const chartHeight = getChartHeight('slr-doughnut-chart-height');
+        // The legend lives outside the resizable/scrollable area (like the
+        // year chart's .viz-year-legend below its own resize block) — the
+        // height handle only ever resizes the graphic itself, never the
+        // legend, which is only ever toggled by the Hide Legend button.
         return `
         <div class="viz-resizable-chart-block">
-          <div class="viz-doughnut-scroll" id="viz-doughnut-area" style="height:${chartHeight}px">
-            <div class="viz-doughnut-wrap${showLegend ? '' : ' legend-hidden'}">
-              <svg class="viz-doughnut-svg" viewBox="0 0 340 340" aria-hidden="true">
-                <circle cx="${cx}" cy="${cy}" r="${r}" fill="none"
-                        stroke="var(--surface-2)" stroke-width="58"/>
-                ${segments}
-                <text x="${cx}" y="${cy - 12}" text-anchor="middle"
-                      class="viz-doughnut-num">${sum}</text>
-                <text x="${cx}" y="${cy + 20}" text-anchor="middle"
-                      class="viz-doughnut-sub">${esc(centerSub)}</text>
-              </svg>
-              ${showLegend ? `<div class="viz-legend">${legend}</div>` : ''}
-            </div>
+          <div class="viz-doughnut-scroll${showLegend ? '' : ' legend-hidden'}" id="viz-doughnut-area" style="height:${chartHeight}px">
+            <svg class="viz-doughnut-svg" viewBox="0 0 340 340" aria-hidden="true">
+              <circle cx="${cx}" cy="${cy}" r="${r}" fill="none"
+                      stroke="var(--surface-2)" stroke-width="58"/>
+              ${segments}
+              <text x="${cx}" y="${cy - 12}" text-anchor="middle"
+                    class="viz-doughnut-num">${sum}</text>
+              <text x="${cx}" y="${cy + 20}" text-anchor="middle"
+                    class="viz-doughnut-sub">${esc(centerSub)}</text>
+            </svg>
           </div>
           <div class="viz-col-resize-handle" id="viz-doughnut-resize-handle"
                title="Drag to resize chart height" role="separator" aria-orientation="horizontal">
             <span class="viz-col-resize-grip"></span>
           </div>
-        </div>`;
+        </div>
+        ${showLegend ? `<div class="viz-legend viz-doughnut-legend">${legend}</div>` : ''}`;
     };
 
     //  Year distribution (stacked by the selected grouping dimension)
@@ -2926,7 +3016,11 @@ window.SLRViews = (() => {
       // Nice round tick values for the year chart's count-axis grid (e.g.
       // 0/10/20/30/40/50 for a max around 47) — same "nice numbers" approach
       // any charting library uses, so the grid always lands on round marks
-      // instead of splitting the raw max into awkward fractions.
+      // instead of splitting the raw max into awkward fractions. The top
+      // tick must never land below `max` (that used to happen — e.g. max=47
+      // stopped at 40, not 50 — which let the tallest bar's height% exceed
+      // 100 and poke up over the count label above it); rounding the top
+      // tick up to the next whole step guarantees it's always >= max.
       const niceTicks = (maxValue, targetCount = 5) => {
         const max = Math.max(1, maxValue);
         const rawStep = max / targetCount;
@@ -2934,9 +3028,9 @@ window.SLRViews = (() => {
         const norm = rawStep / mag;
         const niceNorm = norm < 1.5 ? 1 : norm < 3 ? 2 : norm < 7 ? 5 : 10;
         const step = Math.max(1, Math.round(niceNorm * mag));
+        const top = Math.ceil(max / step) * step;
         const ticks = [];
-        for (let v = 0; v <= max + step * 0.001; v += step) ticks.push(v);
-        if (ticks.length < 2) ticks.push(step);
+        for (let v = 0; v <= top + step * 0.001; v += step) ticks.push(v);
         return ticks;
       };
 
@@ -2970,7 +3064,10 @@ window.SLRViews = (() => {
 
       const bars = years.map(([, tagMap]) => {
         const total = [...tagMap.values()].reduce((s, v) => s + v.count, 0);
-        const heightPct = topValue > 0 ? (total / topValue * 100).toFixed(1) : '0';
+        // Clamped defensively — niceTicks already guarantees topValue >= max,
+        // but the tallest bar must never be able to poke up past the top
+        // grid line/over the count label above it regardless.
+        const heightPct = topValue > 0 ? Math.min(100, total / topValue * 100).toFixed(1) : '0';
         const tagged   = [...tagMap.entries()].filter(([k]) => k !== '__none__').sort((a, b) => b[1].count - a[1].count);
         const none     = tagMap.get('__none__');
         const allSegs  = none ? [...tagged, ['__none__', none]] : tagged;
@@ -3077,7 +3174,7 @@ window.SLRViews = (() => {
           <div class="prisma-box-body">
             <span class="prisma-box-n">${s.records.toLocaleString()}</span>
             <div class="prisma-box-text">
-              <span class="prisma-box-desc">record${s.records === 1 ? '' : 's'} identified</span>
+              <span class="prisma-box-desc">Record${s.records === 1 ? '' : 's'} identified</span>
               <span class="prisma-box-meta">${s.queries} quer${s.queries === 1 ? 'y' : 'ies'}</span>
             </div>
           </div>
@@ -3175,7 +3272,7 @@ window.SLRViews = (() => {
         startY = ev.clientY;
         startH = area.getBoundingClientRect().height;
         handle.classList.add('is-dragging');
-        handle.setPointerCapture(ev.pointerId);
+        try { handle.setPointerCapture(ev.pointerId); } catch (_) { /* ignore */ }
       });
       handle.addEventListener('pointermove', ev => {
         if (!dragging) return;
@@ -4303,9 +4400,9 @@ window.SLRViews = (() => {
           </div>
 
           <div class="settings-save-row">
-            <button class="btn-primary" id="settings-save-btn">Save</button>
+            <button class="btn-primary" id="settings-save-btn">Save Scopus Settings</button>
             <span class="settings-saved-msg" id="settings-saved-msg">Saved!</span>
-            <button class="btn-secondary" type="button" id="settings-scopus-test-btn" style="margin-left:8px">Test API Key</button>
+            <button class="btn-secondary" type="button" id="settings-scopus-test-btn">Test API Key</button>
           </div>
           <div id="settings-scopus-test-result" class="scopus-test-result" hidden></div>
         </div>
@@ -4697,9 +4794,9 @@ window.SLRViews = (() => {
           <ul class="about-feature-list">
             <li><span class="about-li-icon" aria-hidden="true">${SLRIcons.folderOpen}</span><span><strong>Browser-based</strong> &mdash; no installation, runs from <code>index.html</code> or a local server</span></li>
             <li><span class="about-li-icon" aria-hidden="true">${SLRIcons.githubLogo}</span><span><strong>Hosted on GitHub Pages</strong> &mdash; open <a href="https://socresearcher.github.io/slr-harvester/" target="_blank" rel="noopener">socresearcher.github.io/slr-harvester</a> directly, no download required; your project data still never leaves your device</span></li>
-            <li><span class="about-li-icon" aria-hidden="true">${SLRIcons.supabaseLogo}</span><span><strong>Cloud Sync (Supabase)</strong> &mdash; optional: sync projects through your own Supabase project instead of a local folder, so any browser or device works, including mobile. <strong>Still being implemented</strong> &mdash; sign-in currently has known issues and is actively being worked on.</span></li>
+            <li><span class="about-li-icon" aria-hidden="true">${SLRIcons.supabaseLogo}</span><span><strong>Cloud Sync (Supabase)</strong> &mdash; optional: sync projects through your own Supabase project instead of a local folder, so any browser or device works, including mobile.</span></li>
             <li><span class="about-li-icon" aria-hidden="true">${SLRIcons.databases}</span><span><strong>Multi-database search</strong> &mdash; Scopus, PubMed and OpenAlex integrated directly in the Search view</span></li>
-            <li><span class="about-li-icon" aria-hidden="true">${SLRIcons.refresh}</span><span><strong>Data enrichment via Crossref</strong> &mdash; fetch missing abstracts, full author lists and document types by DOI</span></li>
+            <li><span class="about-li-icon" aria-hidden="true">${SLRIcons.refresh}</span><span><strong>Data enrichment via Crossref</strong> &mdash; fetch missing abstracts, full author lists, document types, and affiliations (institution names and countries) by DOI</span></li>
             <li><span class="about-li-icon" aria-hidden="true">${SLRIcons.search}</span><span><strong>Advanced article-list search</strong> &mdash; use semicolon-separated terms for AND logic (e.g., <code>companion; ethnography</code>) across title, abstract and journal fields</span></li>
             <li><span class="about-li-icon" aria-hidden="true">${SLRIcons.palette}</span><span><strong>Colour scheme engine</strong> &mdash; 17 built-in palettes plus cycling monochrome; applied directly to your project's tag colours</span></li>
             <li><span class="about-li-icon" aria-hidden="true">${SLRIcons.tag}</span><span><strong>Tag aliasing</strong> &mdash; map multiple tag names to one canonical label for unified filtering</span></li>
@@ -4743,13 +4840,15 @@ window.SLRViews = (() => {
         <div class="settings-section">
           <h3>Data Enrichment</h3>
           <p style="font-size:13px;color:var(--text-muted);line-height:1.7">
-            The Articles view provides three enrichment buttons that use the
-            <strong>Crossref</strong> API (free, no key required) via DOI lookups:
+            The Articles view provides four enrichment buttons (plus a
+            "Fetch Everything" that runs all of them in one pass), all free
+            and requiring no key:
           </p>
           <ul style="font-size:13px;color:var(--text-muted);line-height:1.9;padding-left:18px">
-            <li><strong>Fetch Abstracts</strong> &mdash; fills in missing abstracts</li>
-            <li><strong>Fetch Authors</strong> &mdash; retrieves the complete author list (Scopus truncates to first author)</li>
-            <li><strong>Fetch Types</strong> &mdash; determines the document type (Article, Chapter, Preprint, &hellip;)</li>
+            <li><strong>Fetch Abstracts</strong> &mdash; fills in missing abstracts (Crossref, via DOI)</li>
+            <li><strong>Fetch Authors</strong> &mdash; retrieves the complete author list (Crossref, via DOI) &mdash; Scopus truncates to first author</li>
+            <li><strong>Fetch Types</strong> &mdash; determines the document type (Article, Chapter, Preprint, &hellip;) (Crossref, via DOI)</li>
+            <li><strong>Fetch Affiliations</strong> &mdash; institution names and countries (via DOI / OpenAlex / PMID)</li>
           </ul>
         </div>
 
@@ -4939,6 +5038,14 @@ window.SLRViews = (() => {
         </div>
 
         <div class="tags-section">
+          <h3>Colour Schemes</h3>
+          <div class="scheme-panel">
+            <p class="scheme-panel-intro">Apply a preset colour scheme to all existing tags at once.</p>
+            <div class="scheme-grid">${schemeBtnsHTML}</div>
+          </div>
+        </div>
+
+        <div class="tags-section">
           <div class="tags-section-header">
             <h3>Tags</h3>
           </div>
@@ -4956,14 +5063,6 @@ window.SLRViews = (() => {
             ? `<div class="tags-grid">${tagCardsHTML}</div>`
             : `<p style="font-size:13px;color:var(--text-faint)">No tags defined yet. Use Auto-tag in the Articles view or add tags manually.</p>`
           }
-        </div>
-
-        <div class="tags-section">
-          <h3>Colour Schemes</h3>
-          <div class="scheme-panel">
-            <p class="scheme-panel-intro">Apply a preset colour scheme to all existing tags at once.</p>
-            <div class="scheme-grid">${schemeBtnsHTML}</div>
-          </div>
         </div>
       </div>`;
 
@@ -5096,9 +5195,15 @@ window.SLRViews = (() => {
           </span>`;
       }).join('');
 
+      const expanded = expandedAutoTagCards.has(rule.color);
+
       return `
-        <div class="autotag-card" data-color="${esc(rule.color)}">
+        <div class="autotag-card${expanded ? ' is-expanded' : ''}" data-color="${esc(rule.color)}">
           <div class="autotag-card-header">
+            <button type="button" class="autotag-card-expand-toggle" data-toggle-expand="${esc(rule.color)}"
+                    aria-expanded="${expanded ? 'true' : 'false'}" title="${expanded ? 'Collapse' : 'Expand'} category">
+              ${SLRIcons.chevronRight}
+            </button>
             <div class="autotag-card-swatch-wrap" title="Click to change colour">
               <span class="autotag-card-swatch" style="background:${esc(rule.hex)}"></span>
               <input type="color" class="autotag-swatch-picker" value="${esc(rule.hex)}" data-color="${esc(rule.color)}">
@@ -5108,11 +5213,13 @@ window.SLRViews = (() => {
             <button type="button" class="tag-card-btn" data-rename="${esc(rule.color)}" title="Rename category">${SLRIcons.pencil}</button>
             <button type="button" class="tag-card-btn tag-card-delete-btn" data-delete="${esc(rule.color)}" title="Delete category">${SLRIcons.trash}</button>
           </div>
-          <div class="autotag-kw-list">${chipsHTML || `<span class="autotag-kw-empty">No keywords yet.</span>`}</div>
-          <div class="autotag-add-row">
-            <input type="text" class="autotag-add-input" data-color="${esc(rule.color)}" placeholder="Add a keyword or phrase…" maxlength="60">
-            <button type="button" class="btn-secondary btn-sm autotag-add-btn" data-color="${esc(rule.color)}">${SLRIcons.plus} Add</button>
-          </div>
+          ${expanded ? `
+            <div class="autotag-kw-list">${chipsHTML || `<span class="autotag-kw-empty">No keywords yet.</span>`}</div>
+            <div class="autotag-add-row">
+              <input type="text" class="autotag-add-input" data-color="${esc(rule.color)}" placeholder="Add a keyword or phrase…" maxlength="60">
+              <button type="button" class="btn-secondary btn-sm autotag-add-btn" data-color="${esc(rule.color)}">${SLRIcons.plus} Add</button>
+            </div>
+          ` : ''}
         </div>`;
     }).join('');
 
@@ -5163,6 +5270,16 @@ window.SLRViews = (() => {
       const name = container.querySelector('#autotag-new-name').value.trim();
       if (!name) return;
       SLRApp.addAutoTagCategory(name, hex);
+    });
+
+    // Expand/collapse
+    container.querySelectorAll('[data-toggle-expand]').forEach(btn => {
+      btn.addEventListener('click', () => {
+        const color = btn.dataset.toggleExpand;
+        if (expandedAutoTagCards.has(color)) expandedAutoTagCards.delete(color);
+        else expandedAutoTagCards.add(color);
+        renderAutoTagRules(container, rules, isCustomized, folderName);
+      });
     });
 
     // Recolor
