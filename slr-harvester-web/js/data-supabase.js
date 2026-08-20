@@ -373,13 +373,17 @@ window.SLRDataCloud = (() => {
                      + `_${pad(now.getHours())}${pad(now.getMinutes())}${pad(now.getSeconds())}`;
     const today = `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}`;
 
+    // A new project starts with no tags at all — one only ever appears once
+    // the user adds it manually or auto-tag assigns it for the first time
+    // (mirrors data-local.js's createProject; DEFAULT_TAGS_CONFIG below is
+    // only ever consulted then, never pre-seeded wholesale anymore).
     const { error } = await client.from('projects').insert({
       user_id: _user.id,
       name,
       description: description || 'No description',
       created: today,
       workspace_folder: folderName,
-      tags_config: DEFAULT_TAGS_CONFIG,
+      tags_config: { "None": "" },
     });
     if (error) throw error;
     return folderName;
@@ -495,6 +499,12 @@ window.SLRDataCloud = (() => {
     await writeSearchLog(client, folderName, log);
   }
 
+  // Curated reference palette — NOT written into a new project's tags_config
+  // column anymore (see createProject above). A tag only ever gets created
+  // when the user adds one manually or auto-tag assigns a category for the
+  // first time; this map is only consulted then, as the starting hex for
+  // whichever color key is needed (auto-tag's built-in categories use these
+  // exact keys — see JOURNAL_TAG_RULES in app.js). Mirrors data-local.js.
   const DEFAULT_TAGS_CONFIG = {
     "None": "",
     "Red":        "#ef4444",

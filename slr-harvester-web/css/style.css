@@ -765,6 +765,15 @@ a:hover {
     min-height: 32px;
   }
 
+  /* Same deal for Auto-Tag Rules' "Add a keyword" row — .autotag-add-btn
+     also carries .btn-secondary, whose 40px touch-target min-height above
+     would otherwise make it visibly taller than the input beside it. */
+  .autotag-add-input,
+  .autotag-add-btn {
+    height: 30px;
+    min-height: 30px;
+  }
+
   /* Side-padding overrides for this breakpoint live at the very end of this
      file, not here — several of the classes below (.databases-view,
      .viz-view, etc.) have their base/desktop rule defined later in this
@@ -1592,6 +1601,28 @@ a:hover {
 
 .search-input::placeholder {
   color: var(--text-faint);
+}
+
+/* "Fields" multi-select trigger next to the search box — the popup itself
+   (.search-fields-popup) reuses .toolbar-popup-menu for its box chrome and
+   .settings-category-item for each checkbox row. */
+.search-fields-toggle {
+  flex-shrink: 0;
+}
+
+.search-fields-popup {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+
+.search-fields-item {
+  padding: 6px 10px;
+  border-radius: 5px;
+}
+
+.search-fields-item:hover {
+  background: var(--surface-2);
 }
 
 /* Filter controls */
@@ -4040,7 +4071,40 @@ a.db-link:visited {
   display: flex;
   align-items: center;
   gap: 6px;
+}
+
+/* Only when something actually follows (i.e. the card is expanded) —
+   a collapsed card's header is its whole card, no gap needed below it. */
+.autotag-card-header:not(:last-child) {
   margin-bottom: 10px;
+}
+
+.autotag-card-expand-toggle {
+  background: none;
+  border: none;
+  padding: 5px;
+  cursor: pointer;
+  color: var(--text-muted);
+  border-radius: var(--radius-sm);
+  display: flex;
+  align-items: center;
+  flex-shrink: 0;
+  transition: color .15s, background .15s;
+}
+
+.autotag-card-expand-toggle:hover {
+  color: var(--accent);
+  background: var(--surface-2);
+}
+
+.autotag-card-expand-toggle svg {
+  width: 15px;
+  height: 15px;
+  transition: transform .15s ease;
+}
+
+.autotag-card.is-expanded .autotag-card-expand-toggle svg {
+  transform: rotate(90deg);
 }
 
 .autotag-card-swatch-wrap {
@@ -5203,11 +5267,18 @@ a.db-link:visited {
 
 /* Long option labels ("Tag Distribution — Doughnut", "Group by Document
    Type") need more room than the 170px cap every other .filter-select
-   gets — otherwise the select box itself clips the chosen label. */
-.viz-chart-select,
+   gets — otherwise the select box itself clips the chosen label. Chart
+   type gets the most room since its labels are the longest of the two
+   ("Screening Flow (PRISMA)"); Group by's own labels are shorter, so it
+   doesn't need to match. */
+.viz-chart-select {
+  min-width: 260px;
+  max-width: 320px;
+}
+
 .viz-groupby-select {
-  min-width: 220px;
-  max-width: 260px;
+  min-width: 170px;
+  max-width: 200px;
 }
 
 /* Chart heading sits below the controls row */
@@ -5391,18 +5462,11 @@ a.db-link:visited {
   display: flex;
   flex-direction: column;
   align-items: center;
+  justify-content: center;
   height: 320px;
   overflow-y: auto;
   overflow-x: hidden;
-}
-
-.viz-doughnut-wrap {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 16px;
   padding: 4px 0;
-  width: 100%;
 }
 
 .viz-doughnut-svg {
@@ -5411,12 +5475,16 @@ a.db-link:visited {
   flex-shrink: 0;
 }
 
-.viz-doughnut-wrap.legend-hidden .viz-doughnut-svg {
+.viz-doughnut-scroll.legend-hidden .viz-doughnut-svg {
   width: min(520px, 100%);
 }
 
-.viz-doughnut-wrap .viz-legend {
+/* Sits outside .viz-doughnut-scroll on purpose — the resize handle above
+   only ever resizes the graphic, never the legend (see renderDoughnut in
+   views.js). Hide Legend is the only thing that removes it. */
+.viz-doughnut-legend {
   width: 100%;
+  margin-top: 16px;
 }
 
 .viz-world-wrap {
@@ -5906,9 +5974,14 @@ a.db-link:visited {
   padding-bottom: 14px;
 }
 
+/* flex-basis:0 (not a px value) so however many source boxes there are
+   split the row evenly — 50/50 for two, 33/33/33 for three, etc. — instead
+   of each sizing to its own content/a fixed cap and leaving dead space.
+   Only wraps onto a second line once min-width can no longer be honored
+   (e.g. many sources on a narrow screen). */
 .prisma-box-source {
-  flex: 1 1 150px;
-  max-width: 220px;
+  flex: 1 1 0;
+  min-width: 150px;
   padding: 10px 14px 8px;
 }
 
