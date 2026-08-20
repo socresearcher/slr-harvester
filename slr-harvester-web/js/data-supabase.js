@@ -499,6 +499,24 @@ window.SLRDataCloud = (() => {
     await writeSearchLog(client, folderName, log);
   }
 
+  // Backfill for the citation-network feature: existing projects were
+  // searched before referencedWorks was captured, so their OpenAlex-sourced
+  // results simply never had the key — this patches it in after the fact
+  // (see SLRApp.fetchCitationNetworkData, run as part of "Fetch All").
+  async function patchSearchLogReferencedWorks(folderName, refsMap) {
+    const client = requireAuth();
+    const log = await loadSearchLog(client, folderName);
+    for (const entry of log) {
+      if (!Array.isArray(entry.results)) continue;
+      for (const result of entry.results) {
+        const eid = result.eid;
+        const update = eid && refsMap[eid];
+        if (update !== undefined) result.referencedWorks = update;
+      }
+    }
+    await writeSearchLog(client, folderName, log);
+  }
+
   // Curated reference palette — NOT written into a new project's tags_config
   // column anymore (see createProject above). A tag only ever gets created
   // when the user adds one manually or auto-tag assigns a category for the
@@ -561,6 +579,7 @@ window.SLRDataCloud = (() => {
     patchSearchLogDocTypes,
     patchSearchLogAuthors,
     patchSearchLogAffiliations,
+    patchSearchLogReferencedWorks,
     saveQueryTerms,
     deleteQueryTerm,
     updateArticleAnnotation,

@@ -43,7 +43,7 @@ window.SLRData = (() => {
     'saveProjectIcon',
     'loadConfig', 'saveConfig', 'loadProjectData', 'appendSearchResult',
     'deleteSearchResult', 'setSearchResultStatus', 'patchSearchLogAbstracts', 'patchSearchLogDocTypes',
-    'patchSearchLogAuthors', 'patchSearchLogAffiliations', 'saveQueryTerms',
+    'patchSearchLogAuthors', 'patchSearchLogAffiliations', 'patchSearchLogReferencedWorks', 'saveQueryTerms',
     'deleteQueryTerm', 'updateArticleAnnotation', 'bulkUpdateAnnotations',
     'saveTagAliases', 'saveTagsConfig', 'createProject', 'ensureWriteAccess',
   ];
