@@ -2075,6 +2075,47 @@ a:hover {
   opacity: 1;
 }
 
+/* Third indicator, next to abstract/affiliation — a <button> (not a <span>
+   like the other two) only when a citation network actually exists for
+   this article, so it's clickable exactly when there's something to show. */
+.network-indicator {
+  display: inline-flex;
+  align-items: center;
+  flex-shrink: 0;
+  opacity: 0.55;
+  border: none;
+  background: none;
+  padding: 0;
+  margin: 0;
+  font: inherit;
+}
+
+.network-indicator svg {
+  width: 13px;
+  height: 13px;
+}
+
+.network-indicator.available {
+  color: var(--accent);
+  opacity: 0.7;
+  cursor: pointer;
+}
+
+.network-indicator.available:hover {
+  opacity: 1;
+  color: var(--accent-hover);
+}
+
+.network-indicator.unavailable {
+  color: var(--text-faint);
+  opacity: 0.35;
+  cursor: default;
+}
+
+.article-item:hover .network-indicator {
+  opacity: 1;
+}
+
 .article-tag-pill {
   display: inline-flex;
   align-items: center;
@@ -2463,9 +2504,10 @@ a:hover {
 
 .history-item-header {
   display: flex;
-  align-items: center;
-  gap: 12px;
-  padding: 12px 16px;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 14px;
+  padding: 16px 20px;
   cursor: pointer;
   user-select: none;
 }
@@ -2486,6 +2528,7 @@ a:hover {
   color: var(--text-faint);
   width: 16px;
   height: 16px;
+  margin-top: 2px;
   transition: transform var(--transition);
 }
 
@@ -2503,14 +2546,32 @@ a:hover {
   min-width: 0;
 }
 
+/* Action icons + source/count bubbles stacked in a column, right-aligned —
+   mirrors .article-badges/.article-badges-row so both stay out of the
+   .history-meta row and let the tag-distribution bar stretch much closer
+   to the card's edge instead of being squeezed by everything on the right. */
+.history-badges {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 6px;
+  flex-shrink: 0;
+}
+
+.history-badges-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
 .history-timestamp {
-  font-size: 11px;
+  font-size: 11.5px;
   color: var(--text-faint);
-  margin-bottom: 2px;
+  margin-bottom: 3px;
 }
 
 .history-query-preview {
-  font-size: 13px;
+  font-size: 14px;
   color: var(--text);
   white-space: nowrap;
   overflow: hidden;
@@ -2518,13 +2579,17 @@ a:hover {
   font-family: ui-monospace, 'Cascadia Code', monospace;
 }
 
-/* Tag distribution bar inside history card header */
+/* Tag distribution bar inside history card header. Lives in .history-meta
+   (flex:1), so it already stretches to fill whatever width is left of the
+   fixed-width action icons/bubbles on the right — the fix for "reaching
+   to the end of the card" is really those bubbles taking less room (see
+   .history-count below) plus this bar being visually thicker. */
 .hist-tag-bar {
   display: flex;
-  height: 4px;
-  border-radius: 2px;
+  height: 6px;
+  border-radius: 3px;
   overflow: hidden;
-  margin-top: 6px;
+  margin-top: 8px;
   gap: 1px;
 }
 
@@ -2557,7 +2622,7 @@ a:hover {
   color: var(--text-muted);
   white-space: nowrap;
   flex-shrink: 0;
-  width: 7.5em;
+  width: auto;
   box-sizing: border-box;
 }
 
@@ -3517,6 +3582,183 @@ a.db-link:visited {
 
 .modal-prisma-detail {
   max-width: 640px;
+}
+
+/* ── Citation network modal ── */
+.modal-network {
+  max-width: 800px;
+}
+
+.network-legend {
+  display: flex;
+  gap: 16px;
+  font-size: 12px;
+  color: var(--text-muted);
+  margin-bottom: 4px;
+}
+
+.network-legend-item {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.network-legend-dot {
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+
+.network-legend-dot-citing {
+  background: var(--accent);
+}
+
+.network-legend-dot-citedby {
+  background: var(--green, #22c55e);
+}
+
+.network-canvas {
+  width: 100%;
+  overflow-x: auto;
+}
+
+.network-svg {
+  width: 100%;
+  height: auto;
+  min-width: 560px;
+  display: block;
+}
+
+.network-edge {
+  stroke: var(--border);
+  stroke-width: 1.5;
+}
+
+.network-edge-cites {
+  stroke: color-mix(in srgb, var(--accent) 55%, var(--border));
+}
+
+.network-edge-citedby {
+  stroke: color-mix(in srgb, var(--green, #22c55e) 55%, var(--border));
+}
+
+/* Marker content lives in <defs> but is still styleable by class like any
+   other SVG element — each edge type references its own marker id so the
+   arrowhead can be given a fixed matching fill (a shared marker can't
+   inherit the referencing line's `stroke` color). */
+.network-arrowhead-cites {
+  fill: color-mix(in srgb, var(--accent) 55%, var(--border));
+}
+
+.network-arrowhead-citedby {
+  fill: color-mix(in srgb, var(--green, #22c55e) 55%, var(--border));
+}
+
+.network-node-label {
+  font-size: 9.5px;
+  fill: var(--text);
+  font-weight: 500;
+}
+
+.network-node-year {
+  font-size: 8.5px;
+  fill: var(--text-faint);
+}
+
+.network-node[data-eid] {
+  cursor: pointer;
+}
+
+.network-node[data-eid]:hover circle {
+  stroke: var(--accent);
+  r: 11;
+}
+
+.network-node[data-eid]:hover .network-node-label {
+  fill: var(--accent);
+}
+
+.network-center-label {
+  font-size: 11px;
+  font-weight: 700;
+}
+
+.network-empty-note,
+.network-hint {
+  font-size: 12px;
+  color: var(--text-faint);
+  text-align: center;
+  margin-top: 8px;
+}
+
+.network-overflow-note {
+  font-size: 11px;
+  color: var(--text-faint);
+  text-align: center;
+  margin-top: 4px;
+}
+
+.network-header-actions {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  flex-shrink: 0;
+}
+
+/* External nodes/edges — fetched from outside the project on click, so
+   they're visually distinct (dashed) from the free, always-available
+   in-project links. */
+.network-node.network-external circle {
+  stroke-dasharray: 2 2;
+  opacity: 0.75;
+}
+
+.network-node.network-external .network-node-label {
+  fill: var(--text-faint);
+  font-style: italic;
+}
+
+.network-node.network-external {
+  cursor: pointer;
+}
+
+.network-node.network-external:hover circle {
+  stroke: var(--text-muted);
+}
+
+.network-node.network-external:hover .network-node-label {
+  fill: var(--text-muted);
+}
+
+.network-edge-external {
+  stroke-dasharray: 3 3;
+  opacity: 0.7;
+}
+
+.network-load-row {
+  display: flex;
+  justify-content: center;
+  gap: 10px;
+  margin-top: 12px;
+  flex-wrap: wrap;
+}
+
+.network-load-btn {
+  padding: 5px 14px;
+  font-size: 12.5px;
+}
+
+.network-load-btn:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+.network-error-note {
+  font-size: 12px;
+  color: var(--danger);
+  text-align: center;
+  margin-top: 8px;
 }
 
 .modal-body-scroll {

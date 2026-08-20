@@ -276,6 +276,68 @@ window.SLRViews = (() => {
     };
   }
 
+  //  Citation network (intra-project)
+  //
+  //  Built entirely from data already sitting in each OpenAlex-sourced
+  //  article's `referencedWorks` (captured for free from the normal search
+  //  response, see mapOpenAlexResult in app.js — no extra API calls). Two
+  //  articles in the SAME project link up when one's referencedWorks
+  //  contains the other's bare OpenAlex ID. Articles from Scopus/PubMed/etc.
+  //  simply never carry referencedWorks, so they can't participate — that's
+  //  an accepted scope limit, not a bug.
+
+  // Cache keyed by array identity: renderArticles/renderCorpus/renderSelected
+  // all build this from the same full `articles` array on every re-render
+  // (once per keystroke while typing in search, etc.), and it's an O(n)
+  // scan — not something to redo 3x for nothing when the list hasn't changed.
+  let _networkIndexCache = { articlesRef: null, index: null };
+
+  function buildCitationNetworkIndex(articles) {
+    if (_networkIndexCache.articlesRef === articles) return _networkIndexCache.index;
+
+    const byOAId = new Map(); // bare OpenAlex work ID -> article
+    for (const a of articles) {
+      if (a.source === 'openalex' && a.eid && a.eid.startsWith('openalex:')) {
+        byOAId.set(a.eid.slice(9), a);
+      }
+    }
+
+    const citesMap = new Map();    // eid -> [article it cites, in-project]
+    const citedByMap = new Map();  // eid -> [article that cites it, in-project]
+    const hasNetwork = new Set();
+
+    for (const a of articles) {
+      if (!Array.isArray(a.referencedWorks) || !a.referencedWorks.length) continue;
+      for (const refId of a.referencedWorks) {
+        const target = byOAId.get(refId);
+        if (!target || target === a) continue;
+        if (!citesMap.has(a.eid)) citesMap.set(a.eid, []);
+        citesMap.get(a.eid).push(target);
+        if (!citedByMap.has(target.eid)) citedByMap.set(target.eid, []);
+        citedByMap.get(target.eid).push(a);
+        hasNetwork.add(a.eid);
+        hasNetwork.add(target.eid);
+      }
+    }
+
+    const index = { citesMap, citedByMap, hasNetwork };
+    _networkIndexCache = { articlesRef: articles, index };
+    return index;
+  }
+
+  function getNetworkBadgeState(article, networkIndex) {
+    if (!networkIndex) return { state: 'unavailable', title: 'No citation network data available for this article yet' };
+    if (networkIndex.hasNetwork.has(article.eid)) {
+      const citing  = (networkIndex.citesMap.get(article.eid) || []).length;
+      const citedBy = (networkIndex.citedByMap.get(article.eid) || []).length;
+      const parts = [];
+      if (citing)  parts.push(`cites ${citing} article${citing !== 1 ? 's' : ''} in this project`);
+      if (citedBy) parts.push(`cited by ${citedBy} article${citedBy !== 1 ? 's' : ''} in this project`);
+      return { state: 'available', title: 'Citation network: ' + parts.join(', ') };
+    }
+    return { state: 'unavailable', title: 'No citation network data available for this article yet' };
+  }
+
   //  Welcome view
 
   function renderWelcome(container) {
@@ -1017,7 +1079,7 @@ window.SLRViews = (() => {
            ${SLRIcons.articles}
            <p>No articles match the current filters.</p>
          </div>`
-      : visible.map(a => articleItemHTML(a, projectData)).join('');
+      : visible.map(a => articleItemHTML(a, projectData, buildCitationNetworkIndex(articles))).join('');
 
     container.innerHTML = `
       <div class="articles-view">
@@ -1087,7 +1149,7 @@ window.SLRViews = (() => {
     wireInfiniteScroll(container.querySelector('#article-list'), hasMore, () => SLRApp.bumpArticlesRenderLimit());
   }
 
-  function articleItemHTML(a, projectData) {
+  function articleItemHTML(a, projectData, networkIndex) {
     const hex = tagColor(projectData, a.color);
     const styleAttr = hex ? `style="--tag-color:${esc(hex)}"` : '';
     const tagName = (a.tag && a.tag !== 'None') ? a.tag : '';
@@ -1140,6 +1202,14 @@ window.SLRViews = (() => {
     const affiliationBadge = (() => {
       const badge = getAffiliationBadgeState(a);
       return `<span class="affiliation-indicator ${esc(badge.state)}" title="${esc(badge.title)}" aria-label="${esc(badge.title)}">${SLRIcons.globe}</span>`;
+    })();
+
+    const networkBadge = (() => {
+      const badge = getNetworkBadgeState(a, networkIndex);
+      if (badge.state === 'available') {
+        return `<button type="button" class="network-indicator available" data-action="show-network" title="${esc(badge.title)}" aria-label="${esc(badge.title)}">${SLRIcons.network}</button>`;
+      }
+      return `<span class="network-indicator unavailable" title="${esc(badge.title)}" aria-label="${esc(badge.title)}">${SLRIcons.network}</span>`;
     })();
 
     const affiliationCountries = getAffiliationCountries(a);
@@ -1245,6 +1315,7 @@ window.SLRViews = (() => {
                 ${a.abstract ? SLRIcons.eye : SLRIcons.eyeOff}
               </span>
               ${affiliationBadge}
+              ${networkBadge}
             </span>
             <span class="article-tag-row-actions">
               <button class="badge badge-toggle ${a.selected ? 'badge-selected' : 'badge-dim'}"
@@ -1315,6 +1386,8 @@ window.SLRViews = (() => {
         SLRApp.updateAnnotation(eid, { corpus: item.dataset.corpus !== 'true' });
       } else if (action === 'open-tag-picker') {
         openTagPickerPopup(btn, eid, projectData);
+      } else if (action === 'show-network') {
+        SLRApp.showArticleNetwork(eid);
       }
     });
   }
@@ -2266,10 +2339,16 @@ window.SLRViews = (() => {
                   <div class="history-query-preview">${esc(queryPreview)}${run.query && run.query.length > 120 ? '\u2026' : ''}</div>
                   ${tagBar}
                 </div>
-                ${actionButtons}
-                <button class="hist-copy-btn" data-query="${esc(run.query || '')}" title="Copy query to clipboard">${SLRIcons.copy}</button>
-                ${dbBadge}
-                <span class="history-count">${count} result${count !== 1 ? 's' : ''}</span>
+                <div class="history-badges">
+                  <div class="history-badges-row">
+                    ${dbBadge}
+                    <span class="history-count">${count} result${count !== 1 ? 's' : ''}</span>
+                  </div>
+                  <div class="history-badges-row">
+                    ${actionButtons}
+                    <button class="hist-copy-btn" data-query="${esc(run.query || '')}" title="Copy query to clipboard">${SLRIcons.copy}</button>
+                  </div>
+                </div>
               </div>
               <div class="history-query-full">
                 <pre>${esc(run.query)}</pre>
@@ -2439,7 +2518,7 @@ window.SLRViews = (() => {
       ? renderNoProjectNotice()
       : filtered.length === 0
       ? `<div class="article-list-empty">${SLRIcons.corpus}<p>No corpus articles match the current filters.</p></div>`
-      : visible.map(a => articleItemHTML(a, projectData)).join('');
+      : visible.map(a => articleItemHTML(a, projectData, buildCitationNetworkIndex(articles))).join('');
 
     container.innerHTML = `
       <div class="articles-view">
@@ -2517,7 +2596,7 @@ window.SLRViews = (() => {
       ? renderNoProjectNotice()
       : filtered.length === 0
       ? `<div class="article-list-empty">${SLRIcons.selected}<p>No selected articles match the current filters.</p></div>`
-      : visible.map(a => articleItemHTML(a, projectData)).join('');
+      : visible.map(a => articleItemHTML(a, projectData, buildCitationNetworkIndex(articles))).join('');
 
     container.innerHTML = `
       <div class="articles-view">
@@ -5477,6 +5556,299 @@ window.SLRViews = (() => {
     });
   }
 
+  // DOI/OpenAlex/PMID link for a node the user clicked that isn't in this
+  // project — mirrors the eid-based link logic in articleItemHTML.
+  function externalArticleHref(a) {
+    if (a.doi) return `https://doi.org/${a.doi}`;
+    const eid = a.eid || a._id || '';
+    if (eid.startsWith('openalex:')) return `https://openalex.org/${eid.slice(9)}`;
+    if (eid.startsWith('pmid:')) return `https://pubmed.ncbi.nlm.nih.gov/${eid.slice(5)}/`;
+    return null;
+  }
+
+  const truncateLabel = (s, n) => {
+    s = String(s || '').trim();
+    return s.length > n ? s.slice(0, n - 1) + '…' : s;
+  };
+
+  // ── Network PNG export — same clone+resolve-CSS-vars+canvas approach as
+  // exportVizAsPNG above, just simpler since this SVG has no HTML content
+  // (no foreignObject) and only two colors ever need resolving.
+  async function exportNetworkAsPNG(svgEl, title) {
+    const gv = v => getComputedStyle(document.documentElement).getPropertyValue(v).trim();
+    const bgC = gv('--bg') || '#0d1117', txtC = gv('--text') || '#e6edf3', mutC = gv('--text-muted') || '#8b949e';
+    const FONT = 'system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif';
+    const SCALE = 2, PAD = 30, HDR = 44;
+    const vb = svgEl.viewBox.baseVal;
+    const sw = (vb && vb.width) || 760, sh = (vb && vb.height) || 460;
+    const W = sw + PAD * 2, H = sh + HDR + PAD * 2;
+    const canvas = document.createElement('canvas');
+    canvas.width = Math.ceil(W * SCALE);
+    canvas.height = Math.ceil(H * SCALE);
+    const ctx = canvas.getContext('2d');
+    ctx.scale(SCALE, SCALE);
+    ctx.fillStyle = bgC; ctx.fillRect(0, 0, W, H);
+    ctx.font = `600 15px ${FONT}`; ctx.fillStyle = txtC;
+    ctx.fillText(title, PAD, PAD + 6);
+    ctx.font = `400 11px ${FONT}`; ctx.fillStyle = mutC;
+    ctx.fillText(`SLR Harvester Web · ${new Date().toLocaleDateString()}`, PAD, PAD + 24);
+
+    const resolveVarStr = s => s.replace(/var\(\s*([^,)]+)(?:,\s*([^)]*))?\s*\)/g, (_, k, fb) => gv(k.trim()) || fb || '#888');
+    const origEls  = [svgEl, ...svgEl.querySelectorAll('*')];
+    const clone    = svgEl.cloneNode(true);
+    clone.setAttribute('width', sw); clone.setAttribute('height', sh);
+    const cloneEls = [clone, ...clone.querySelectorAll('*')];
+    origEls.forEach((orig, i) => {
+      const cl = cloneEls[i]; if (!cl) return;
+      cl.removeAttribute('class');
+      ['fill', 'stroke'].forEach(attr => {
+        const v = orig.getAttribute(attr);
+        if (v !== null) { cl.setAttribute(attr, v.includes('var(') ? resolveVarStr(v) : v); return; }
+        if (['text', 'circle', 'line', 'path'].includes(orig.tagName)) {
+          const cs = getComputedStyle(orig)[attr];
+          if (cs && cs !== 'none') cl.setAttribute(attr, cs);
+        }
+      });
+    });
+    const xml = new XMLSerializer().serializeToString(clone);
+    const uri = 'data:image/svg+xml;base64,' + btoa(unescape(encodeURIComponent(xml)));
+    await new Promise((res, rej) => {
+      const img = new Image();
+      img.onload  = () => { ctx.drawImage(img, PAD, PAD + HDR, sw, sh); res(); };
+      img.onerror = () => rej(new Error('SVG render failed'));
+      img.src = uri;
+    });
+    return new Promise((resolve, reject) => {
+      canvas.toBlob(blob => {
+        if (!blob) { reject(new Error('Canvas export failed')); return; }
+        const a = document.createElement('a'), u = URL.createObjectURL(blob);
+        a.href = u;
+        a.download = `slr-network-${title.toLowerCase().replace(/[^a-z0-9]+/g, '-').slice(0, 60)}-${new Date().toISOString().slice(0, 10)}.png`;
+        document.body.appendChild(a); a.click();
+        setTimeout(() => { document.body.removeChild(a); URL.revokeObjectURL(u); }, 1000);
+        resolve();
+      }, 'image/png');
+    });
+  }
+
+  //  Citation network modal — one article's direct citation neighbours,
+  //  built on demand only for whichever article was clicked (never
+  //  precomputed for the whole list). Two layers:
+  //   1. In-project links — free, from buildCitationNetworkIndex (local
+  //      data already on disk, no request).
+  //   2. External links — fetched only when the user explicitly clicks
+  //      "Load external references/citations", capped per click
+  //      (SLRApp.loadExternalReferences/loadExternalCitations enforce the
+  //      limits) with its own "load more" for the next capped batch.
+  //  Clicking an in-project node re-centers the same modal on it; clicking
+  //  an external node (no local data to recurse into) opens its DOI/
+  //  OpenAlex page instead.
+  function renderArticleNetworkModal(overlay, article, articles, projectData) {
+    const networkIndex = buildCitationNetworkIndex(articles);
+    const citing  = networkIndex.citesMap.get(article.eid) || [];
+    const citedBy = networkIndex.citedByMap.get(article.eid) || [];
+
+    const isOpenAlex = article.source === 'openalex' && !!article.eid;
+    const canLoadRefs = isOpenAlex && Array.isArray(article.referencedWorks) && article.referencedWorks.length > 0;
+    const canLoadCites = isOpenAlex && (parseInt(article.citedby, 10) || 0) > citedBy.length;
+
+    // Mutable across re-draws of THIS modal instance only — reset whenever
+    // the user navigates to a different article (fresh renderArticleNetworkModal call).
+    let extCiting = [], extCitedBy = [];
+    let extRefsOffset = 0, extCitesPage = 1;
+    let extRefsDone = !canLoadRefs, extCitesDone = !canLoadCites;
+    let loadingRefs = false, loadingCites = false;
+    let loadError = '';
+
+    const draw = () => {
+      const MAX_IN_PROJECT_ROW = 10;
+      const citingShown  = citing.slice(0, MAX_IN_PROJECT_ROW);
+      const citedByShown = citedBy.slice(0, MAX_IN_PROJECT_ROW);
+      const citingMore   = citing.length  - citingShown.length;
+      const citedByMore  = citedBy.length - citedByShown.length;
+
+      const hasExtCiting  = extCiting.length > 0;
+      const hasExtCitedBy = extCitedBy.length > 0;
+      const ROW_EXTRA = 90;
+      const topExtra    = hasExtCiting  ? ROW_EXTRA : 0;
+      const bottomExtra = hasExtCitedBy ? ROW_EXTRA : 0;
+
+      const maxRowCount = Math.max(citingShown.length, citedByShown.length, extCiting.length, extCitedBy.length, 1);
+      const W = Math.max(760, maxRowCount * 100);
+      const H = 460 + topExtra + bottomExtra;
+      const centerX = W / 2, centerY = topExtra + 230;
+      const rowYExtTop    = 40;
+      const rowYInTop     = topExtra + 74;
+      const rowYInBottom  = H - bottomExtra - 74;
+      const rowYExtBottom = H - 40;
+
+      const layoutRow = (items, y) => {
+        const n = items.length;
+        if (!n) return [];
+        const margin = 90;
+        const usable = W - margin * 2;
+        return items.map((it, i) => ({ article: it, x: n === 1 ? W / 2 : margin + (usable * i) / (n - 1), y }));
+      };
+
+      const citingPos     = layoutRow(citingShown, rowYInTop);
+      const citedByPos     = layoutRow(citedByShown, rowYInBottom);
+      const extCitingPos  = hasExtCiting  ? layoutRow(extCiting, rowYExtTop)   : [];
+      const extCitedByPos = hasExtCitedBy ? layoutRow(extCitedBy, rowYExtBottom) : [];
+
+      const nodeHTML = (pos, roleClass, isTop, external) => {
+        const a = pos.article;
+        const hex = external ? 'var(--text-faint)' : (tagColor(projectData, a.color) || 'var(--text-faint)');
+        const title = truncateLabel(a.title, 30);
+        const year = a.date ? a.date.slice(0, 4) : '';
+        const href = external ? externalArticleHref(a) : null;
+        return `
+          <g class="network-node ${roleClass}${external ? ' network-external' : ''}"
+             ${external ? '' : `data-eid="${esc(a.eid || a._id || '')}"`}
+             ${external && href ? `data-href="${esc(href)}"` : ''}
+             transform="translate(${pos.x},${pos.y})">
+            <circle r="9" fill="${esc(hex)}" stroke="var(--surface)" stroke-width="2"></circle>
+            <text class="network-node-label" y="${isTop ? -18 : 24}" text-anchor="middle">${esc(title)}${external ? ' ↗' : ''}</text>
+            ${year ? `<text class="network-node-year" y="${isTop ? -6 : 37}" text-anchor="middle">${esc(year)}</text>` : ''}
+          </g>`;
+      };
+
+      const edgesHTML = [
+        ...citingPos.map(pos => `<line class="network-edge network-edge-cites" x1="${centerX}" y1="${centerY}" x2="${pos.x}" y2="${pos.y}" marker-end="url(#network-arrow-cites)"></line>`),
+        ...citedByPos.map(pos => `<line class="network-edge network-edge-citedby" x1="${pos.x}" y1="${pos.y}" x2="${centerX}" y2="${centerY}" marker-end="url(#network-arrow-citedby)"></line>`),
+        ...extCitingPos.map(pos => `<line class="network-edge network-edge-cites network-edge-external" x1="${centerX}" y1="${centerY}" x2="${pos.x}" y2="${pos.y}" marker-end="url(#network-arrow-cites)"></line>`),
+        ...extCitedByPos.map(pos => `<line class="network-edge network-edge-citedby network-edge-external" x1="${pos.x}" y1="${pos.y}" x2="${centerX}" y2="${centerY}" marker-end="url(#network-arrow-citedby)"></line>`),
+      ].join('');
+
+      const centerHex = tagColor(projectData, article.color) || 'var(--accent)';
+      const centerTitle = truncateLabel(article.title, 42);
+
+      const svg = `
+        <svg viewBox="0 0 ${W} ${H}" class="network-svg" xmlns="http://www.w3.org/2000/svg">
+          <defs>
+            <marker id="network-arrow-cites" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+              <path d="M0,0 L10,5 L0,10 z" class="network-arrowhead-cites"></path>
+            </marker>
+            <marker id="network-arrow-citedby" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+              <path d="M0,0 L10,5 L0,10 z" class="network-arrowhead-citedby"></path>
+            </marker>
+          </defs>
+          ${edgesHTML}
+          ${citingPos.map(pos => nodeHTML(pos, 'network-citing', true, false)).join('')}
+          ${citedByPos.map(pos => nodeHTML(pos, 'network-citedby', false, false)).join('')}
+          ${extCitingPos.map(pos => nodeHTML(pos, 'network-citing', true, true)).join('')}
+          ${extCitedByPos.map(pos => nodeHTML(pos, 'network-citedby', false, true)).join('')}
+          <g class="network-node network-center" transform="translate(${centerX},${centerY})">
+            <circle r="15" fill="${esc(centerHex)}" stroke="var(--accent)" stroke-width="3"></circle>
+            <text class="network-node-label network-center-label" y="32" text-anchor="middle">${esc(centerTitle)}</text>
+          </g>
+        </svg>`;
+
+      const legendHTML = `
+        <div class="network-legend">
+          <span class="network-legend-item"><span class="network-legend-dot network-legend-dot-citing"></span>Cites (${citing.length}${hasExtCiting ? ` + ${extCiting.length} external` : ''})</span>
+          <span class="network-legend-item"><span class="network-legend-dot network-legend-dot-citedby"></span>Cited by (${citedBy.length}${hasExtCitedBy ? ` + ${extCitedBy.length} external` : ''})</span>
+        </div>`;
+
+      const emptyNote = (!citing.length && !citedBy.length && !hasExtCiting && !hasExtCitedBy)
+        ? `<p class="network-empty-note">No citation links to other articles in this project were found for this article.</p>`
+        : '';
+
+      const overflowParts = [
+        citingMore  > 0 ? `+${citingMore} more it cites in this project`  : '',
+        citedByMore > 0 ? `+${citedByMore} more cite it in this project` : '',
+      ].filter(Boolean);
+
+      const loadButtonsHTML = isOpenAlex ? `
+        <div class="network-load-row">
+          ${canLoadRefs ? `<button type="button" class="btn-secondary network-load-btn" id="network-load-refs" ${extRefsDone ? 'disabled' : ''}>${loadingRefs ? 'Loading…' : extRefsDone ? 'No more external references' : (hasExtCiting ? 'Load more external references' : 'Load external references')}</button>` : ''}
+          ${canLoadCites ? `<button type="button" class="btn-secondary network-load-btn" id="network-load-cites" ${extCitesDone ? 'disabled' : ''}>${loadingCites ? 'Loading…' : extCitesDone ? 'No more external citations' : (hasExtCitedBy ? 'Load more external citations' : 'Load external citations')}</button>` : ''}
+        </div>` : '';
+
+      overlay.classList.remove('hidden');
+      overlay.innerHTML = `
+        <div class="modal modal-network" role="dialog" aria-modal="true" aria-labelledby="network-modal-title">
+          <div class="modal-header">
+            <div>
+              <h3 id="network-modal-title">Citation Network</h3>
+              <p class="modal-subtitle">${esc(truncateLabel(article.title, 80))}</p>
+            </div>
+            <div class="network-header-actions">
+              <button class="icon-btn" id="network-download-btn" title="Download as PNG" aria-label="Download as PNG">${SLRIcons.download}</button>
+              <button class="icon-btn" id="network-modal-close" aria-label="Close">${SLRIcons.close}</button>
+            </div>
+          </div>
+          <div class="modal-body">
+            ${legendHTML}
+            <div class="network-canvas">${svg}</div>
+            ${emptyNote}
+            ${overflowParts.length ? `<p class="network-overflow-note">${esc(overflowParts.join(' · '))}</p>` : ''}
+            ${loadButtonsHTML}
+            ${loadError ? `<p class="network-error-note">${esc(loadError)}</p>` : ''}
+            ${!emptyNote ? `<p class="network-hint">Click a solid node to explore its network. Dashed nodes are external — click to open.</p>` : ''}
+          </div>
+        </div>`;
+
+      const closeModal = () => { overlay.classList.add('hidden'); overlay.innerHTML = ''; };
+      overlay.querySelector('#network-modal-close').addEventListener('click', closeModal);
+      overlay.addEventListener('click', e => { if (e.target === overlay) closeModal(); });
+
+      overlay.querySelector('#network-download-btn')?.addEventListener('click', async () => {
+        const svgEl = overlay.querySelector('.network-svg');
+        if (!svgEl) return;
+        try { await exportNetworkAsPNG(svgEl, article.title || 'citation-network'); }
+        catch (_) { SLRApp.showToast('Could not export network as PNG.', true); }
+      });
+
+      overlay.querySelectorAll('.network-node[data-eid]').forEach(node => {
+        node.addEventListener('click', () => {
+          const eid = node.dataset.eid;
+          const next = articles.find(a => (a.eid || a._id) === eid);
+          if (next) renderArticleNetworkModal(overlay, next, articles, projectData);
+        });
+      });
+      overlay.querySelectorAll('.network-node[data-href]').forEach(node => {
+        node.addEventListener('click', () => {
+          const href = node.dataset.href;
+          if (href) window.open(href, '_blank', 'noopener');
+        });
+      });
+
+      const refsBtn = overlay.querySelector('#network-load-refs');
+      if (refsBtn) refsBtn.addEventListener('click', async () => {
+        if (loadingRefs || extRefsDone) return;
+        loadingRefs = true; loadError = ''; draw();
+        try {
+          const res = await SLRApp.loadExternalReferences(article.eid, extRefsOffset);
+          extCiting = extCiting.concat(res.items);
+          extRefsOffset = res.nextOffset;
+          extRefsDone = res.nextOffset === null;
+        } catch (_) {
+          loadError = 'Could not load external references — please try again.';
+        } finally {
+          loadingRefs = false; draw();
+        }
+      });
+
+      const citesBtn = overlay.querySelector('#network-load-cites');
+      if (citesBtn) citesBtn.addEventListener('click', async () => {
+        if (loadingCites || extCitesDone) return;
+        loadingCites = true; loadError = ''; draw();
+        try {
+          const res = await SLRApp.loadExternalCitations(article.eid, extCitesPage);
+          extCitedBy = extCitedBy.concat(res.items);
+          extCitesPage += 1;
+          extCitesDone = !res.hasMore;
+        } catch (_) {
+          loadError = 'Could not load external citations — please try again.';
+        } finally {
+          loadingCites = false; draw();
+        }
+      });
+    };
+
+    draw();
+  }
+
   //  Generic read-only list modal — used by the PRISMA diagram to show which
   //  records sit behind a given box/connector (duplicates, excluded records,
   //  search queries) without needing a dedicated view for each.
@@ -5741,6 +6113,7 @@ window.SLRViews = (() => {
     renderAutoTagRules,
     renderNewProjectModal,
     renderSupabaseAuthModal,
+    renderArticleNetworkModal,
   };
 
 })();
