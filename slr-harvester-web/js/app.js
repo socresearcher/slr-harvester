@@ -1076,6 +1076,14 @@ window.SLRApp = (() => {
 				if (subfieldName) openAlexSubfields.add(String(subfieldName).trim());
 			}
 		}
+		// OpenAlex includes each work's outgoing references in every normal
+		// /works response (no extra API call) as full URLs like
+		// "https://openalex.org/W123..." — stripped down to the bare ID here
+		// so the citation-network builder can match them against other
+		// articles' `openalex:W123...` eids directly.
+		const referencedWorks = Array.isArray(r.referenced_works)
+			? r.referenced_works.map(u => String(u).split('/').pop()).filter(Boolean)
+			: [];
 		return {
 			source: 'openalex',
 			eid: r.id ? `openalex:${String(r.id).split('/').pop()}` : '',
@@ -1093,6 +1101,7 @@ window.SLRApp = (() => {
 			openAlexFields: [...openAlexFields],
 			openAlexSubfields: [...openAlexSubfields],
 			docType: mapOpenAlexType(r.type),
+			referencedWorks,
 		};
 	}
 
@@ -1476,6 +1485,48 @@ window.SLRApp = (() => {
 			page += 1;
 		}
 		return rows;
+	}
+
+	// Two dedicated, narrow-purpose fetchers for the citation-network modal's
+	// "load external references / citations" buttons — kept separate from
+	// fetchOpenAlexWorksByFilter above (used by the search fallback path)
+	// rather than generalizing it, so this feature can't regress that
+	// unrelated, already-working code path.
+	async function fetchExternalReferencedWorks(ids, signal) {
+		if (!ids.length) return [];
+		const config = await SLRData.loadConfig();
+		const openAlexKey = normalizeToken((config && config.OpenAlexKey) || state.settings.openAlexKey);
+		const openAlexEmail = normalizeEmail((config && (config.OpenAlexEmail || config.OpenAlexMailto)) || state.settings.openAlexEmail);
+		const url = new URL('https://api.openalex.org/works');
+		url.searchParams.set('filter', `openalex_id:${ids.join('|')}`);
+		url.searchParams.set('per-page', String(ids.length));
+		if (openAlexKey) url.searchParams.set('api_key', openAlexKey);
+		if (openAlexEmail) url.searchParams.set('mailto', openAlexEmail);
+		const res = await fetch(url.toString(), { signal });
+		if (!res.ok) throw new Error(`OpenAlex API error ${res.status}`);
+		const data = await res.json();
+		const results = Array.isArray(data && data.results) ? data.results : [];
+		return results.map(mapOpenAlexResult);
+	}
+
+	async function fetchExternalCitingWorks(openAlexId, page, signal) {
+		const config = await SLRData.loadConfig();
+		const openAlexKey = normalizeToken((config && config.OpenAlexKey) || state.settings.openAlexKey);
+		const openAlexEmail = normalizeEmail((config && (config.OpenAlexEmail || config.OpenAlexMailto)) || state.settings.openAlexEmail);
+		const PER_PAGE = 20;
+		const url = new URL('https://api.openalex.org/works');
+		url.searchParams.set('filter', `cites:${openAlexId}`);
+		url.searchParams.set('sort', 'cited_by_count:desc');
+		url.searchParams.set('per-page', String(PER_PAGE));
+		url.searchParams.set('page', String(page));
+		if (openAlexKey) url.searchParams.set('api_key', openAlexKey);
+		if (openAlexEmail) url.searchParams.set('mailto', openAlexEmail);
+		const res = await fetch(url.toString(), { signal });
+		if (!res.ok) throw new Error(`OpenAlex API error ${res.status}`);
+		const data = await res.json();
+		const results = Array.isArray(data && data.results) ? data.results : [];
+		const totalCount = (data && data.meta && data.meta.count) || 0;
+		return { items: results.map(mapOpenAlexResult), hasMore: page * PER_PAGE < totalCount };
 	}
 
 	async function fetchCrossrefQueryFallback(query, maxResults, signal) {
@@ -2931,6 +2982,55 @@ window.SLRApp = (() => {
 		SLRViews.renderSupabaseAuthModal(overlay, mode);
 	}
 
+	// The citation network is built on demand, only for the one article the
+	// user clicked into — never precomputed/loaded for the whole list. The
+	// index itself (see SLRViews.buildCitationNetworkIndex) is a cheap O(n)
+	// scan over already-local data (no API calls), but running it here,
+	// only on click, still keeps it off the hot render path entirely.
+	function showArticleNetwork(eid) {
+		const overlay = $('modal-overlay');
+		if (!overlay || !state.articles) return;
+		const article = state.articles.find(a => (a.eid || a._id) === eid);
+		if (!article) return;
+		SLRViews.renderArticleNetworkModal(overlay, article, state.articles, state.projectData);
+	}
+
+	// Outgoing external references: the focal article's own referencedWorks
+	// already lists every work it cites (in-project or not) — this only
+	// fetches TITLE/metadata for the ones not already sitting locally, in
+	// capped batches of EXTERNAL_REF_LIMIT so one click never pulls a
+	// paper's entire (sometimes 80+ item) reference list at once.
+	const EXTERNAL_REF_LIMIT = 40;
+	async function loadExternalReferences(eid, offset) {
+		const article = state.articles.find(a => (a.eid || a._id) === eid);
+		if (!article || !Array.isArray(article.referencedWorks) || !article.referencedWorks.length) {
+			return { items: [], totalExternal: 0, nextOffset: null };
+		}
+		const inProjectIds = new Set(
+			state.articles.filter(a => a.source === 'openalex' && a.eid).map(a => a.eid.slice(9))
+		);
+		const externalIds = article.referencedWorks.filter(id => !inProjectIds.has(id));
+		const off = offset || 0;
+		const batch = externalIds.slice(off, off + EXTERNAL_REF_LIMIT);
+		if (!batch.length) return { items: [], totalExternal: externalIds.length, nextOffset: null };
+		const items = await fetchExternalReferencedWorks(batch, null);
+		const nextOffset = off + batch.length < externalIds.length ? off + batch.length : null;
+		return { items, totalExternal: externalIds.length, nextOffset };
+	}
+
+	// Incoming external citations: works OUTSIDE this project that cite the
+	// focal article, fetched one capped page (20) at a time via OpenAlex's
+	// cites: filter — the "load more" button in the modal just requests the
+	// next page rather than everything a highly-cited article accumulates.
+	async function loadExternalCitations(eid, page) {
+		const article = state.articles.find(a => (a.eid || a._id) === eid);
+		if (!article || article.source !== 'openalex' || !article.eid) return { items: [], hasMore: false };
+		const openAlexId = article.eid.slice(9);
+		const inProjectEids = new Set(state.articles.map(a => a.eid || a._id));
+		const { items, hasMore } = await fetchExternalCitingWorks(openAlexId, page || 1, null);
+		return { items: items.filter(it => !inProjectEids.has(it.eid)), hasMore };
+	}
+
 	function bindEvents() {
 		$('theme-toggle')?.addEventListener('click', () => SLRAppUI.toggleTheme(state, $));
 		$('fullscreen-toggle')?.addEventListener('click', () => SLRAppUI.toggleFullscreen(showToast, $));
@@ -3003,6 +3103,9 @@ window.SLRApp = (() => {
 		updateProjectMeta,
 		showNewProjectModal,
 		showSupabaseAuthModal,
+		showArticleNetwork,
+		loadExternalReferences,
+		loadExternalCitations,
 		createProject,
 		saveSettings,
 		testScopusApiKey,

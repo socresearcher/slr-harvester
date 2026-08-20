@@ -117,6 +117,9 @@ window.SLRData = (() => {
             for (const value of openAlexSubfields) mergedSubfields.add(value);
             existing.openAlexSubfields = [...mergedSubfields];
           }
+          if (!Array.isArray(existing.referencedWorks) || !existing.referencedWorks.length) {
+            if (Array.isArray(r.referencedWorks) && r.referencedWorks.length) existing.referencedWorks = r.referencedWorks;
+          }
         }
       }
     }

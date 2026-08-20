@@ -263,6 +263,16 @@ window.SLRIcons = (() => {
        <path d="M12 3a15 15 0 0 0 0 18"/>`
     ),
 
+    // Citation network — three connected nodes
+    network: base(
+      `<circle cx="12" cy="5" r="2.5"/>
+       <circle cx="5" cy="18" r="2.5"/>
+       <circle cx="19" cy="18" r="2.5"/>
+       <path d="M10.3 6.8 6.7 15.7"/>
+       <path d="M13.7 6.8 17.3 15.7"/>
+       <path d="M7.5 18h9"/>`
+    ),
+
     // Supabase mark — a bolt/flash glyph, used on the "Continue with
     // Supabase" button and the About page's Cloud Sync note. Not the
     // literal trademarked asset (original geometry, not traced from
