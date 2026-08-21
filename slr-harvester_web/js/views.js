@@ -5258,19 +5258,21 @@ window.SLRViews = (() => {
             <h3>Tags</h3>
           </div>
 
-          <div class="tag-add-form" id="tag-add-form" style="display:none">
-            <div class="tag-add-form-inner">
-              <input type="color" class="tag-color-input" id="tag-new-color" value="#64A8FF">
-              <input type="text"  class="tag-name-input"  id="tag-new-name" placeholder="Tag name" maxlength="40">
-              <button class="btn-primary btn-sm" id="tag-add-confirm">Add</button>
-              <button class="btn-secondary btn-sm" id="tag-add-cancel">Cancel</button>
+          <div class="scheme-panel">
+            <div class="tag-add-form" id="tag-add-form" style="display:none">
+              <div class="tag-add-form-inner">
+                <input type="color" class="tag-color-input" id="tag-new-color" value="#64A8FF">
+                <input type="text"  class="tag-name-input"  id="tag-new-name" placeholder="Tag name" maxlength="40">
+                <button class="btn-primary btn-sm" id="tag-add-confirm">Add</button>
+                <button class="btn-secondary btn-sm" id="tag-add-cancel">Cancel</button>
+              </div>
             </div>
-          </div>
 
-          ${tagKeys.length > 0
-            ? `<div class="tags-grid">${tagCardsHTML}</div>`
-            : `<p style="font-size:13px;color:var(--text-faint)">No tags defined yet. Use Auto-tag in the Articles view or add tags manually.</p>`
-          }
+            ${tagKeys.length > 0
+              ? `<div class="tags-grid">${tagCardsHTML}</div>`
+              : `<p class="scheme-panel-intro" style="margin-bottom:0">No tags defined yet. Use Auto-tag in the Articles view or add tags manually.</p>`
+            }
+          </div>
         </div>
 
         <div class="tags-section">
@@ -5461,16 +5463,18 @@ window.SLRViews = (() => {
           <span>Auto-tag (in Articles) scores each article's journal name, title, and abstract against these keyword rules and assigns the highest-scoring category. Rename, recolour, delete, or add categories and keywords freely — changes apply across every project. Turn whole categories on/off per project from Settings &rarr; Auto-tag disciplines.</span>
         </div>
 
-        <div class="tag-add-form" id="autotag-add-category-form" style="display:none">
-          <div class="tag-add-form-inner">
-            <input type="color" class="tag-color-input" id="autotag-new-color" value="#64A8FF">
-            <input type="text"  class="tag-name-input"  id="autotag-new-name" placeholder="Category name" maxlength="40">
-            <button class="btn-primary btn-sm" id="autotag-add-category-confirm">Add</button>
-            <button class="btn-secondary btn-sm" id="autotag-add-category-cancel">Cancel</button>
+        <div class="scheme-panel">
+          <div class="tag-add-form" id="autotag-add-category-form" style="display:none">
+            <div class="tag-add-form-inner">
+              <input type="color" class="tag-color-input" id="autotag-new-color" value="#64A8FF">
+              <input type="text"  class="tag-name-input"  id="autotag-new-name" placeholder="Category name" maxlength="40">
+              <button class="btn-primary btn-sm" id="autotag-add-category-confirm">Add</button>
+              <button class="btn-secondary btn-sm" id="autotag-add-category-cancel">Cancel</button>
+            </div>
           </div>
-        </div>
 
-        <div class="autotag-grid">${cardsHTML}</div>
+          <div class="autotag-grid">${cardsHTML}</div>
+        </div>
       </div>`;
 
     container.querySelector('#autotag-reset-btn')?.addEventListener('click', () => {
