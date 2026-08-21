@@ -43,7 +43,7 @@ window.SLRData = (() => {
     'saveProjectIcon',
     'loadConfig', 'saveConfig', 'loadProjectData', 'appendSearchResult',
     'deleteSearchResult', 'setSearchResultStatus', 'patchSearchLogAbstracts', 'patchSearchLogDocTypes',
-    'patchSearchLogAuthors', 'patchSearchLogAffiliations', 'saveQueryTerms',
+    'patchSearchLogAuthors', 'patchSearchLogAffiliations', 'patchSearchLogReferencedWorks', 'saveQueryTerms',
     'deleteQueryTerm', 'updateArticleAnnotation', 'bulkUpdateAnnotations',
     'saveTagAliases', 'saveTagsConfig', 'createProject', 'ensureWriteAccess',
   ];
@@ -116,6 +116,9 @@ window.SLRData = (() => {
             const mergedSubfields = new Set(Array.isArray(existing.openAlexSubfields) ? existing.openAlexSubfields : []);
             for (const value of openAlexSubfields) mergedSubfields.add(value);
             existing.openAlexSubfields = [...mergedSubfields];
+          }
+          if (!Array.isArray(existing.referencedWorks) || !existing.referencedWorks.length) {
+            if (Array.isArray(r.referencedWorks) && r.referencedWorks.length) existing.referencedWorks = r.referencedWorks;
           }
         }
       }

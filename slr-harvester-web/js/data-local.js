@@ -541,6 +541,28 @@ window.SLRDataLocal = (() => {
     await writeJSON(projDir, 'search_log.json', log);
   }
 
+  // Backfill for the citation-network feature: existing projects were
+  // searched before referencedWorks was captured, so their OpenAlex-sourced
+  // results simply never had the key — this patches it in after the fact
+  // (see SLRApp.fetchCitationNetworkData, run as part of "Fetch All").
+  async function patchSearchLogReferencedWorks(folderName, refsMap) {
+    const hasWrite = await ensureWriteAccess();
+    if (!hasWrite) throw new Error('Write access required.');
+    const projectsDir = await getSubdir(_rootHandle, 'projects');
+    const projDir = await getSubdir(projectsDir, folderName);
+    if (!projDir) throw new Error(`Project folder "${folderName}" not found`);
+    const log = (await readJSON(projDir, 'search_log.json')) || [];
+    for (const entry of log) {
+      if (!Array.isArray(entry.results)) continue;
+      for (const result of entry.results) {
+        const eid = result.eid;
+        const update = eid && refsMap[eid];
+        if (update !== undefined) result.referencedWorks = update;
+      }
+    }
+    await writeJSON(projDir, 'search_log.json', log);
+  }
+
   /**
    * Update name and/or description of an existing project in projects.json.
    */
@@ -594,6 +616,7 @@ window.SLRDataLocal = (() => {
     patchSearchLogDocTypes,
     patchSearchLogAuthors,
     patchSearchLogAffiliations,
+    patchSearchLogReferencedWorks,
     saveQueryTerms,
     deleteQueryTerm,
     updateArticleAnnotation,

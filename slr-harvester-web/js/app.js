@@ -535,10 +535,8 @@ window.SLRApp = (() => {
 				SLRViews.renderPrivacy(_container);
 				break;
 			case 'tags':
-				SLRViews.renderTags(_container, state.articles, state.projectData);
-				break;
-			case 'autotag-rules':
-				SLRViews.renderAutoTagRules(_container, getAutoTagRules(), Array.isArray(state.autoTagRules), state.folderName);
+			case 'autotag-rules': // legacy nav target — Auto-Tag Rules now lives inside Tags
+				SLRViews.renderTags(_container, state.articles, state.projectData, getAutoTagRules(), Array.isArray(state.autoTagRules), state.folderName);
 				break;
 			default:
 				SLRViews.renderError(_container, `Unknown view: ${state.view}`);
@@ -626,10 +624,47 @@ window.SLRApp = (() => {
 		state.allProjectData[folderName] = pd;
 	}
 
+	// Projects created before tags stopped being pre-seeded (see createProject)
+	// still carry all 19 legacy default color keys in tags_config.json
+	// whether they're used or not. Rather than making the user hunt down
+	// and manually delete the ones that never got used — their exact
+	// complaint — silently drop any that are still (a) one of those exact
+	// legacy keys, (b) unreferenced by any article, and (c) never claimed
+	// by an alias (via auto-tag or a manual rename). Anything actually in
+	// use, or renamed to mean something, is left untouched. Runs once per
+	// project open, not on every background refresh.
+	async function pruneUnusedLegacyTags(folderName) {
+		const pd = state.projectData;
+		if (!pd || !pd.tagsConfig) return;
+		const legacyKeys = new Set(Object.keys(SLRData.DEFAULT_TAGS_CONFIG || {}).filter(k => k !== 'None'));
+		if (!legacyKeys.size) return;
+		const usedColors = new Set();
+		for (const ann of Object.values(pd.globalTags || {})) {
+			if (ann && ann.color && ann.color !== 'None') usedColors.add(ann.color);
+		}
+		const aliases = pd.tagAliases || {};
+		const next = { ...pd.tagsConfig };
+		let changed = false;
+		for (const key of Object.keys(next)) {
+			if (key === 'None' || !legacyKeys.has(key) || usedColors.has(key) || aliases[key]) continue;
+			delete next[key];
+			changed = true;
+		}
+		if (!changed) return;
+		try {
+			await SLRData.saveTagsConfig(folderName, next);
+			pd.tagsConfig = next;
+		} catch (_) {
+			// Best-effort cleanup — no write access, or a transient error.
+			// Not worth surfacing to the user; it'll simply retry next open.
+		}
+	}
+
 	async function openProject(folderName) {
 		try {
 			SLRViews.renderLoading(_container, 'Loading project...');
 			await hydrateProject(folderName);
+			await pruneUnusedLegacyTags(folderName);
 			state.projectLastOpened[folderName] = new Date().toISOString();
 			localStorage.setItem('slr-project-last-opened', JSON.stringify(state.projectLastOpened));
 			if (['welcome', 'projects', 'settings', 'about', 'databases'].includes(state.view)) {
@@ -1076,6 +1111,14 @@ window.SLRApp = (() => {
 				if (subfieldName) openAlexSubfields.add(String(subfieldName).trim());
 			}
 		}
+		// OpenAlex includes each work's outgoing references in every normal
+		// /works response (no extra API call) as full URLs like
+		// "https://openalex.org/W123..." — stripped down to the bare ID here
+		// so the citation-network builder can match them against other
+		// articles' `openalex:W123...` eids directly.
+		const referencedWorks = Array.isArray(r.referenced_works)
+			? r.referenced_works.map(u => String(u).split('/').pop()).filter(Boolean)
+			: [];
 		return {
 			source: 'openalex',
 			eid: r.id ? `openalex:${String(r.id).split('/').pop()}` : '',
@@ -1093,6 +1136,7 @@ window.SLRApp = (() => {
 			openAlexFields: [...openAlexFields],
 			openAlexSubfields: [...openAlexSubfields],
 			docType: mapOpenAlexType(r.type),
+			referencedWorks,
 		};
 	}
 
@@ -1476,6 +1520,48 @@ window.SLRApp = (() => {
 			page += 1;
 		}
 		return rows;
+	}
+
+	// Two dedicated, narrow-purpose fetchers for the citation-network modal's
+	// "load external references / citations" buttons — kept separate from
+	// fetchOpenAlexWorksByFilter above (used by the search fallback path)
+	// rather than generalizing it, so this feature can't regress that
+	// unrelated, already-working code path.
+	async function fetchExternalReferencedWorks(ids, signal) {
+		if (!ids.length) return [];
+		const config = await SLRData.loadConfig();
+		const openAlexKey = normalizeToken((config && config.OpenAlexKey) || state.settings.openAlexKey);
+		const openAlexEmail = normalizeEmail((config && (config.OpenAlexEmail || config.OpenAlexMailto)) || state.settings.openAlexEmail);
+		const url = new URL('https://api.openalex.org/works');
+		url.searchParams.set('filter', `openalex_id:${ids.join('|')}`);
+		url.searchParams.set('per-page', String(ids.length));
+		if (openAlexKey) url.searchParams.set('api_key', openAlexKey);
+		if (openAlexEmail) url.searchParams.set('mailto', openAlexEmail);
+		const res = await fetch(url.toString(), { signal });
+		if (!res.ok) throw new Error(`OpenAlex API error ${res.status}`);
+		const data = await res.json();
+		const results = Array.isArray(data && data.results) ? data.results : [];
+		return results.map(mapOpenAlexResult);
+	}
+
+	async function fetchExternalCitingWorks(openAlexId, page, signal) {
+		const config = await SLRData.loadConfig();
+		const openAlexKey = normalizeToken((config && config.OpenAlexKey) || state.settings.openAlexKey);
+		const openAlexEmail = normalizeEmail((config && (config.OpenAlexEmail || config.OpenAlexMailto)) || state.settings.openAlexEmail);
+		const PER_PAGE = 20;
+		const url = new URL('https://api.openalex.org/works');
+		url.searchParams.set('filter', `cites:${openAlexId}`);
+		url.searchParams.set('sort', 'cited_by_count:desc');
+		url.searchParams.set('per-page', String(PER_PAGE));
+		url.searchParams.set('page', String(page));
+		if (openAlexKey) url.searchParams.set('api_key', openAlexKey);
+		if (openAlexEmail) url.searchParams.set('mailto', openAlexEmail);
+		const res = await fetch(url.toString(), { signal });
+		if (!res.ok) throw new Error(`OpenAlex API error ${res.status}`);
+		const data = await res.json();
+		const results = Array.isArray(data && data.results) ? data.results : [];
+		const totalCount = (data && data.meta && data.meta.count) || 0;
+		return { items: results.map(mapOpenAlexResult), hasMore: page * PER_PAGE < totalCount };
 	}
 
 	async function fetchCrossrefQueryFallback(query, maxResults, signal) {
@@ -2110,6 +2196,7 @@ window.SLRApp = (() => {
 			await fetchAuthorsViaDOI(options.scopeIds);
 			await fetchTypesViaDOI(options.scopeIds);
 			await fetchAffiliationsViaIdentifier(options.scopeIds);
+			await fetchCitationNetworkData(options.scopeIds);
 		});
 		if (!options.fromAutoFetch) {
 			showToast('Fetch All completed.', false);
@@ -2275,6 +2362,84 @@ window.SLRApp = (() => {
 		}
 
 		showFetchReport('Fetch Affiliations report', stats);
+	}
+
+	// Backfills `referencedWorks` (see mapOpenAlexResult) for OpenAlex-sourced
+	// articles that were searched before the citation-network feature shipped
+	// — those records simply never had the field at all, which is why the
+	// network indicator showed unavailable on every article in an older
+	// project even though many of them are OpenAlex-sourced. Batches lookups
+	// 50 IDs at a time (fetchExternalReferencedWorks' OR-filter cap), so a
+	// project with ~2000 OpenAlex articles costs ~40 requests, not ~2000.
+	async function fetchCitationNetworkData(scopeIds) {
+		if (!state.currentFolder || !state.projectData) return;
+
+		const scoped = scopedArticles(scopeIds);
+		const stats = {
+			mode: state.fetchMode,
+			total: scoped.length,
+			eligible: 0,
+			attempted: 0,
+			updated: 0,
+			unchanged: 0,
+			failed: 0,
+			skipped: { notOpenAlex: 0, alreadyComplete: 0 },
+		};
+
+		const targets = [];
+		for (const article of scoped) {
+			if (article.source !== 'openalex' || !article.eid || !article.eid.startsWith('openalex:')) {
+				stats.skipped.notOpenAlex += 1;
+				continue;
+			}
+			if (state.fetchMode === 'missing' && Array.isArray(article.referencedWorks)) {
+				stats.skipped.alreadyComplete += 1;
+				continue;
+			}
+			targets.push(article);
+		}
+		stats.eligible = targets.length;
+		if (!targets.length) {
+			showFetchReport('Fetch Citation Network report', stats);
+			return;
+		}
+
+		const BATCH = 50;
+		const refsMap = {};
+		let done = 0;
+		for (let i = 0; i < targets.length; i += BATCH) {
+			const batch = targets.slice(i, i + BATCH);
+			showFetchProgress('Fetching citation network data', done + 1, targets.length);
+			try {
+				const ids = batch.map(a => a.eid.slice(9));
+				const results = await fetchExternalReferencedWorks(ids, null);
+				const byEid = new Map(results.map(r => [r.eid, r]));
+				for (const article of batch) {
+					stats.attempted += 1;
+					const match = byEid.get(article.eid);
+					if (match) {
+						refsMap[article.eid] = Array.isArray(match.referencedWorks) ? match.referencedWorks : [];
+						stats.updated += 1;
+					} else {
+						stats.failed += 1;
+					}
+				}
+			} catch (_) {
+				stats.failed += batch.length;
+			}
+			done += batch.length;
+			if (i + BATCH < targets.length) await delay(150);
+		}
+
+		hideFetchProgress();
+		const changed = Object.keys(refsMap).length;
+		if (changed) {
+			await SLRData.patchSearchLogReferencedWorks(state.currentFolder, refsMap);
+			await hydrateProject(state.currentFolder);
+			renderCurrentView();
+		}
+
+		showFetchReport('Fetch Citation Network report', stats);
 	}
 
 	// Journal to tag heuristics.
@@ -2931,6 +3096,55 @@ window.SLRApp = (() => {
 		SLRViews.renderSupabaseAuthModal(overlay, mode);
 	}
 
+	// The citation network is built on demand, only for the one article the
+	// user clicked into — never precomputed/loaded for the whole list. The
+	// index itself (see SLRViews.buildCitationNetworkIndex) is a cheap O(n)
+	// scan over already-local data (no API calls), but running it here,
+	// only on click, still keeps it off the hot render path entirely.
+	function showArticleNetwork(eid) {
+		const overlay = $('modal-overlay');
+		if (!overlay || !state.articles) return;
+		const article = state.articles.find(a => (a.eid || a._id) === eid);
+		if (!article) return;
+		SLRViews.renderArticleNetworkModal(overlay, article, state.articles, state.projectData);
+	}
+
+	// Outgoing external references: the focal article's own referencedWorks
+	// already lists every work it cites (in-project or not) — this only
+	// fetches TITLE/metadata for the ones not already sitting locally, in
+	// capped batches of EXTERNAL_REF_LIMIT so one click never pulls a
+	// paper's entire (sometimes 80+ item) reference list at once.
+	const EXTERNAL_REF_LIMIT = 40;
+	async function loadExternalReferences(eid, offset) {
+		const article = state.articles.find(a => (a.eid || a._id) === eid);
+		if (!article || !Array.isArray(article.referencedWorks) || !article.referencedWorks.length) {
+			return { items: [], totalExternal: 0, nextOffset: null };
+		}
+		const inProjectIds = new Set(
+			state.articles.filter(a => a.source === 'openalex' && a.eid).map(a => a.eid.slice(9))
+		);
+		const externalIds = article.referencedWorks.filter(id => !inProjectIds.has(id));
+		const off = offset || 0;
+		const batch = externalIds.slice(off, off + EXTERNAL_REF_LIMIT);
+		if (!batch.length) return { items: [], totalExternal: externalIds.length, nextOffset: null };
+		const items = await fetchExternalReferencedWorks(batch, null);
+		const nextOffset = off + batch.length < externalIds.length ? off + batch.length : null;
+		return { items, totalExternal: externalIds.length, nextOffset };
+	}
+
+	// Incoming external citations: works OUTSIDE this project that cite the
+	// focal article, fetched one capped page (20) at a time via OpenAlex's
+	// cites: filter — the "load more" button in the modal just requests the
+	// next page rather than everything a highly-cited article accumulates.
+	async function loadExternalCitations(eid, page) {
+		const article = state.articles.find(a => (a.eid || a._id) === eid);
+		if (!article || article.source !== 'openalex' || !article.eid) return { items: [], hasMore: false };
+		const openAlexId = article.eid.slice(9);
+		const inProjectEids = new Set(state.articles.map(a => a.eid || a._id));
+		const { items, hasMore } = await fetchExternalCitingWorks(openAlexId, page || 1, null);
+		return { items: items.filter(it => !inProjectEids.has(it.eid)), hasMore };
+	}
+
 	function bindEvents() {
 		$('theme-toggle')?.addEventListener('click', () => SLRAppUI.toggleTheme(state, $));
 		$('fullscreen-toggle')?.addEventListener('click', () => SLRAppUI.toggleFullscreen(showToast, $));
@@ -3003,6 +3217,9 @@ window.SLRApp = (() => {
 		updateProjectMeta,
 		showNewProjectModal,
 		showSupabaseAuthModal,
+		showArticleNetwork,
+		loadExternalReferences,
+		loadExternalCitations,
 		createProject,
 		saveSettings,
 		testScopusApiKey,
@@ -3028,6 +3245,8 @@ window.SLRApp = (() => {
 		fetchAuthorsViaDOI,
 		fetchTypesViaDOI,
 		fetchAffiliationsViaIdentifier,
+		fetchCitationNetworkData,
+		pruneUnusedLegacyTags,
 		fetchAllMetadata,
 		renameTag,
 		addTag,
