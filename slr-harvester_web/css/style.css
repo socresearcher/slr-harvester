@@ -53,7 +53,9 @@
      re-tuning padding in three different places. */
   --sidebar-icon-pad-left: 19px;
   --transition:   200ms ease;
+  --radius-sm:    4px;
   --radius:       6px;
+  --radius-md:    8px;
   --radius-lg:    10px;
   --shadow:       0 1px 3px rgba(0,0,0,.4);
   --shadow-lg:    0 4px 16px rgba(0,0,0,.5);
@@ -4230,7 +4232,6 @@ a.db-link:visited {
 #view-container > .settings-view,
 #view-container > .about-view,
 #view-container > .tags-view,
-#view-container > .autotag-view,
 #view-container > .databases-view,
 #view-container > .search-view,
 #view-container > .viz-view {
@@ -4392,9 +4393,11 @@ a.db-link:visited {
 /* ----------------------------------------------------------
    Auto-Tag Rules view
    ---------------------------------------------------------- */
-.autotag-view {
-  padding: 20px 24px;
-}
+/* No padding of its own — .autotag-view only ever renders nested inside
+   .tags-view now (Auto-Tag Rules is a section within Tags, not its own
+   top-level view anymore), which already provides the page inset; adding
+   a second layer of padding here was making this section sit narrower
+   than Colour Schemes/Tags above it. */
 
 /* One column, not a grid — a multi-column grid sizes every card in a row
    to the tallest one in that row, so expanding a single card used to also
@@ -6772,7 +6775,6 @@ a.db-link:visited {
   .settings-view,
   .about-view,
   .tags-view,
-  .autotag-view,
   .databases-view,
   .viz-view,
   .list-toolbar,

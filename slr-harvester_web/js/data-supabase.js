@@ -2,7 +2,7 @@
  * SLR Harvester Web — Supabase (cloud sync) data backend
  * Implements the same function surface as data-local.js, backed by a
  * Supabase project (Postgres + Auth) instead of the File System Access API.
- * See slr-harvester-web/supabase/schema.sql for the table/RLS definitions
+ * See slr-harvester_web/supabase/schema.sql for the table/RLS definitions
  * this backend assumes.
  *
  * Global: window.SLRDataCloud
