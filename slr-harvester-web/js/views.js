@@ -5139,7 +5139,7 @@ window.SLRViews = (() => {
     { key: 'meadow',    name: 'Meadow',     desc: 'Yellow-green to deep green' },
   ];
 
-  function renderTags(container, articles, projectData) {
+  function renderTags(container, articles, projectData, autoTagRules, isAutoTagCustomized, folderName) {
     if (!projectData) {
       container.innerHTML = `<div class="tags-view" style="padding:0">${renderNoProjectNotice()}</div>`;
       return;
@@ -5272,6 +5272,11 @@ window.SLRViews = (() => {
             : `<p style="font-size:13px;color:var(--text-faint)">No tags defined yet. Use Auto-tag in the Articles view or add tags manually.</p>`
           }
         </div>
+
+        <div class="tags-section">
+          <h3>Auto-Tag Rules</h3>
+          <div id="autotag-rules-mount"></div>
+        </div>
       </div>`;
 
     // Wire: show/hide add form
@@ -5349,6 +5354,13 @@ window.SLRViews = (() => {
         SLRApp.applyColorScheme(scheme);
       });
     });
+
+    // Auto-Tag Rules lives in its own fully self-contained render function
+    // (own markup + own event wiring) — mounted into a sub-container here
+    // rather than merged line-by-line into this one, so it keeps working
+    // exactly as before with zero risk of the two colliding.
+    const autotagMount = container.querySelector('#autotag-rules-mount');
+    if (autotagMount) renderAutoTagRules(autotagMount, autoTagRules || [], !!isAutoTagCustomized, folderName);
   }
 
   //  Auto-Tag Rules view
@@ -5571,16 +5583,34 @@ window.SLRViews = (() => {
     return s.length > n ? s.slice(0, n - 1) + '…' : s;
   };
 
+  // Node label: first author's surname (2 authors: both; 3+: first + "et al."),
+  // falling back to a truncated title when no author data is present at all.
+  function formatAuthorLabel(a) {
+    const raw = String((a && a.authors) || '').trim();
+    if (!raw) return truncateLabel((a && a.title) || '(no title)', 18);
+    const names = raw.split(',').map(s => s.trim()).filter(Boolean);
+    const surname = full => {
+      const parts = full.split(/\s+/).filter(Boolean);
+      return parts.length ? parts[parts.length - 1] : full;
+    };
+    const label = names.length <= 1 ? surname(names[0] || raw)
+      : names.length === 2 ? `${surname(names[0])} & ${surname(names[1])}`
+      : `${surname(names[0])} et al.`;
+    return truncateLabel(label, 24);
+  }
+
+
   // ── Network PNG export — same clone+resolve-CSS-vars+canvas approach as
-  // exportVizAsPNG above, just simpler since this SVG has no HTML content
-  // (no foreignObject) and only two colors ever need resolving.
-  async function exportNetworkAsPNG(svgEl, title) {
+  // exportVizAsPNG above. Exports the FULL diagram (worldBBox, computed from
+  // every node's current position including drags) regardless of the
+  // current pan/zoom — "download" should always capture everything, not
+  // just whatever's presently scrolled into view.
+  async function exportNetworkAsPNG(svgEl, worldBBox, title) {
     const gv = v => getComputedStyle(document.documentElement).getPropertyValue(v).trim();
     const bgC = gv('--bg') || '#0d1117', txtC = gv('--text') || '#e6edf3', mutC = gv('--text-muted') || '#8b949e';
     const FONT = 'system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif';
     const SCALE = 2, PAD = 30, HDR = 44;
-    const vb = svgEl.viewBox.baseVal;
-    const sw = (vb && vb.width) || 760, sh = (vb && vb.height) || 460;
+    const sw = worldBBox.width, sh = worldBBox.height;
     const W = sw + PAD * 2, H = sh + HDR + PAD * 2;
     const canvas = document.createElement('canvas');
     canvas.width = Math.ceil(W * SCALE);
@@ -5596,7 +5626,13 @@ window.SLRViews = (() => {
     const resolveVarStr = s => s.replace(/var\(\s*([^,)]+)(?:,\s*([^)]*))?\s*\)/g, (_, k, fb) => gv(k.trim()) || fb || '#888');
     const origEls  = [svgEl, ...svgEl.querySelectorAll('*')];
     const clone    = svgEl.cloneNode(true);
+    // Export the world bbox at 1:1, ignoring whatever pan/zoom the user is
+    // currently looking at — reset the inner viewport group's transform and
+    // point the clone's own viewBox at the full content instead.
+    clone.setAttribute('viewBox', `${worldBBox.x} ${worldBBox.y} ${sw} ${sh}`);
     clone.setAttribute('width', sw); clone.setAttribute('height', sh);
+    const innerGClone = clone.querySelector('.network-viewport');
+    if (innerGClone) innerGClone.removeAttribute('transform');
     const cloneEls = [clone, ...clone.querySelectorAll('*')];
     origEls.forEach((orig, i) => {
       const cl = cloneEls[i]; if (!cl) return;
@@ -5660,70 +5696,161 @@ window.SLRViews = (() => {
     let loadingRefs = false, loadingCites = false;
     let loadError = '';
 
+    // Manual node positions (world coords) the user has dragged into place —
+    // survive across re-draws (e.g. loading more external data) so
+    // rearranging never gets undone by something unrelated; edges are
+    // always recomputed from current positions on every draw, so a
+    // relationship never breaks just because a node moved.
+    const nodePositions = new Map();
+    let pan = { x: 0, y: 0 };
+    let zoomLevel = 1;
+    let viewFitted = false; // true after the first auto-fit; later draws keep the user's own pan/zoom
+
+    // Node geometry. GAP is deliberately generous — measured against real
+    // rendered text bounding boxes, a font's ascent above its baseline runs
+    // noticeably taller than font-size alone suggests, so a tight gap here
+    // let the nearest label line's glyphs clip into the circle.
+    const R = 13, CENTER_R = 20, GAP = 14, LINE_H = 13;
+    const REF_W = 880, REF_H = 480; // fixed viewport (viewBox) — independent of world/content size
+    const MIN_ZOOM = 0.2, MAX_ZOOM = 4;
+
+    const keyOf = (a, fallback) => (a && (a.eid || a._id || a.doi)) || fallback;
+
+    const tooltipAttrs = (a, roleText) => {
+      const metaParts = [];
+      if (a.authors) metaParts.push(a.authors);
+      if (a.publicationName) metaParts.push(a.publicationName);
+      const year = a.date ? a.date.slice(0, 4) : '';
+      if (year) metaParts.push(year);
+      const cb = parseInt(a.citedby, 10);
+      if (!isNaN(cb)) metaParts.push(`${cb} citation${cb !== 1 ? 's' : ''}`);
+      return `data-tt-title="${esc(a.title || '(untitled)')}" data-tt-meta="${esc(metaParts.join(' · '))}" data-tt-role="${esc(roleText)}"`;
+    };
+
     const draw = () => {
       const MAX_IN_PROJECT_ROW = 10;
       const citingShown  = citing.slice(0, MAX_IN_PROJECT_ROW);
       const citedByShown = citedBy.slice(0, MAX_IN_PROJECT_ROW);
-      const citingMore   = citing.length  - citingShown.length;
-      const citedByMore  = citedBy.length - citedByShown.length;
 
       const hasExtCiting  = extCiting.length > 0;
       const hasExtCitedBy = extCitedBy.length > 0;
-      const ROW_EXTRA = 90;
+      const ROW_EXTRA = 120;
       const topExtra    = hasExtCiting  ? ROW_EXTRA : 0;
       const bottomExtra = hasExtCitedBy ? ROW_EXTRA : 0;
 
       const maxRowCount = Math.max(citingShown.length, citedByShown.length, extCiting.length, extCitedBy.length, 1);
-      const W = Math.max(760, maxRowCount * 100);
-      const H = 460 + topExtra + bottomExtra;
-      const centerX = W / 2, centerY = topExtra + 230;
-      const rowYExtTop    = 40;
-      const rowYInTop     = topExtra + 74;
-      const rowYInBottom  = H - bottomExtra - 74;
-      const rowYExtBottom = H - 40;
+      const W = Math.max(860, maxRowCount * 110);
+      const H = 560 + topExtra + bottomExtra;
+      const centerDefX = W / 2, centerDefY = topExtra + 280;
+      const rowYExtTop    = 56;
+      const rowYInTop     = topExtra + 110;
+      const rowYInBottom  = H - bottomExtra - 110;
+      const rowYExtBottom = H - 56;
 
-      const layoutRow = (items, y) => {
-        const n = items.length;
-        if (!n) return [];
-        const margin = 90;
-        const usable = W - margin * 2;
-        return items.map((it, i) => ({ article: it, x: n === 1 ? W / 2 : margin + (usable * i) / (n - 1), y }));
+      // Resolve a node's actual position: a dragged override if the user
+      // moved it, otherwise the auto-layout default.
+      const resolvePos = (a, key, defX, defY) => {
+        const p = nodePositions.get(key);
+        return { article: a, key, x: p ? p.x : defX, y: p ? p.y : defY };
       };
 
-      const citingPos     = layoutRow(citingShown, rowYInTop);
-      const citedByPos     = layoutRow(citedByShown, rowYInBottom);
-      const extCitingPos  = hasExtCiting  ? layoutRow(extCiting, rowYExtTop)   : [];
-      const extCitedByPos = hasExtCitedBy ? layoutRow(extCitedBy, rowYExtBottom) : [];
+      const layoutRow = (items, y, keyPrefix) => {
+        const n = items.length;
+        if (!n) return [];
+        const margin = 110;
+        const usable = W - margin * 2;
+        return items.map((it, i) => {
+          const defX = n === 1 ? W / 2 : margin + (usable * i) / (n - 1);
+          return resolvePos(it, keyOf(it, `${keyPrefix}:${i}`), defX, y);
+        });
+      };
+
+      const citingPos      = layoutRow(citingShown, rowYInTop, 'in-citing');
+      const citedByPos      = layoutRow(citedByShown, rowYInBottom, 'in-citedby');
+      const extCitingPos   = hasExtCiting  ? layoutRow(extCiting, rowYExtTop, 'ext-citing')     : [];
+      const extCitedByPos  = hasExtCitedBy ? layoutRow(extCitedBy, rowYExtBottom, 'ext-citedby') : [];
+      const centerPos = (() => {
+        const p = nodePositions.get('center');
+        return { x: p ? p.x : centerDefX, y: p ? p.y : centerDefY };
+      })();
 
       const nodeHTML = (pos, roleClass, isTop, external) => {
         const a = pos.article;
         const hex = external ? 'var(--text-faint)' : (tagColor(projectData, a.color) || 'var(--text-faint)');
-        const title = truncateLabel(a.title, 30);
+        const label = formatAuthorLabel(a);
         const year = a.date ? a.date.slice(0, 4) : '';
+        const allLines = year ? [label, year] : [label];
+        const n = allLines.length;
         const href = external ? externalArticleHref(a) : null;
+        const roleText = external
+          ? (roleClass === 'network-citing' ? 'External — the central article cites this work' : 'External — this work cites the central article')
+          : (roleClass === 'network-citing' ? 'The central article cites this work' : 'This work cites the central article');
+
+        // rank 0 = nearest the circle. For top nodes that's the LAST line
+        // (the year) so reading top-to-bottom still hits the name before
+        // the year; for bottom nodes it's the FIRST line, since the block
+        // grows downward away from the circle.
+        const textEls = allLines.map((line, i) => {
+          const rank = isTop ? (n - 1 - i) : i;
+          const yMag = (R + GAP) + rank * LINE_H;
+          const y = isTop ? -yMag : yMag;
+          const isYearLine = !!year && i === n - 1;
+          const arrow = (!isYearLine && external) ? ' ↗' : '';
+          return `<text class="${isYearLine ? 'network-node-year' : 'network-node-label'}" y="${y}" text-anchor="middle">${esc(line)}${arrow}</text>`;
+        }).join('');
+
         return `
-          <g class="network-node ${roleClass}${external ? ' network-external' : ''}"
+          <g class="network-node ${roleClass}${external ? ' network-external' : ''}" data-key="${esc(pos.key)}"
              ${external ? '' : `data-eid="${esc(a.eid || a._id || '')}"`}
              ${external && href ? `data-href="${esc(href)}"` : ''}
+             ${tooltipAttrs(a, roleText)}
              transform="translate(${pos.x},${pos.y})">
-            <circle r="9" fill="${esc(hex)}" stroke="var(--surface)" stroke-width="2"></circle>
-            <text class="network-node-label" y="${isTop ? -18 : 24}" text-anchor="middle">${esc(title)}${external ? ' ↗' : ''}</text>
-            ${year ? `<text class="network-node-year" y="${isTop ? -6 : 37}" text-anchor="middle">${esc(year)}</text>` : ''}
+            <circle class="network-node-hit" r="${R + 9}" fill="transparent"></circle>
+            <circle r="${R}" fill="${esc(hex)}" stroke="var(--surface)" stroke-width="2"></circle>
+            ${textEls}
           </g>`;
       };
 
+      const edgeHTML = (fromKey, toKey, x1, y1, x2, y2, kind, external) =>
+        `<line class="network-edge network-edge-${kind}${external ? ' network-edge-external' : ''}" data-from="${esc(fromKey)}" data-to="${esc(toKey)}" x1="${x1}" y1="${y1}" x2="${x2}" y2="${y2}" marker-end="url(#network-arrow-${kind})"></line>`;
+
       const edgesHTML = [
-        ...citingPos.map(pos => `<line class="network-edge network-edge-cites" x1="${centerX}" y1="${centerY}" x2="${pos.x}" y2="${pos.y}" marker-end="url(#network-arrow-cites)"></line>`),
-        ...citedByPos.map(pos => `<line class="network-edge network-edge-citedby" x1="${pos.x}" y1="${pos.y}" x2="${centerX}" y2="${centerY}" marker-end="url(#network-arrow-citedby)"></line>`),
-        ...extCitingPos.map(pos => `<line class="network-edge network-edge-cites network-edge-external" x1="${centerX}" y1="${centerY}" x2="${pos.x}" y2="${pos.y}" marker-end="url(#network-arrow-cites)"></line>`),
-        ...extCitedByPos.map(pos => `<line class="network-edge network-edge-citedby network-edge-external" x1="${pos.x}" y1="${pos.y}" x2="${centerX}" y2="${centerY}" marker-end="url(#network-arrow-citedby)"></line>`),
+        ...citingPos.map(pos => edgeHTML('center', pos.key, centerPos.x, centerPos.y, pos.x, pos.y, 'cites', false)),
+        ...citedByPos.map(pos => edgeHTML(pos.key, 'center', pos.x, pos.y, centerPos.x, centerPos.y, 'citedby', false)),
+        ...extCitingPos.map(pos => edgeHTML('center', pos.key, centerPos.x, centerPos.y, pos.x, pos.y, 'cites', true)),
+        ...extCitedByPos.map(pos => edgeHTML(pos.key, 'center', pos.x, pos.y, centerPos.x, centerPos.y, 'citedby', true)),
       ].join('');
 
       const centerHex = tagColor(projectData, article.color) || 'var(--accent)';
-      const centerTitle = truncateLabel(article.title, 42);
+      const centerLabel = formatAuthorLabel(article);
+      const centerYear = article.date ? article.date.slice(0, 4) : '';
+      const centerLines = centerYear ? [centerLabel, centerYear] : [centerLabel];
+      const centerTextEls = centerLines.map((line, i) => {
+        const y = (CENTER_R + GAP + 3) + i * (LINE_H + 3);
+        const cls = (centerYear && i === centerLines.length - 1) ? 'network-node-year' : 'network-node-label network-center-label';
+        return `<text class="${cls}" y="${y}" text-anchor="middle">${esc(line)}</text>`;
+      }).join('');
+
+      // Auto-fit once (first draw, or right after navigating to a
+      // different article) so everything starts visible; afterward the
+      // user's own pan/zoom/drag state is left alone by re-draws (loading
+      // external data, etc.) — nothing snaps back underneath them.
+      if (!viewFitted) {
+        const PAD = 90;
+        const allPos = [centerPos, ...citingPos, ...citedByPos, ...extCitingPos, ...extCitedByPos];
+        let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+        for (const p of allPos) {
+          minX = Math.min(minX, p.x - PAD); maxX = Math.max(maxX, p.x + PAD);
+          minY = Math.min(minY, p.y - PAD); maxY = Math.max(maxY, p.y + PAD);
+        }
+        const worldW = Math.max(1, maxX - minX), worldH = Math.max(1, maxY - minY);
+        zoomLevel = Math.max(MIN_ZOOM, Math.min(MAX_ZOOM, Math.min(REF_W / worldW, REF_H / worldH, 1.2)));
+        pan = { x: REF_W / 2 - ((minX + maxX) / 2) * zoomLevel, y: REF_H / 2 - ((minY + maxY) / 2) * zoomLevel };
+        viewFitted = true;
+      }
 
       const svg = `
-        <svg viewBox="0 0 ${W} ${H}" class="network-svg" xmlns="http://www.w3.org/2000/svg">
+        <svg viewBox="0 0 ${REF_W} ${REF_H}" class="network-svg" xmlns="http://www.w3.org/2000/svg">
           <defs>
             <marker id="network-arrow-cites" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
               <path d="M0,0 L10,5 L0,10 z" class="network-arrowhead-cites"></path>
@@ -5732,31 +5859,36 @@ window.SLRViews = (() => {
               <path d="M0,0 L10,5 L0,10 z" class="network-arrowhead-citedby"></path>
             </marker>
           </defs>
-          ${edgesHTML}
-          ${citingPos.map(pos => nodeHTML(pos, 'network-citing', true, false)).join('')}
-          ${citedByPos.map(pos => nodeHTML(pos, 'network-citedby', false, false)).join('')}
-          ${extCitingPos.map(pos => nodeHTML(pos, 'network-citing', true, true)).join('')}
-          ${extCitedByPos.map(pos => nodeHTML(pos, 'network-citedby', false, true)).join('')}
-          <g class="network-node network-center" transform="translate(${centerX},${centerY})">
-            <circle r="15" fill="${esc(centerHex)}" stroke="var(--accent)" stroke-width="3"></circle>
-            <text class="network-node-label network-center-label" y="32" text-anchor="middle">${esc(centerTitle)}</text>
+          <g class="network-viewport" transform="translate(${pan.x},${pan.y}) scale(${zoomLevel})">
+            ${edgesHTML}
+            ${citingPos.map(pos => nodeHTML(pos, 'network-citing', true, false)).join('')}
+            ${citedByPos.map(pos => nodeHTML(pos, 'network-citedby', false, false)).join('')}
+            ${extCitingPos.map(pos => nodeHTML(pos, 'network-citing', true, true)).join('')}
+            ${extCitedByPos.map(pos => nodeHTML(pos, 'network-citedby', false, true)).join('')}
+            <g class="network-node network-center" data-key="center"
+               ${tooltipAttrs(article, 'The central article')}
+               transform="translate(${centerPos.x},${centerPos.y})">
+              <circle class="network-node-hit" r="${CENTER_R + 9}" fill="transparent"></circle>
+              <circle r="${CENTER_R}" fill="${esc(centerHex)}" stroke="var(--accent)" stroke-width="3"></circle>
+              ${centerTextEls}
+            </g>
           </g>
         </svg>`;
 
+      // Always spelled out as "shown of total" — ambiguous bare counts were
+      // the #1 point of confusion (no way to tell if e.g. "Cites (3)" was
+      // everything or just the first page of a longer list).
+      const citingLabel  = citingShown.length < citing.length  ? `${citingShown.length} of ${citing.length}`  : `${citing.length}`;
+      const citedByLabel = citedByShown.length < citedBy.length ? `${citedByShown.length} of ${citedBy.length}` : `${citedBy.length}`;
       const legendHTML = `
         <div class="network-legend">
-          <span class="network-legend-item"><span class="network-legend-dot network-legend-dot-citing"></span>Cites (${citing.length}${hasExtCiting ? ` + ${extCiting.length} external` : ''})</span>
-          <span class="network-legend-item"><span class="network-legend-dot network-legend-dot-citedby"></span>Cited by (${citedBy.length}${hasExtCitedBy ? ` + ${extCitedBy.length} external` : ''})</span>
+          <span class="network-legend-item"><span class="network-legend-dot network-legend-dot-citing"></span>Cites: ${citingLabel} in this project${hasExtCiting ? ` + ${extCiting.length} external` : ''}</span>
+          <span class="network-legend-item"><span class="network-legend-dot network-legend-dot-citedby"></span>Cited by: ${citedByLabel} in this project${hasExtCitedBy ? ` + ${extCitedBy.length} external` : ''}</span>
         </div>`;
 
       const emptyNote = (!citing.length && !citedBy.length && !hasExtCiting && !hasExtCitedBy)
         ? `<p class="network-empty-note">No citation links to other articles in this project were found for this article.</p>`
         : '';
-
-      const overflowParts = [
-        citingMore  > 0 ? `+${citingMore} more it cites in this project`  : '',
-        citedByMore > 0 ? `+${citedByMore} more cite it in this project` : '',
-      ].filter(Boolean);
 
       const loadButtonsHTML = isOpenAlex ? `
         <div class="network-load-row">
@@ -5773,6 +5905,7 @@ window.SLRViews = (() => {
               <p class="modal-subtitle">${esc(truncateLabel(article.title, 80))}</p>
             </div>
             <div class="network-header-actions">
+              <button class="icon-btn" id="network-fit-btn" title="Reset pan/zoom" aria-label="Reset pan/zoom">${SLRIcons.refresh}</button>
               <button class="icon-btn" id="network-download-btn" title="Download as PNG" aria-label="Download as PNG">${SLRIcons.download}</button>
               <button class="icon-btn" id="network-modal-close" aria-label="Close">${SLRIcons.close}</button>
             </div>
@@ -5781,37 +5914,184 @@ window.SLRViews = (() => {
             ${legendHTML}
             <div class="network-canvas">${svg}</div>
             ${emptyNote}
-            ${overflowParts.length ? `<p class="network-overflow-note">${esc(overflowParts.join(' · '))}</p>` : ''}
             ${loadButtonsHTML}
             ${loadError ? `<p class="network-error-note">${esc(loadError)}</p>` : ''}
-            ${!emptyNote ? `<p class="network-hint">Click a solid node to explore its network. Dashed nodes are external — click to open.</p>` : ''}
+            ${!emptyNote ? `<p class="network-hint">Drag the background to pan, scroll/pinch to zoom, drag a node to rearrange it. Click a solid node to explore its network — dashed nodes are external, click to open. Hover (or tap and hold) a node for details.</p>` : ''}
           </div>
+          <div class="network-tooltip hidden" id="network-tooltip"></div>
         </div>`;
 
       const closeModal = () => { overlay.classList.add('hidden'); overlay.innerHTML = ''; };
       overlay.querySelector('#network-modal-close').addEventListener('click', closeModal);
       overlay.addEventListener('click', e => { if (e.target === overlay) closeModal(); });
 
-      overlay.querySelector('#network-download-btn')?.addEventListener('click', async () => {
-        const svgEl = overlay.querySelector('.network-svg');
-        if (!svgEl) return;
-        try { await exportNetworkAsPNG(svgEl, article.title || 'citation-network'); }
-        catch (_) { SLRApp.showToast('Could not export network as PNG.', true); }
+      const svgEl = overlay.querySelector('.network-svg');
+      const viewportG = overlay.querySelector('.network-viewport');
+
+      overlay.querySelector('#network-fit-btn')?.addEventListener('click', () => {
+        viewFitted = false; // next draw() recomputes the fit from current (possibly dragged) positions
+        draw();
       });
 
-      overlay.querySelectorAll('.network-node[data-eid]').forEach(node => {
-        node.addEventListener('click', () => {
-          const eid = node.dataset.eid;
-          const next = articles.find(a => (a.eid || a._id) === eid);
-          if (next) renderArticleNetworkModal(overlay, next, articles, projectData);
-        });
+      overlay.querySelector('#network-download-btn')?.addEventListener('click', async () => {
+        if (!svgEl) return;
+        try {
+          const PAD = 90;
+          const allNodes = svgEl.querySelectorAll('.network-node');
+          let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+          allNodes.forEach(g => {
+            const m = /translate\(\s*([-\d.]+)\s*,\s*([-\d.]+)\s*\)/.exec(g.getAttribute('transform') || '');
+            if (!m) return;
+            const x = parseFloat(m[1]), y = parseFloat(m[2]);
+            minX = Math.min(minX, x - PAD); maxX = Math.max(maxX, x + PAD);
+            minY = Math.min(minY, y - PAD); maxY = Math.max(maxY, y + PAD);
+          });
+          const worldBBox = { x: minX, y: minY, width: Math.max(1, maxX - minX), height: Math.max(1, maxY - minY) };
+          await exportNetworkAsPNG(svgEl, worldBBox, article.title || 'citation-network');
+        } catch (_) { SLRApp.showToast('Could not export network as PNG.', true); }
       });
-      overlay.querySelectorAll('.network-node[data-href]').forEach(node => {
-        node.addEventListener('click', () => {
-          const href = node.dataset.href;
-          if (href) window.open(href, '_blank', 'noopener');
+
+      // ── Pan / zoom / node-drag — a single unified pointer-event pipeline.
+      // A node click still navigates/opens a link, but only if the pointer
+      // never moved past a small threshold; past that it's a drag instead,
+      // which repositions the node (edges follow live) without touching
+      // which nodes are connected to which — that never changes from this.
+      if (svgEl && viewportG) {
+        const screenToWorld = (clientX, clientY) => {
+          const ctm = viewportG.getScreenCTM();
+          if (!ctm) return { x: 0, y: 0 };
+          const p = new DOMPoint(clientX, clientY).matrixTransform(ctm.inverse());
+          return { x: p.x, y: p.y };
+        };
+        const applyViewportTransform = () => {
+          viewportG.setAttribute('transform', `translate(${pan.x},${pan.y}) scale(${zoomLevel})`);
+        };
+
+        let nodeDrag = null;     // { key, el, startClientX, startClientY, moved, lastWorld }
+        let panDrag = null;      // { startClientX, startClientY, startPan }
+        const activePointers = new Map();
+        let pinchStart = null;   // { dist, zoom, worldMid }
+        const DRAG_THRESHOLD = 4;
+
+        svgEl.addEventListener('pointerdown', e => {
+          activePointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
+          if (activePointers.size === 2) {
+            panDrag = null; nodeDrag = null;
+            const pts = [...activePointers.values()];
+            const dist = Math.hypot(pts[0].x - pts[1].x, pts[0].y - pts[1].y);
+            const midX = (pts[0].x + pts[1].x) / 2, midY = (pts[0].y + pts[1].y) / 2;
+            pinchStart = { dist: Math.max(1, dist), zoom: zoomLevel, worldMid: screenToWorld(midX, midY) };
+            return;
+          }
+          const nodeEl = e.target.closest('.network-node');
+          if (nodeEl) {
+            nodeDrag = { key: nodeEl.dataset.key, el: nodeEl, startClientX: e.clientX, startClientY: e.clientY, moved: false, lastWorld: null };
+          } else {
+            panDrag = { startClientX: e.clientX, startClientY: e.clientY, startPan: { ...pan } };
+            svgEl.classList.add('is-panning');
+          }
+          try { svgEl.setPointerCapture(e.pointerId); } catch (_) { /* ignore */ }
         });
-      });
+
+        svgEl.addEventListener('pointermove', e => {
+          if (activePointers.has(e.pointerId)) activePointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
+
+          if (activePointers.size === 2 && pinchStart) {
+            const pts = [...activePointers.values()];
+            const dist = Math.max(1, Math.hypot(pts[0].x - pts[1].x, pts[0].y - pts[1].y));
+            const newZoom = Math.min(MAX_ZOOM, Math.max(MIN_ZOOM, pinchStart.zoom * (dist / pinchStart.dist)));
+            pan.x += pinchStart.worldMid.x * zoomLevel - pinchStart.worldMid.x * newZoom;
+            pan.y += pinchStart.worldMid.y * zoomLevel - pinchStart.worldMid.y * newZoom;
+            zoomLevel = newZoom;
+            applyViewportTransform();
+            return;
+          }
+
+          if (nodeDrag) {
+            const dx = e.clientX - nodeDrag.startClientX, dy = e.clientY - nodeDrag.startClientY;
+            if (!nodeDrag.moved && Math.hypot(dx, dy) > DRAG_THRESHOLD) nodeDrag.moved = true;
+            if (nodeDrag.moved) {
+              const worldPt = screenToWorld(e.clientX, e.clientY);
+              nodeDrag.el.setAttribute('transform', `translate(${worldPt.x},${worldPt.y})`);
+              const k = CSS.escape(nodeDrag.key);
+              svgEl.querySelectorAll(`[data-from="${k}"]`).forEach(edge => { edge.setAttribute('x1', worldPt.x); edge.setAttribute('y1', worldPt.y); });
+              svgEl.querySelectorAll(`[data-to="${k}"]`).forEach(edge => { edge.setAttribute('x2', worldPt.x); edge.setAttribute('y2', worldPt.y); });
+              nodeDrag.lastWorld = worldPt;
+            }
+            return;
+          }
+
+          if (panDrag) {
+            pan.x = panDrag.startPan.x + (e.clientX - panDrag.startClientX);
+            pan.y = panDrag.startPan.y + (e.clientY - panDrag.startClientY);
+            applyViewportTransform();
+          }
+        });
+
+        const endInteraction = e => {
+          activePointers.delete(e.pointerId);
+          if (activePointers.size < 2) pinchStart = null;
+
+          if (nodeDrag) {
+            if (nodeDrag.moved && nodeDrag.lastWorld) {
+              nodePositions.set(nodeDrag.key, nodeDrag.lastWorld);
+            } else {
+              const eid = nodeDrag.el.dataset.eid;
+              const href = nodeDrag.el.dataset.href;
+              if (eid) {
+                const next = articles.find(a => (a.eid || a._id) === eid);
+                if (next) { try { svgEl.releasePointerCapture(e.pointerId); } catch (_) {} renderArticleNetworkModal(overlay, next, articles, projectData); return; }
+              } else if (href) {
+                window.open(href, '_blank', 'noopener');
+              }
+            }
+            nodeDrag = null;
+          }
+          if (panDrag) { panDrag = null; svgEl.classList.remove('is-panning'); }
+          try { svgEl.releasePointerCapture(e.pointerId); } catch (_) { /* ignore */ }
+        };
+        svgEl.addEventListener('pointerup', endInteraction);
+        svgEl.addEventListener('pointercancel', endInteraction);
+
+        svgEl.addEventListener('wheel', e => {
+          e.preventDefault();
+          const worldPt = screenToWorld(e.clientX, e.clientY);
+          const factor = e.deltaY < 0 ? 1.15 : 1 / 1.15;
+          const newZoom = Math.min(MAX_ZOOM, Math.max(MIN_ZOOM, zoomLevel * factor));
+          pan.x += worldPt.x * zoomLevel - worldPt.x * newZoom;
+          pan.y += worldPt.y * zoomLevel - worldPt.y * newZoom;
+          zoomLevel = newZoom;
+          applyViewportTransform();
+        }, { passive: false });
+      }
+
+      // Hover card — desktop mouse only (mouseenter/mouseleave don't fire
+      // usefully for touch, and clicking/dragging a touch node already
+      // navigates, opens its link, or repositions it, so touch users rely
+      // on the always-visible author+year labels instead of a hover card).
+      const tooltip = overlay.querySelector('#network-tooltip');
+      if (tooltip && svgEl) {
+        svgEl.querySelectorAll('.network-node').forEach(node => {
+          node.addEventListener('mouseenter', () => {
+            tooltip.innerHTML = `
+              <div class="network-tooltip-title">${esc(node.dataset.ttTitle || '')}</div>
+              ${node.dataset.ttMeta ? `<div class="network-tooltip-meta">${esc(node.dataset.ttMeta)}</div>` : ''}
+              <div class="network-tooltip-role">${esc(node.dataset.ttRole || '')}</div>`;
+            tooltip.classList.remove('hidden');
+          });
+          node.addEventListener('mousemove', e => {
+            const modalRect = overlay.querySelector('.modal-network').getBoundingClientRect();
+            const ttRect = tooltip.getBoundingClientRect();
+            let left = e.clientX - modalRect.left + 16;
+            let top  = e.clientY - modalRect.top + 16;
+            if (left + ttRect.width > modalRect.width)  left = e.clientX - modalRect.left - ttRect.width - 16;
+            if (top + ttRect.height > modalRect.height) top  = e.clientY - modalRect.top - ttRect.height - 16;
+            tooltip.style.left = `${Math.max(4, left)}px`;
+            tooltip.style.top  = `${Math.max(4, top)}px`;
+          });
+          node.addEventListener('mouseleave', () => tooltip.classList.add('hidden'));
+        });
+      }
 
       const refsBtn = overlay.querySelector('#network-load-refs');
       if (refsBtn) refsBtn.addEventListener('click', async () => {
