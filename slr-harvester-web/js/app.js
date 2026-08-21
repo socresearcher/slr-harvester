@@ -535,10 +535,8 @@ window.SLRApp = (() => {
 				SLRViews.renderPrivacy(_container);
 				break;
 			case 'tags':
-				SLRViews.renderTags(_container, state.articles, state.projectData);
-				break;
-			case 'autotag-rules':
-				SLRViews.renderAutoTagRules(_container, getAutoTagRules(), Array.isArray(state.autoTagRules), state.folderName);
+			case 'autotag-rules': // legacy nav target — Auto-Tag Rules now lives inside Tags
+				SLRViews.renderTags(_container, state.articles, state.projectData, getAutoTagRules(), Array.isArray(state.autoTagRules), state.folderName);
 				break;
 			default:
 				SLRViews.renderError(_container, `Unknown view: ${state.view}`);
@@ -626,10 +624,47 @@ window.SLRApp = (() => {
 		state.allProjectData[folderName] = pd;
 	}
 
+	// Projects created before tags stopped being pre-seeded (see createProject)
+	// still carry all 19 legacy default color keys in tags_config.json
+	// whether they're used or not. Rather than making the user hunt down
+	// and manually delete the ones that never got used — their exact
+	// complaint — silently drop any that are still (a) one of those exact
+	// legacy keys, (b) unreferenced by any article, and (c) never claimed
+	// by an alias (via auto-tag or a manual rename). Anything actually in
+	// use, or renamed to mean something, is left untouched. Runs once per
+	// project open, not on every background refresh.
+	async function pruneUnusedLegacyTags(folderName) {
+		const pd = state.projectData;
+		if (!pd || !pd.tagsConfig) return;
+		const legacyKeys = new Set(Object.keys(SLRData.DEFAULT_TAGS_CONFIG || {}).filter(k => k !== 'None'));
+		if (!legacyKeys.size) return;
+		const usedColors = new Set();
+		for (const ann of Object.values(pd.globalTags || {})) {
+			if (ann && ann.color && ann.color !== 'None') usedColors.add(ann.color);
+		}
+		const aliases = pd.tagAliases || {};
+		const next = { ...pd.tagsConfig };
+		let changed = false;
+		for (const key of Object.keys(next)) {
+			if (key === 'None' || !legacyKeys.has(key) || usedColors.has(key) || aliases[key]) continue;
+			delete next[key];
+			changed = true;
+		}
+		if (!changed) return;
+		try {
+			await SLRData.saveTagsConfig(folderName, next);
+			pd.tagsConfig = next;
+		} catch (_) {
+			// Best-effort cleanup — no write access, or a transient error.
+			// Not worth surfacing to the user; it'll simply retry next open.
+		}
+	}
+
 	async function openProject(folderName) {
 		try {
 			SLRViews.renderLoading(_container, 'Loading project...');
 			await hydrateProject(folderName);
+			await pruneUnusedLegacyTags(folderName);
 			state.projectLastOpened[folderName] = new Date().toISOString();
 			localStorage.setItem('slr-project-last-opened', JSON.stringify(state.projectLastOpened));
 			if (['welcome', 'projects', 'settings', 'about', 'databases'].includes(state.view)) {
@@ -3211,6 +3246,7 @@ window.SLRApp = (() => {
 		fetchTypesViaDOI,
 		fetchAffiliationsViaIdentifier,
 		fetchCitationNetworkData,
+		pruneUnusedLegacyTags,
 		fetchAllMetadata,
 		renameTag,
 		addTag,
