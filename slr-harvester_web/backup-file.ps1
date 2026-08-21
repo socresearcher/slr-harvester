@@ -16,7 +16,7 @@ $resolved = (Resolve-Path -LiteralPath $FilePath).Path
 $fullWebRoot = (Resolve-Path -LiteralPath $webRoot).Path
 
 if (-not $resolved.StartsWith($fullWebRoot, [System.StringComparison]::OrdinalIgnoreCase)) {
-  throw "Only files inside slr-harvester-web can be backed up."
+  throw "Only files inside slr-harvester_web can be backed up."
 }
 
 $relativePath = $resolved.Substring($fullWebRoot.Length).TrimStart('\\')

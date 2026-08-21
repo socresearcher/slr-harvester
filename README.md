@@ -12,7 +12,7 @@
 Runs entirely in the browser — no installation, no Python. Two ways to use it:
 
 - **Hosted**: open **[socresearcher.github.io/slr-harvester](https://socresearcher.github.io/slr-harvester/)** directly, or
-- **Local**: open [`slr-harvester-web/index.html`](slr-harvester-web/index.html) in Chrome or Edge.
+- **Local**: open [`slr-harvester_web/index.html`](slr-harvester_web/index.html) in Chrome or Edge.
 
 Either way, your project data never leaves your device — the app only ever reads and writes the local (or cloud-synced) folder you explicitly select.
 

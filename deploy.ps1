@@ -9,7 +9,7 @@
 
   Pushing to origin/main is enough to deploy the web app: the GitHub Actions
   workflow at .github/workflows/deploy-pages.yml automatically republishes
-  slr-harvester-web/ to GitHub Pages on every push to main that touches it.
+  slr-harvester_web/ to GitHub Pages on every push to main that touches it.
 #>
 
 param(
@@ -72,4 +72,4 @@ Write-Output "Pushing $ahead commit(s) to origin/$branch..."
 git push origin $branch
 
 Write-Output ""
-Write-Output "Done. If slr-harvester-web/** changed, GitHub Pages will redeploy automatically."
+Write-Output "Done. If slr-harvester_web/** changed, GitHub Pages will redeploy automatically."

@@ -4,7 +4,7 @@ on:
   push:
     branches: [main]
     paths:
-      - "slr-harvester-web/**"
+      - "slr-harvester_web/**"
       - ".github/workflows/deploy-pages.yml"
   workflow_dispatch:
 
@@ -33,7 +33,7 @@ jobs:
       - name: Upload artifact
         uses: actions/upload-pages-artifact@v3
         with:
-          path: slr-harvester-web
+          path: slr-harvester_web
 
       - name: Deploy to GitHub Pages
         id: deployment
