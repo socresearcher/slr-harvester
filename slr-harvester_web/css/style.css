@@ -190,11 +190,21 @@ a:hover {
   border-right: 1px solid var(--border);
   overflow: hidden;
   flex-shrink: 0;
-  /* position:relative makes z-index actually apply — needed so the sidebar's
-     opaque background reliably paints over the Home view's viewport-fixed
+  /* Overlay, not a column that squeezes the page. Expanding used to be a
+     layout change: the sidebar was an in-flow flex child, so every view next
+     to it got ~170px narrower and reflowed — tables re-wrapped, grids
+     dropped a column, charts resized. Now it is lifted out of flow and
+     simply covers what is underneath, with .sidebar-backdrop dimming the
+     content behind it. #main keeps a fixed margin for the collapsed rail, so
+     the page geometry never moves.
+     position:fixed also makes z-index apply, which the sidebar needs anyway
+     so its opaque background paints over the Home view's viewport-fixed
      particle canvas instead of the other way around. */
-  position: relative;
-  z-index: 100;
+  position: fixed;
+  top: 0;
+  left: 0;
+  bottom: 0;
+  z-index: 250;
   /* Promotes the sidebar to its own compositing layer, isolated from the
      Home view's continuously-animating position:fixed particle canvas next
      to it. Without this, observed on Edge: the flex-stretched sidebar-nav
@@ -429,6 +439,34 @@ a:hover {
   overflow: hidden;
   min-width: 0;
   min-height: 0;
+  /* Always inset by the collapsed rail width — deliberately NOT tied to the
+     sidebar's state: expanding must not change the content's width, or it
+     gets squeezed instead of covered. */
+  margin-left: var(--sidebar-collapsed-w);
+}
+
+/* Dims the content whenever the sidebar is expanded. Must be a child of
+   #app: #app is position:fixed and therefore forms its own stacking context
+   — sitting next to it in <body>, this element's z-index would be compared
+   against #app as a whole and it would land ON TOP of the sidebar, which
+   would then look greyed out and swallow every click.
+   Visibility rides entirely on the sibling selector below, so it needs no
+   JS state of its own. */
+.sidebar-backdrop {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, .5);
+  backdrop-filter: saturate(.55) blur(1px);
+  -webkit-backdrop-filter: saturate(.55) blur(1px);
+  z-index: 240;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity var(--transition);
+}
+
+.sidebar:not(.collapsed) ~ .sidebar-backdrop {
+  opacity: 1;
+  pointer-events: auto;
 }
 
 #topbar {
@@ -794,29 +832,24 @@ a:hover {
 
 @media (max-width: 640px) {
   :root {
-    --sidebar-w: 56px;
-    /* Header logo is hidden at this width (icon-only rail); nav icons and
-       the copyright's © are the only remaining alignment targets. */
+    /* Was 56px here — for BOTH states, which is what made the sidebar
+       effectively un-expandable on phones: the toggle ran, but the expanded
+       width stayed that of the icon rail, and the labels were forced to
+       display:none on top of that. 56px now applies only to the collapsed
+       rail (via --sidebar-collapsed-w); expanded is 216px, labels and all. */
+    --sidebar-w: 216px;
+    /* In the collapsed rail the nav icons and the footer's © are the only
+       remaining alignment targets. */
     --sidebar-icon-pad-left: 17px;
   }
 
-  .sidebar {
-    width: var(--sidebar-w);
-    min-width: var(--sidebar-w);
-  }
-
-  .sidebar .sidebar-label,
-  .sidebar .app-name,
-  .sidebar .app-logo {
-    display: none;
-  }
-
-  .sidebar .sidebar-header {
+  /* Only the collapsed state is the icon-only rail. */
+  .sidebar.collapsed .sidebar-header {
     justify-content: center;
     padding: 10px 0;
   }
 
-  .sidebar .nav-item {
+  .sidebar.collapsed .nav-item {
     padding: 10px 0 10px var(--sidebar-icon-pad-left);
   }
 
