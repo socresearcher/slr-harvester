@@ -93,6 +93,13 @@
       </nav>
     </aside>
 
+    <!-- Dims the content while the sidebar is open, and closes it on click.
+         Deliberately placed AFTER the sidebar and inside #app: the CSS picks
+         it up via the sibling selector `.sidebar:not(.collapsed) ~ &`, and
+         only inside #app does its z-index compare against the sidebar's at
+         all (#app is position:fixed and forms its own stacking context). -->
+    <div id="sidebar-backdrop" class="sidebar-backdrop"></div>
+
     <!-- Main Content -->
     <main id="main">
       <header id="topbar">
