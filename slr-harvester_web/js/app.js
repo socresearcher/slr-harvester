@@ -585,6 +585,9 @@ window.SLRApp = (() => {
 		// is live in the DOM here — no need to defer to a frame callback.
 		const section = document.getElementById('about-first-time');
 		if (!section) return;
+		// The section is a <details> now — a jump to a collapsed header would
+		// show the user a title and nothing else.
+		if ('open' in section) section.open = true;
 		section.scrollIntoView({ behavior: 'smooth', block: 'start' });
 		if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) return;
 		section.classList.remove('section-hint-pulse');

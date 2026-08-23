@@ -4494,14 +4494,76 @@ window.SLRViews = (() => {
   // scenario now (see DEFAULT_URL/DEFAULT_KEY in data-supabase.js), not a
   // Settings-UI one — this section is what an ordinary user actually needs:
   // which backend is active, and sign-out once signed in.
+  //  Collapsible sections
+
+  // Shared by Settings, Tags and About. Native <details>/<summary> rather
+  // than a hand-rolled accordion: keyboard operation and screen-reader
+  // semantics come for free, and browser find-in-page can still reach text
+  // inside a closed section.
+  //
+  // Open/closed state is persisted per section id. These views re-render on
+  // almost every action (saving a key, adding a tag, applying a scheme), so
+  // state held only in memory would snap every section shut under the user
+  // mid-task.
+  const SECTION_STATE_KEY = 'slr-open-sections';
+
+  function readOpenSections() {
+    try {
+      const raw = JSON.parse(localStorage.getItem(SECTION_STATE_KEY));
+      return raw && typeof raw === 'object' ? raw : {};
+    } catch (e) {
+      return {};
+    }
+  }
+
+  function isSectionOpen(id, fallback) {
+    const map = readOpenSections();
+    return typeof map[id] === 'boolean' ? map[id] : !!fallback;
+  }
+
+  function rememberSectionOpen(id, open) {
+    const map = readOpenSections();
+    map[id] = open;
+    try {
+      localStorage.setItem(SECTION_STATE_KEY, JSON.stringify(map));
+    } catch (e) {
+      /* storage full or blocked — the section still opens, it just won't be
+         remembered next time. Not worth interrupting the user over. */
+    }
+  }
+
+  // `meta` is the whole point of collapsing rather than hiding: a closed
+  // section should still answer the question most people open it for
+  // ("is my key set?", "which folder am I in?"), so pass a short status.
+  function collapseSection({ id, title, meta, metaSet, body, open, listClass }) {
+    return `
+      <details class="collapse-section${listClass ? ' ' + listClass : ''}" id="${esc(id)}"
+               data-section="${esc(id)}" ${isSectionOpen(id, open) ? 'open' : ''}>
+        <summary class="collapse-summary">
+          <span class="collapse-chevron" aria-hidden="true">${SLRIcons.chevronRight}</span>
+          <span class="collapse-title">${title}</span>
+          ${meta ? `<span class="collapse-meta${metaSet ? ' is-set' : ''}">${meta}</span>` : ''}
+        </summary>
+        <div class="collapse-body">${body}</div>
+      </details>`;
+  }
+
+  function wireCollapseSections(container) {
+    container.querySelectorAll('details[data-section]').forEach(el => {
+      el.addEventListener('toggle', () => rememberSectionOpen(el.dataset.section, el.open));
+    });
+  }
+
   function renderCloudSyncSection() {
     const backend = SLRData.getBackend();
     const cloudUser = SLRDataCloud.currentUser();
 
-    return `
-      <div class="settings-section">
-        <h3>Cloud Sync (Supabase)</h3>
-        <p class="field-hint" style="margin-top:2px">
+    const cloudMeta = cloudUser
+      ? cloudUser.email
+      : (backend === 'cloud' ? 'Selected — not signed in' : 'Not in use');
+
+    const cloudBody = `
+        <p class="field-hint" style="margin-top:0">
           Sign Up/Log In from the Home screen to sync your projects through the
           cloud instead of a local folder — works on any browser or device,
           including mobile, where the File System Access API isn't available.
@@ -4532,8 +4594,16 @@ window.SLRViews = (() => {
           </div>
         ` : `
           ${renderSupabaseDevNotice()}
-        `}
-      </div>`;
+        `}`;
+
+    return collapseSection({
+      id: 'settings-cloud',
+      title: 'Cloud Sync (Supabase)',
+      meta: cloudMeta,
+      metaSet: !!cloudUser,
+      open: false,
+      body: cloudBody,
+    });
   }
 
   function wireCloudSyncSection(container) {
@@ -4552,180 +4622,222 @@ window.SLRViews = (() => {
   function renderSettings(container, { apiKey, instToken, openAlexKey, openAlexEmail, autoFetchEnabled, fetchMode, autoTagEnabled, autoRunScope, autoTagCategories, allTagCategories, folderName }) {
     const categories = Array.isArray(allTagCategories) ? allTagCategories : [];
     const enabledCategorySet = new Set(Array.isArray(autoTagCategories) && autoTagCategories.length ? autoTagCategories : categories);
+
+    // Status lines for the collapsed headers. Kept factual and short — they
+    // exist so you can answer "is this configured?" without opening anything.
+    const scopusMeta = apiKey
+      ? (instToken ? 'Key + token set' : 'Key set')
+      : 'Not set — Scopus search off';
+    const openAlexParts = [openAlexKey ? 'key' : null, openAlexEmail ? 'email' : null].filter(Boolean);
+    const openAlexMeta = openAlexParts.length ? `${openAlexParts.join(' + ')} set` : 'Optional — not set';
+    const automationMeta = `Auto-fetch ${autoFetchEnabled ? 'on' : 'off'} · Auto-tag ${autoTagEnabled ? 'on' : 'off'}`;
+    const workspaceMeta = folderName || 'No folder open';
+
+    const scopusBody = `
+      <div class="scopus-api-notice">
+        <span class="scopus-api-notice-icon">${SLRIcons.info}</span>
+        <div>
+          The <strong>Scopus Search API</strong> requires an institutional API key.
+          Free API keys for academic institutions are available at
+          <a href="https://dev.elsevier.com/" target="_blank" rel="noopener">dev.elsevier.com</a>.
+          Your key is stored only in your browser's <code>localStorage</code> — never sent to any server.
+        </div>
+      </div>
+
+      <div class="form-field" style="margin-top:14px">
+        <label for="settings-apikey">API Key</label>
+        <div class="secret-input-row">
+          <input class="form-input monospace" id="settings-apikey" type="password"
+            placeholder="Enter your Scopus API key"
+            value="${esc(apiKey || '')}">
+          <button class="btn-secondary secret-toggle-btn" type="button" data-target="settings-apikey" aria-label="Show API key" aria-pressed="false">
+            <span class="secret-toggle-icon">${SLRIcons.eye}</span>
+            <span class="secret-toggle-label">Show</span>
+          </button>
+        </div>
+        <p class="field-hint">Required for Scopus searches. Leave blank to use PubMed / OpenAlex only.</p>
+      </div>
+
+      <div class="form-field">
+        <label for="settings-insttoken">Institutional Token (optional)</label>
+        <div class="secret-input-row">
+          <input class="form-input monospace" id="settings-insttoken" type="password"
+            placeholder="X-ELS-Insttoken — only required on some networks"
+            value="${esc(instToken || '')}">
+          <button class="btn-secondary secret-toggle-btn" type="button" data-target="settings-insttoken" aria-label="Show institutional token" aria-pressed="false">
+            <span class="secret-toggle-icon">${SLRIcons.eye}</span>
+            <span class="secret-toggle-label">Show</span>
+          </button>
+        </div>
+        <p class="field-hint">Needed only when accessing Scopus from outside your institution's IP range.</p>
+      </div>
+
+      <div class="settings-save-row">
+        <button class="btn-primary" id="settings-save-btn">Save Scopus Settings</button>
+        <span class="settings-saved-msg" id="settings-saved-msg">Saved!</span>
+        <button class="btn-secondary" type="button" id="settings-scopus-test-btn">Test API Key</button>
+      </div>
+      <div id="settings-scopus-test-result" class="scopus-test-result" hidden></div>`;
+
+    const openAlexBody = `
+      <div class="scopus-api-notice">
+        <span class="scopus-api-notice-icon">${SLRIcons.info}</span>
+        <div>
+          OpenAlex currently rate-limits anonymous search under heavy load. Adding a free
+          API key or contact email moves requests out of the anonymous path when available.
+        </div>
+      </div>
+
+      <div class="form-field" style="margin-top:14px">
+        <label for="settings-openalex-key">API Key (optional)</label>
+        <div class="secret-input-row">
+          <input class="form-input monospace" id="settings-openalex-key" type="password"
+            placeholder="Enter your OpenAlex API key"
+            value="${esc(openAlexKey || '')}">
+          <button class="btn-secondary secret-toggle-btn" type="button" data-target="settings-openalex-key" aria-label="Show OpenAlex API key" aria-pressed="false">
+            <span class="secret-toggle-icon">${SLRIcons.eye}</span>
+            <span class="secret-toggle-label">Show</span>
+          </button>
+        </div>
+      </div>
+
+      <div class="form-field">
+        <label for="settings-openalex-email">Contact Email (optional)</label>
+        <input class="form-input monospace" id="settings-openalex-email" type="email"
+          placeholder="name@example.com"
+          value="${esc(openAlexEmail || '')}">
+        <p class="field-hint">Used as the OpenAlex <strong>mailto</strong> parameter for polite-pool requests.</p>
+      </div>
+
+      <div class="settings-save-row">
+        <button class="btn-primary" id="settings-openalex-save-btn">Save OpenAlex Settings</button>
+        <span class="settings-saved-msg" id="settings-openalex-saved-msg">Saved!</span>
+      </div>`;
+
+    const automationBody = `
+      <p class="field-hint" style="margin-top:0">Configure how metadata enrichment runs by default in the Articles view and after new searches.</p>
+
+      <div class="form-field" style="margin-top:14px">
+        <label for="settings-auto-fetch-enabled">Auto-fetch metadata (Crossref) after search</label>
+        <select class="form-input" id="settings-auto-fetch-enabled">
+          <option value="off" ${autoFetchEnabled ? '' : 'selected'}>Disabled</option>
+          <option value="on" ${autoFetchEnabled ? 'selected' : ''}>Enabled</option>
+        </select>
+        <p class="field-hint">When enabled, abstracts/authors/types/affiliation fetching starts automatically after each successful search run.</p>
+      </div>
+
+      <div class="form-field">
+        <label for="settings-auto-tag-enabled">Auto-tag after search</label>
+        <select class="form-input" id="settings-auto-tag-enabled">
+          <option value="off" ${autoTagEnabled ? '' : 'selected'}>Disabled</option>
+          <option value="on" ${autoTagEnabled ? 'selected' : ''}>Enabled</option>
+        </select>
+        <p class="field-hint">When enabled, journal-keyword auto-tagging runs automatically after each successful search run, same as the Articles-view button.</p>
+      </div>
+
+      <div class="form-field">
+        <label for="settings-auto-run-scope">Apply automatic actions to</label>
+        <select class="form-input" id="settings-auto-run-scope">
+          <option value="all" ${autoRunScope === 'new' ? '' : 'selected'}>All eligible articles in the project</option>
+          <option value="new" ${autoRunScope === 'new' ? 'selected' : ''}>Only articles newly added by that search</option>
+        </select>
+        <p class="field-hint">Controls the scope of the two automatic actions above. Manual Fetch/Auto-tag buttons in Articles are unaffected and always cover the whole project.</p>
+      </div>
+
+      <div class="form-field">
+        <label for="settings-fetch-mode">Default fetch mode</label>
+        <select class="form-input" id="settings-fetch-mode">
+          <option value="missing" ${fetchMode === 'all' ? '' : 'selected'}>Missing only</option>
+          <option value="all" ${fetchMode === 'all' ? 'selected' : ''}>Re-fetch all eligible</option>
+        </select>
+        <p class="field-hint">Applies to Fetch actions and the Fetch All button.</p>
+      </div>
+
+      <div class="form-field">
+        <label>Auto-tag disciplines</label>
+        <p class="field-hint" style="margin-top:2px">
+          Deselect disciplines that don't apply to this project to remove them as
+          auto-tag candidates entirely — sharpens results among the ones that remain
+          instead of competing against irrelevant categories. All enabled by default.
+        </p>
+        <div class="settings-category-grid" id="settings-autotag-categories">
+          ${categories.map(cat => `
+            <label class="settings-category-item">
+              <input type="checkbox" value="${esc(cat)}" ${enabledCategorySet.has(cat) ? 'checked' : ''}>
+              <span>${esc(cat)}</span>
+            </label>`).join('')}
+        </div>
+        <div class="settings-category-actions">
+          <button type="button" class="link-btn" id="settings-autotag-categories-all">Select all</button>
+          <button type="button" class="link-btn" id="settings-autotag-categories-none">Select none</button>
+        </div>
+      </div>
+
+      <div class="settings-save-row">
+        <button class="btn-primary" id="settings-fetch-save-btn">Save Fetch Settings</button>
+        <span class="settings-saved-msg" id="settings-fetch-saved-msg">Saved!</span>
+      </div>`;
+
+    const folderBody = `
+      <div class="form-field" style="margin-bottom:0">
+        <p class="field-hint" style="margin-top:0">
+          ${folderName
+            ? `Currently using: <strong>${esc(folderName)}</strong>`
+            : 'No folder is currently open.'
+          }
+        </p>
+        <button class="btn-secondary" id="settings-open-folder" style="margin-top:8px">
+          ${SLRIcons.folderOpen} Open different folder&hellip;
+        </button>
+      </div>`;
+
+    // Three groups instead of five flat sections. The split follows the
+    // question a user is actually asking when they come here: "how do I reach
+    // the databases", "what should the app do on its own", "where does my
+    // data live" — rather than mirroring the order the features were built in.
     container.innerHTML = `
       <div class="settings-view">
         <p class="settings-subtitle">Configure your API credentials and workspace.
           <button type="button" class="link-btn" id="settings-privacy-link">See what's stored and why (Privacy &amp; Cookies)</button>
         </p>
 
-        <div class="settings-section">
-          <h3>Scopus API</h3>
+        <p class="settings-group-label">Database access</p>
+        ${collapseSection({
+          id: 'settings-scopus',
+          title: 'Scopus API',
+          meta: scopusMeta,
+          metaSet: !!apiKey,
+          open: !apiKey,
+          body: scopusBody,
+        })}
+        ${collapseSection({
+          id: 'settings-openalex',
+          title: 'OpenAlex',
+          meta: openAlexMeta,
+          metaSet: openAlexParts.length > 0,
+          open: false,
+          body: openAlexBody,
+        })}
 
-          <div class="scopus-api-notice">
-              <span class="scopus-api-notice-icon">${SLRIcons.info}</span>
-            <div>
-              The <strong>Scopus Search API</strong> requires an institutional API key.
-              Free API keys for academic institutions are available at
-              <a href="https://dev.elsevier.com/" target="_blank" rel="noopener">dev.elsevier.com</a>.
-              Your key is stored only in your browser's <code>localStorage</code>  never sent to any server.
-            </div>
-          </div>
+        <p class="settings-group-label">Automation</p>
+        ${collapseSection({
+          id: 'settings-automation',
+          title: 'Fetch &amp; auto-tag',
+          meta: automationMeta,
+          metaSet: autoFetchEnabled || autoTagEnabled,
+          open: false,
+          body: automationBody,
+        })}
 
-          <div class="form-field" style="margin-top:14px">
-            <label for="settings-apikey">API Key</label>
-            <div class="secret-input-row">
-              <input class="form-input monospace" id="settings-apikey" type="password"
-                placeholder="Enter your Scopus API key"
-                value="${esc(apiKey || '')}">
-              <button class="btn-secondary secret-toggle-btn" type="button" data-target="settings-apikey" aria-label="Show API key" aria-pressed="false">
-                <span class="secret-toggle-icon">${SLRIcons.eye}</span>
-                <span class="secret-toggle-label">Show</span>
-              </button>
-            </div>
-            <p class="field-hint">Required for Scopus searches. Leave blank to use PubMed / OpenAlex only.</p>
-          </div>
-
-          <div class="form-field">
-            <label for="settings-insttoken">Institutional Token (optional)</label>
-            <div class="secret-input-row">
-              <input class="form-input monospace" id="settings-insttoken" type="password"
-                placeholder="X-ELS-Insttoken  only required on some networks"
-                value="${esc(instToken || '')}">
-              <button class="btn-secondary secret-toggle-btn" type="button" data-target="settings-insttoken" aria-label="Show institutional token" aria-pressed="false">
-                <span class="secret-toggle-icon">${SLRIcons.eye}</span>
-                <span class="secret-toggle-label">Show</span>
-              </button>
-            </div>
-            <p class="field-hint">Needed only when accessing Scopus from outside your institution's IP range.</p>
-          </div>
-
-          <div class="settings-save-row">
-            <button class="btn-primary" id="settings-save-btn">Save Scopus Settings</button>
-            <span class="settings-saved-msg" id="settings-saved-msg">Saved!</span>
-            <button class="btn-secondary" type="button" id="settings-scopus-test-btn">Test API Key</button>
-          </div>
-          <div id="settings-scopus-test-result" class="scopus-test-result" hidden></div>
-        </div>
-
-          <div class="settings-section">
-          <h3>OpenAlex</h3>
-
-          <div class="scopus-api-notice">
-            <span class="scopus-api-notice-icon">${SLRIcons.info}</span>
-            <div>
-            OpenAlex currently rate-limits anonymous search under heavy load. Adding a free API key or contact email moves requests out of the anonymous path when available.
-            </div>
-          </div>
-
-          <div class="form-field" style="margin-top:14px">
-            <label for="settings-openalex-key">API Key (optional)</label>
-            <div class="secret-input-row">
-            <input class="form-input monospace" id="settings-openalex-key" type="password"
-              placeholder="Enter your OpenAlex API key"
-              value="${esc(openAlexKey || '')}">
-            <button class="btn-secondary secret-toggle-btn" type="button" data-target="settings-openalex-key" aria-label="Show OpenAlex API key" aria-pressed="false">
-              <span class="secret-toggle-icon">${SLRIcons.eye}</span>
-              <span class="secret-toggle-label">Show</span>
-            </button>
-            </div>
-          </div>
-
-          <div class="form-field">
-            <label for="settings-openalex-email">Contact Email (optional)</label>
-            <input class="form-input monospace" id="settings-openalex-email" type="email"
-            placeholder="name@example.com"
-            value="${esc(openAlexEmail || '')}">
-            <p class="field-hint">Used as the OpenAlex <strong>mailto</strong> parameter for polite-pool requests.</p>
-          </div>
-
-          <div class="settings-save-row">
-            <button class="btn-primary" id="settings-openalex-save-btn">Save OpenAlex Settings</button>
-            <span class="settings-saved-msg" id="settings-openalex-saved-msg">Saved!</span>
-          </div>
-          </div>
-
-        <div class="settings-section">
-          <h3>Fetch Automation</h3>
-          <p class="field-hint" style="margin-top:2px">Configure how metadata enrichment runs by default in the Articles view and after new searches.</p>
-
-          <div class="form-field" style="margin-top:14px">
-            <label for="settings-auto-fetch-enabled">Auto-fetch metadata (Crossref) after search</label>
-            <select class="form-input" id="settings-auto-fetch-enabled">
-              <option value="off" ${autoFetchEnabled ? '' : 'selected'}>Disabled</option>
-              <option value="on" ${autoFetchEnabled ? 'selected' : ''}>Enabled</option>
-            </select>
-            <p class="field-hint">When enabled, abstracts/authors/types/affiliation fetching starts automatically after each successful search run.</p>
-          </div>
-
-          <div class="form-field">
-            <label for="settings-auto-tag-enabled">Auto-tag after search</label>
-            <select class="form-input" id="settings-auto-tag-enabled">
-              <option value="off" ${autoTagEnabled ? '' : 'selected'}>Disabled</option>
-              <option value="on" ${autoTagEnabled ? 'selected' : ''}>Enabled</option>
-            </select>
-            <p class="field-hint">When enabled, journal-keyword auto-tagging runs automatically after each successful search run, same as the Articles-view button.</p>
-          </div>
-
-          <div class="form-field">
-            <label for="settings-auto-run-scope">Apply automatic actions to</label>
-            <select class="form-input" id="settings-auto-run-scope">
-              <option value="all" ${autoRunScope === 'new' ? '' : 'selected'}>All eligible articles in the project</option>
-              <option value="new" ${autoRunScope === 'new' ? 'selected' : ''}>Only articles newly added by that search</option>
-            </select>
-            <p class="field-hint">Controls the scope of the two automatic actions above. Manual Fetch/Auto-tag buttons in Articles are unaffected and always cover the whole project.</p>
-          </div>
-
-          <div class="form-field">
-            <label for="settings-fetch-mode">Default fetch mode</label>
-            <select class="form-input" id="settings-fetch-mode">
-              <option value="missing" ${fetchMode === 'all' ? '' : 'selected'}>Missing only</option>
-              <option value="all" ${fetchMode === 'all' ? 'selected' : ''}>Re-fetch all eligible</option>
-            </select>
-            <p class="field-hint">Applies to Fetch actions and the Fetch All button.</p>
-          </div>
-
-          <div class="form-field">
-            <label>Auto-tag disciplines</label>
-            <p class="field-hint" style="margin-top:2px">
-              Deselect disciplines that don't apply to this project to remove them as
-              auto-tag candidates entirely — sharpens results among the ones that remain
-              instead of competing against irrelevant categories. All enabled by default.
-            </p>
-            <div class="settings-category-grid" id="settings-autotag-categories">
-              ${categories.map(cat => `
-                <label class="settings-category-item">
-                  <input type="checkbox" value="${esc(cat)}" ${enabledCategorySet.has(cat) ? 'checked' : ''}>
-                  <span>${esc(cat)}</span>
-                </label>`).join('')}
-            </div>
-            <div class="settings-category-actions">
-              <button type="button" class="link-btn" id="settings-autotag-categories-all">Select all</button>
-              <button type="button" class="link-btn" id="settings-autotag-categories-none">Select none</button>
-            </div>
-          </div>
-
-          <div class="settings-save-row">
-            <button class="btn-primary" id="settings-fetch-save-btn">Save Fetch Settings</button>
-            <span class="settings-saved-msg" id="settings-fetch-saved-msg">Saved!</span>
-          </div>
-        </div>
-
-        <div class="settings-section">
-          <h3>Workspace</h3>
-          <div class="form-field">
-            <label>Open Folder</label>
-            <p class="field-hint" style="margin-top:2px">
-              ${folderName
-                ? `Currently using: <strong>${esc(folderName)}</strong>`
-                : 'No folder is currently open.'
-              }
-            </p>
-            <button class="btn-secondary" id="settings-open-folder" style="margin-top:8px">
-              ${SLRIcons.folderOpen} Open different folder&hellip;
-            </button>
-          </div>
-        </div>
-
+        <p class="settings-group-label">Workspace &amp; data</p>
+        ${collapseSection({
+          id: 'settings-folder',
+          title: 'Local folder',
+          meta: workspaceMeta,
+          metaSet: !!folderName,
+          open: false,
+          body: folderBody,
+        })}
         ${renderCloudSyncSection()}
       </div>`;
 
@@ -4813,6 +4925,7 @@ window.SLRViews = (() => {
     });
 
     wireCloudSyncSection(container);
+    wireCollapseSections(container);
 
     container.querySelectorAll('.secret-toggle-btn').forEach(btn => {
       btn.addEventListener('click', () => {
@@ -4937,6 +5050,158 @@ window.SLRViews = (() => {
   //  About view
 
   function renderAbout(container) {
+    // Rebuilt around the questions people actually arrive with. What used to
+    // be five prose sections (Integrated Databases, Data Enrichment, Scopus
+    // API Notes, Compatibility, plus the mode explanation) is the same
+    // information, re-cut as answers and collapsed by default — the page now
+    // opens as a short list you can scan instead of a wall you have to read.
+    const qa = [
+      {
+        id: 'qa-browsers',
+        q: 'Which browsers and devices work?',
+        a: `<p><strong>Cloud Sync works everywhere</strong> — any modern browser, desktop or
+            mobile.</p>
+           <p><strong>Local Folder needs Chrome 86+ or Edge 86+ on desktop.</strong> It relies on
+            the File System Access API (<code>showDirectoryPicker</code>), which desktop Firefox
+            and Safari don't implement — and which no mobile browser implements at all, whatever
+            the vendor. On those, use Sign Up / Log In from the Home screen instead.</p>`,
+      },
+      {
+        id: 'qa-mode',
+        q: 'Local Folder or Cloud Sync — which should I pick?',
+        a: `<p><strong>Local Folder</strong> keeps every project as plain JSON files in a folder
+            you choose on your own device. Nothing about them is uploaded, the app works offline,
+            and the files stay readable without this app. It also shares its format with the
+            desktop version. Works on cloud-synced drives (OneDrive, Google Drive) too.</p>
+           <p><strong>Cloud Sync</strong> stores the same data in this app's Supabase project
+            under your account, so it follows you across browsers and devices — the only option
+            on phones and in Firefox/Safari.</p>
+           <p>You can switch between them in Settings; they are separate workspaces, not two
+            views of the same one.</p>`,
+      },
+      {
+        id: 'qa-databases',
+        q: 'Which databases can I search?',
+        a: `<ul>
+              <li><strong>Scopus</strong> — requires an institutional API key (elsevier.com)</li>
+              <li><strong>PubMed</strong> — free, no key required (NCBI E-utilities)</li>
+              <li><strong>OpenAlex</strong> — free and open, no key required</li>
+            </ul>
+           <p>All three are searchable directly from the Search view.</p>`,
+      },
+      {
+        id: 'qa-scopus-key',
+        q: 'Do I need a Scopus API key?',
+        a: `<p>No — PubMed and OpenAlex work without any key, and you can run a complete review on
+            those alone. A Scopus key only unlocks Scopus as a fourth source.</p>
+           <p>Free keys for academic institutions are available at
+            <a href="https://dev.elsevier.com/" target="_blank" rel="noopener">dev.elsevier.com</a>.
+            Enter it under <button class="link-btn" id="about-goto-settings">Settings</button>,
+            where you can also test that it works.</p>`,
+      },
+      {
+        id: 'qa-abstracts',
+        q: 'Why are some abstracts empty, and why do I only see one author?',
+        a: `<p>Both are Scopus API limits, not bugs here.</p>
+           <p><strong>Abstracts:</strong> full text from the Abstract Retrieval API needs an
+            institutional subscription <em>and</em> access from a subscribed network (campus or
+            VPN); an InstToken may be required on top. Without that, abstracts can come back empty
+            even with a valid personal key.</p>
+           <p><strong>Authors:</strong> the Scopus Search API returns only the first author and
+            truncates the rest.</p>
+           <p>Both have the same fix: <strong>Fetch Abstracts</strong> and <strong>Fetch
+            Authors</strong> in the Articles view pull the missing pieces from Crossref by DOI —
+            free, no key, no subscription.</p>`,
+      },
+      {
+        id: 'qa-fetch',
+        q: 'What do the Fetch buttons do?',
+        a: `<p>They fill in metadata the search results left out. All are free and need no key:</p>
+            <ul>
+              <li><strong>Fetch Abstracts</strong> — missing abstracts (Crossref, via DOI)</li>
+              <li><strong>Fetch Authors</strong> — the complete author list (Crossref, via DOI)</li>
+              <li><strong>Fetch Types</strong> — document type: Article, Chapter, Preprint, …</li>
+              <li><strong>Fetch Affiliations</strong> — institution names and countries (DOI / OpenAlex / PMID)</li>
+            </ul>
+            <p><strong>Fetch Everything</strong> runs all four in one pass. Settings can run them
+            automatically after each search.</p>`,
+      },
+      {
+        id: 'qa-data',
+        q: 'Where is my data stored?',
+        a: `<p>In Local Folder mode: only in the folder you picked, on your device. No project
+            data is sent anywhere — the only outbound requests are the searches themselves, going
+            straight from your browser to the academic databases.</p>
+           <p>In Cloud Sync mode: in this app's Supabase project, in rows tied to your account.</p>
+           <p><button type="button" class="link-btn" id="databases-privacy-link">Privacy &amp;
+            Cookies</button> has the full, key-by-key breakdown — including what is kept in
+            browser storage and what is sent to which service.</p>`,
+      },
+      {
+        id: 'qa-offline',
+        q: 'Does it work offline?',
+        a: `<p>In Local Folder mode, yes — everything except searching and fetching, which need
+            the databases. Reading, tagging, screening, exporting and the charts all run locally.</p>
+           <p>There is no build step, no framework and no CDN: the app is plain HTML/CSS/JS and
+            even opens straight from <code>index.html</code>.</p>`,
+      },
+    ];
+
+    const featureList = `
+      <ul class="about-feature-list">
+        <li><span class="about-li-icon" aria-hidden="true">${SLRIcons.databases}</span><span><strong>Multi-database search</strong> &mdash; Scopus, PubMed and OpenAlex in one Search view</span></li>
+        <li><span class="about-li-icon" aria-hidden="true">${SLRIcons.refresh}</span><span><strong>Crossref enrichment</strong> &mdash; abstracts, full author lists, document types and affiliations by DOI</span></li>
+        <li><span class="about-li-icon" aria-hidden="true">${SLRIcons.corpus}</span><span><strong>Two-stage screening</strong> &mdash; Selected &rarr; Corpus, with per-article comments</span></li>
+        <li><span class="about-li-icon" aria-hidden="true">${SLRIcons.tag}</span><span><strong>Tagging</strong> &mdash; keyword auto-tagging, editable rules, aliases, and ${COLOR_SCHEMES.length} colour palettes</span></li>
+        <li><span class="about-li-icon" aria-hidden="true">${SLRIcons.search}</span><span><strong>Advanced list search</strong> &mdash; semicolon-separated terms for AND logic across title, abstract and journal</span></li>
+        <li><span class="about-li-icon" aria-hidden="true">${SLRIcons.chart}</span><span><strong>Visualisations</strong> &mdash; year and tag distribution, selection funnel, citation network, world map</span></li>
+        <li><span class="about-li-icon" aria-hidden="true">${SLRIcons.history}</span><span><strong>Query history</strong> &mdash; past searches with result counts and previews</span></li>
+        <li><span class="about-li-icon" aria-hidden="true">${SLRIcons.supabaseLogo}</span><span><strong>Local folder or Cloud Sync</strong> &mdash; your files on your device, or synced across devices</span></li>
+      </ul>`;
+
+    const versionsBody = `
+      <div class="about-v2-banner">
+        <div class="about-v2-header">
+          <span class="about-v2-badge">V2</span>
+          <strong>Version 2 &mdash; Web App</strong>
+        </div>
+        <ul class="about-feature-list">
+          <li><span class="about-li-icon" aria-hidden="true">${SLRIcons.folderOpen}</span><span><strong>Browser-based</strong> &mdash; no installation, no build step, no CDN</span></li>
+          <li><span class="about-li-icon" aria-hidden="true">${SLRIcons.githubLogo}</span><span><strong>Hosted on GitHub Pages</strong> &mdash; <a href="https://socresearcher.github.io/slr-harvester/" target="_blank" rel="noopener">socresearcher.github.io/slr-harvester</a></span></li>
+          <li><span class="about-li-icon" aria-hidden="true">${SLRIcons.supabaseLogo}</span><span><strong>Cloud Sync</strong> &mdash; optional Supabase-backed workspace, including mobile</span></li>
+          <li><span class="about-li-icon" aria-hidden="true">${SLRIcons.databases}</span><span><strong>PubMed and OpenAlex</strong> added alongside Scopus</span></li>
+          <li><span class="about-li-icon" aria-hidden="true">${SLRIcons.sun}</span><span><strong>Dark &amp; light theme</strong> &mdash; full CSS custom property design system</span></li>
+        </ul>
+      </div>
+
+      <div class="about-v1-banner">
+        <div class="about-v1-header">
+          <span class="about-v1-badge">V1</span>
+          <strong>Version 1 &mdash; Desktop App (Python / customtkinter)</strong>
+        </div>
+        <ul class="about-feature-list about-feature-list--muted">
+          <li><span class="about-li-icon" aria-hidden="true">${SLRIcons.project}</span><span>Native desktop GUI built with <strong>customtkinter</strong></span></li>
+          <li><span class="about-li-icon" aria-hidden="true">${SLRIcons.search}</span><span>Scopus search with a full field-code query builder</span></li>
+          <li><span class="about-li-icon" aria-hidden="true">${SLRIcons.folder}</span><span>Project-based storage &mdash; same JSON format the web app reads</span></li>
+          <li><span class="about-li-icon" aria-hidden="true">${SLRIcons.externalLink}</span><span>Export to <code>.bib</code>, <code>.ris</code>, <code>.csv</code>; charts as <code>.png</code></span></li>
+          <li><span class="about-li-icon" aria-hidden="true">${SLRIcons.warning}</span><span>Requires Python 3.10+ and an institutional Scopus API key</span></li>
+        </ul>
+      </div>`;
+
+    const firstTimeBody = `
+      <p><strong>On mobile, or in Firefox/Safari?</strong> Local Folder needs the File System
+        Access API, which isn't available there — use <strong>Sign Up</strong> or
+        <strong>Log In</strong> on the Home screen instead: it syncs your projects through the
+        cloud and works in any browser.</p>
+      <p><strong>First time with Local Folder?</strong> Click <strong>Continue with Local
+        Folder</strong> on the Home screen, then create a new, empty folder in the picker dialog
+        (any name works, e.g. <code>SLR-Harvester-Data</code>) and select it. The app sets
+        everything up the moment you create your first project — nothing is written until then.</p>
+      <p><strong>Already have local data?</strong> Select the folder that contains
+        <code>projects.json</code> and the <code>projects/</code> directory — your existing SLR
+        Harvester workspace. Local folders and cloud-synced drives (OneDrive, Google Drive) both
+        work.</p>`;
+
     container.innerHTML = `
       <div class="settings-view">
         <h2>About SLR Harvester <span class="title-web">Web</span></h2>
@@ -4961,151 +5226,47 @@ window.SLRViews = (() => {
           </button>
         </div>
 
-        <div class="settings-section" id="about-first-time">
-          <h3>First time here?</h3>
-          <p style="font-size:13px;color:var(--text-muted);line-height:1.7">
-            <strong>On mobile, or Firefox/Safari?</strong> Local Folder needs the
-            File System Access API, which isn't available there — use
-            <strong>Sign Up</strong> or <strong>Log In</strong> on the Home screen
-            instead: it syncs your projects through the cloud and works in any
-            browser.
-          </p>
-          <p style="font-size:13px;color:var(--text-muted);margin-top:10px;line-height:1.7">
-            <strong>First time with Local Folder?</strong> Click <strong>Continue
-            with Local Folder</strong> on the Home screen, then create a new, empty
-            folder in the picker dialog (any name works, e.g.
-            <code>SLR-Harvester-Data</code>) and select it. The app sets everything
-            up the moment you create your first project — nothing is written until
-            then.
-          </p>
-          <p style="font-size:13px;color:var(--text-muted);margin-top:10px;line-height:1.7">
-            <strong>Already have local data?</strong> Select the folder that
-            contains <code>projects.json</code> and the <code>projects/</code>
-            directory - your existing SLR Harvester workspace. Works with local
-            folders and cloud-synced drives (OneDrive, Google Drive) alike.
-          </p>
+        ${collapseSection({
+          id: 'about-first-time',
+          title: 'First time here?',
+          meta: 'Getting started',
+          body: `<div class="qa-answer">${firstTimeBody}</div>`,
+          open: true,
+        })}
+
+        <p class="settings-group-label">Questions &amp; Answers</p>
+        <div class="qa-list">
+          ${qa.map(item => collapseSection({
+            id: item.id,
+            title: esc(item.q),
+            body: item.a,
+            open: false,
+          })).join('')}
         </div>
 
-        <div class="about-v2-banner">
-          <div class="about-v2-header">
-            <span class="about-v2-badge">V2</span>
-            <strong>What&rsquo;s New in Version 2 &mdash; Web App</strong>
-          </div>
-          <ul class="about-feature-list">
-            <li><span class="about-li-icon" aria-hidden="true">${SLRIcons.folderOpen}</span><span><strong>Browser-based</strong> &mdash; no installation, runs from <code>index.html</code> or a local server</span></li>
-            <li><span class="about-li-icon" aria-hidden="true">${SLRIcons.githubLogo}</span><span><strong>Hosted on GitHub Pages</strong> &mdash; open <a href="https://socresearcher.github.io/slr-harvester/" target="_blank" rel="noopener">socresearcher.github.io/slr-harvester</a> directly, no download required; your project data still never leaves your device</span></li>
-            <li><span class="about-li-icon" aria-hidden="true">${SLRIcons.supabaseLogo}</span><span><strong>Cloud Sync (Supabase)</strong> &mdash; optional: sync projects through your own Supabase project instead of a local folder, so any browser or device works, including mobile.</span></li>
-            <li><span class="about-li-icon" aria-hidden="true">${SLRIcons.databases}</span><span><strong>Multi-database search</strong> &mdash; Scopus, PubMed and OpenAlex integrated directly in the Search view</span></li>
-            <li><span class="about-li-icon" aria-hidden="true">${SLRIcons.refresh}</span><span><strong>Data enrichment via Crossref</strong> &mdash; fetch missing abstracts, full author lists, document types, and affiliations (institution names and countries) by DOI</span></li>
-            <li><span class="about-li-icon" aria-hidden="true">${SLRIcons.search}</span><span><strong>Advanced article-list search</strong> &mdash; use semicolon-separated terms for AND logic (e.g., <code>companion; ethnography</code>) across title, abstract and journal fields</span></li>
-            <li><span class="about-li-icon" aria-hidden="true">${SLRIcons.palette}</span><span><strong>Colour scheme engine</strong> &mdash; 17 built-in palettes plus cycling monochrome; applied directly to your project's tag colours</span></li>
-            <li><span class="about-li-icon" aria-hidden="true">${SLRIcons.tag}</span><span><strong>Tag aliasing</strong> &mdash; map multiple tag names to one canonical label for unified filtering</span></li>
-            <li><span class="about-li-icon" aria-hidden="true">${SLRIcons.corpus}</span><span><strong>Corpus &amp; Selected screening</strong> &mdash; two-stage inclusion workflow, identical to the desktop app</span></li>
-            <li><span class="about-li-icon" aria-hidden="true">${SLRIcons.chart}</span><span><strong>Visualisations</strong> &mdash; year distribution, tag distribution and selection funnel charts (Canvas, no libraries)</span></li>
-            <li><span class="about-li-icon" aria-hidden="true">${SLRIcons.history}</span><span><strong>Query history panel</strong> &mdash; browse past searches with full result counts and article previews</span></li>
-            <li><span class="about-li-icon" aria-hidden="true">${SLRIcons.check}</span><span><strong>Zero-dependency</strong> &mdash; no frameworks, no build step, no CDN. Opens as a plain HTML file.</span></li>
-            <li><span class="about-li-icon" aria-hidden="true">${SLRIcons.sun}</span><span><strong>Dark &amp; light theme</strong> &mdash; persisted in <code>localStorage</code>, full CSS custom property design system</span></li>
-          </ul>
-        </div>
+        <p class="settings-group-label">More</p>
+        ${collapseSection({
+          id: 'about-features',
+          title: 'What the app does',
+          meta: 'Feature overview',
+          body: featureList,
+          open: false,
+        })}
+        ${collapseSection({
+          id: 'about-versions',
+          title: 'Version history',
+          meta: 'V2 web &middot; V1 desktop',
+          body: versionsBody,
+          open: false,
+        })}
 
-        <div class="about-v1-banner">
-          <div class="about-v1-header">
-            <span class="about-v1-badge">V1</span>
-            <strong>Original Desktop App (Python / customtkinter)</strong>
-          </div>
-          <ul class="about-feature-list about-feature-list--muted">
-            <li><span class="about-li-icon" aria-hidden="true">${SLRIcons.project}</span><span>Native desktop GUI built with <strong>customtkinter</strong></span></li>
-            <li><span class="about-li-icon" aria-hidden="true">${SLRIcons.search}</span><span>Scopus search with full field-code query builder</span></li>
-            <li><span class="about-li-icon" aria-hidden="true">${SLRIcons.folder}</span><span>Project-based storage (JSON files, identical format)</span></li>
-            <li><span class="about-li-icon" aria-hidden="true">${SLRIcons.selected}</span><span>Two-stage inclusion: Selected &rarr; Corpus, with per-article comments</span></li>
-            <li><span class="about-li-icon" aria-hidden="true">${SLRIcons.tag}</span><span>Tag management and colour assignment</span></li>
-            <li><span class="about-li-icon" aria-hidden="true">${SLRIcons.externalLink}</span><span>Export to <code>.bib</code>, <code>.ris</code>, <code>.csv</code></span></li>
-            <li><span class="about-li-icon" aria-hidden="true">${SLRIcons.chart}</span><span>Charts as <code>.png</code> via Matplotlib</span></li>
-            <li><span class="about-li-icon" aria-hidden="true">${SLRIcons.warning}</span><span>Requires Python 3.10+ and institutional Scopus API key</span></li>
-          </ul>
-        </div>
-
-        <div class="settings-section">
-          <h3>Integrated Databases</h3>
-          <p style="font-size:13px;color:var(--text-muted);margin-bottom:12px">
-            The following databases are fully integrated and searchable directly from the Search view:
-          </p>
-          <ul style="font-size:13px;color:var(--text-muted);line-height:1.9;padding-left:18px">
-            <li><strong>Scopus</strong> &mdash; requires institutional API key (elsevier.com)</li>
-            <li><strong>PubMed</strong> &mdash; free, no key required (NCBI E-utilities)</li>
-            <li><strong>OpenAlex</strong> &mdash; free, open, no key required</li>
-          </ul>
-        </div>
-
-        <div class="settings-section">
-          <h3>Data Enrichment</h3>
-          <p style="font-size:13px;color:var(--text-muted);line-height:1.7">
-            The Articles view provides four enrichment buttons (plus a
-            "Fetch Everything" that runs all of them in one pass), all free
-            and requiring no key:
-          </p>
-          <ul style="font-size:13px;color:var(--text-muted);line-height:1.9;padding-left:18px">
-            <li><strong>Fetch Abstracts</strong> &mdash; fills in missing abstracts (Crossref, via DOI)</li>
-            <li><strong>Fetch Authors</strong> &mdash; retrieves the complete author list (Crossref, via DOI) &mdash; Scopus truncates to first author</li>
-            <li><strong>Fetch Types</strong> &mdash; determines the document type (Article, Chapter, Preprint, &hellip;) (Crossref, via DOI)</li>
-            <li><strong>Fetch Affiliations</strong> &mdash; institution names and countries (via DOI / OpenAlex / PMID)</li>
-          </ul>
-        </div>
-
-        <div class="settings-section">
-          <h3>Scopus API Notes</h3>
-          <div class="scopus-api-notice">
-            <div class="scopus-api-notice-icon">${SLRIcons.search}</div>
-            <div style="font-size:13px">
-              <strong>Scopus Search API</strong> &mdash; requires an active <strong>API key</strong> from Elsevier.
-              Configure it in <button class="link-btn" id="about-goto-settings">Settings</button>.
-            </div>
-          </div>
-          <div class="scopus-api-notice scopus-api-notice-warn" style="margin-top:8px">
-            <div class="scopus-api-notice-icon">${SLRIcons.warning}</div>
-            <div style="font-size:13px">
-              <strong>Abstract Retrieval API</strong> &mdash; full abstracts require an <strong>institutional subscription</strong>
-              and access from a subscribed network (campus VPN or on-site). An <strong>InstToken</strong>
-              may also be required. Without this access, returned abstracts can be empty even with a personal API key.
-              Use <strong>Fetch Abstracts</strong> in the Articles view as a workaround to retrieve missing abstracts via Crossref (free, DOI-based).
-            </div>
-          </div>
-          <div class="scopus-api-notice scopus-api-notice-warn" style="margin-top:8px">
-            <div class="scopus-api-notice-icon">${SLRIcons.user}</div>
-            <div style="font-size:13px">
-              <strong>Author Retrieval API</strong> &mdash; the Scopus Search API returns only the <strong>first author</strong> by default;
-              co-authors are truncated. Use <strong>Fetch Authors</strong> in the Articles view to retrieve full author lists via Crossref.
-            </div>
-          </div>
-        </div>
-
-        <div class="settings-section">
-          <h3>Compatibility</h3>
-          <p style="font-size:13px;color:var(--text-muted);line-height:1.7">
-            <strong>Local Folder</strong> mode requires <strong>Chrome 86+</strong> or
-            <strong>Edge 86+</strong> on <strong>desktop</strong> for the File System
-            Access API (<code>showDirectoryPicker</code>). Desktop Firefox and Safari
-            don't support it, and neither does any mobile browser (Chrome, Edge, or
-            Safari on phone/tablet) &mdash; this API isn't implemented on mobile at all
-            regardless of vendor. <strong>Cloud Sync</strong> (Sign Up / Log In from the
-            Home screen) works in any modern browser, including mobile, as an alternative.
-          </p>
-          <p style="font-size:13px;color:var(--text-muted);margin-top:8px;line-height:1.7">
-            In <strong>Local Folder</strong> mode the app works entirely offline &mdash;
-            no project data is sent to any server, only direct API requests from your
-            browser to the respective academic databases. In <strong>Cloud Sync</strong>
-            mode, project data is stored in this app's Supabase project instead (see
-            <button type="button" class="link-btn" id="databases-privacy-link">Privacy &amp; Cookies</button>
-            for the full breakdown of what's stored and where).
-          </p>
-        </div>
-
-        <div class="settings-section">
-          <h3>Version &amp; License</h3>
-          <p style="font-size:13px;color:var(--text-muted)">SLR Harvester Web &mdash; 2026</p>
-          <p style="font-size:12px;color:var(--text-muted);margin-top:4px">&copy; 2026 Gregor Hobersdorfer &mdash; All rights reserved. Non-commercial use permitted with attribution.</p>
+        <div class="about-colophon">
+          <p>SLR Harvester Web &mdash; 2026</p>
+          <p>&copy; 2026 Gregor Hobersdorfer &mdash; All rights reserved. Non-commercial use permitted with attribution.</p>
         </div>
       </div>`;
+
+    wireCollapseSections(container);
     const gotoBtn = container.querySelector('#about-goto-settings');
     if (gotoBtn) gotoBtn.addEventListener('click', () => SLRApp.navigate('settings'));
     container.querySelector('#about-privacy-btn')?.addEventListener('click', () => SLRApp.navigate('privacy'));
@@ -5229,6 +5390,29 @@ window.SLRViews = (() => {
         <span class="scheme-desc">${esc(sc.desc)}</span>
       </button>`).join('');
 
+    // Tags itself opens by default — it is what this view is named after and
+    // what people come here to do. The palette grid (21 schemes) and the
+    // keyword rule editor are both long, and both are things you set up once
+    // and rarely revisit, so they start closed.
+    const tagsBody = `
+      <div class="tag-add-form" id="tag-add-form" style="display:none">
+        <div class="tag-add-form-inner">
+          <input type="color" class="tag-color-input" id="tag-new-color" value="#64A8FF">
+          <input type="text"  class="tag-name-input"  id="tag-new-name" placeholder="Tag name" maxlength="40">
+          <button class="btn-primary btn-sm" id="tag-add-confirm">Add</button>
+          <button class="btn-secondary btn-sm" id="tag-add-cancel">Cancel</button>
+        </div>
+      </div>
+
+      ${tagKeys.length > 0
+        ? `<div class="tags-grid">${tagCardsHTML}</div>`
+        : `<p class="scheme-panel-intro" style="margin-bottom:0">No tags defined yet. Use Auto-tag in the Articles view or add tags manually.</p>`
+      }`;
+
+    const schemesBody = `
+      <p class="scheme-panel-intro">Apply a preset colour scheme to all existing tags at once.</p>
+      <div class="scheme-grid">${schemeBtnsHTML}</div>`;
+
     container.innerHTML = `
       <div class="tags-view">
         <div class="tags-header">
@@ -5245,40 +5429,31 @@ window.SLRViews = (() => {
           <span><strong>Auto-tag</strong> in Articles assigns tags to untagged records based on journal-title keywords and can be re-run anytime after you refine rules.</span>
         </div>
 
-        <div class="tags-section">
-          <h3>Colour Schemes</h3>
-          <div class="scheme-panel">
-            <p class="scheme-panel-intro">Apply a preset colour scheme to all existing tags at once.</p>
-            <div class="scheme-grid">${schemeBtnsHTML}</div>
-          </div>
-        </div>
+        ${collapseSection({
+          id: 'tags-tags',
+          title: 'Tags',
+          meta: tagKeys.length ? `${tagKeys.length} tag${tagKeys.length !== 1 ? 's' : ''}` : 'None yet',
+          metaSet: tagKeys.length > 0,
+          open: true,
+          body: tagsBody,
+        })}
 
-        <div class="tags-section">
-          <div class="tags-section-header">
-            <h3>Tags</h3>
-          </div>
+        ${collapseSection({
+          id: 'tags-schemes',
+          title: 'Colour Schemes',
+          meta: `${COLOR_SCHEMES.length} palettes`,
+          open: false,
+          body: schemesBody,
+        })}
 
-          <div class="scheme-panel">
-            <div class="tag-add-form" id="tag-add-form" style="display:none">
-              <div class="tag-add-form-inner">
-                <input type="color" class="tag-color-input" id="tag-new-color" value="#64A8FF">
-                <input type="text"  class="tag-name-input"  id="tag-new-name" placeholder="Tag name" maxlength="40">
-                <button class="btn-primary btn-sm" id="tag-add-confirm">Add</button>
-                <button class="btn-secondary btn-sm" id="tag-add-cancel">Cancel</button>
-              </div>
-            </div>
-
-            ${tagKeys.length > 0
-              ? `<div class="tags-grid">${tagCardsHTML}</div>`
-              : `<p class="scheme-panel-intro" style="margin-bottom:0">No tags defined yet. Use Auto-tag in the Articles view or add tags manually.</p>`
-            }
-          </div>
-        </div>
-
-        <div class="tags-section">
-          <h3>Auto-Tag Rules</h3>
-          <div id="autotag-rules-mount"></div>
-        </div>
+        ${collapseSection({
+          id: 'tags-autotag',
+          title: 'Auto-Tag Rules',
+          meta: isAutoTagCustomized ? 'Customised' : 'Defaults',
+          metaSet: !!isAutoTagCustomized,
+          open: false,
+          body: '<div id="autotag-rules-mount"></div>',
+        })}
       </div>`;
 
     // Wire: show/hide add form
@@ -5363,6 +5538,8 @@ window.SLRViews = (() => {
     // exactly as before with zero risk of the two colliding.
     const autotagMount = container.querySelector('#autotag-rules-mount');
     if (autotagMount) renderAutoTagRules(autotagMount, autoTagRules || [], !!isAutoTagCustomized, folderName);
+
+    wireCollapseSections(container);
   }
 
   //  Auto-Tag Rules view
