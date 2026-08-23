@@ -585,6 +585,9 @@ window.SLRApp = (() => {
 		// is live in the DOM here — no need to defer to a frame callback.
 		const section = document.getElementById('about-first-time');
 		if (!section) return;
+		// The section is a <details> now — a jump to a collapsed header would
+		// show the user a title and nothing else.
+		if ('open' in section) section.open = true;
 		section.scrollIntoView({ behavior: 'smooth', block: 'start' });
 		if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) return;
 		section.classList.remove('section-hint-pulse');
@@ -3150,11 +3153,21 @@ window.SLRApp = (() => {
 		$('fullscreen-toggle')?.addEventListener('click', () => SLRAppUI.toggleFullscreen(showToast, $));
 		$('project-badge')?.addEventListener('click', () => openProjectDetail(state.currentFolder));
 		$('sidebar-toggle')?.addEventListener('click', () => SLRAppUI.toggleSidebar(state, _sidebar, $));
+
+		// Clicking the dimmed content, or Escape, closes the sidebar.
+		$('sidebar-backdrop')?.addEventListener('click', () => SLRAppUI.collapseSidebar(state, _sidebar, $));
+		document.addEventListener('keydown', e => {
+			if (e.key === 'Escape') SLRAppUI.collapseSidebar(state, _sidebar, $);
+		});
 		document.addEventListener('fullscreenchange', () => SLRAppUI.updateFullscreenButton($));
 		document.addEventListener('webkitfullscreenchange', () => SLRAppUI.updateFullscreenButton($));
 
 		document.querySelectorAll('.nav-item[data-view]').forEach(btn => {
-			btn.addEventListener('click', () => navigate(btn.dataset.view));
+			btn.addEventListener('click', () => {
+				navigate(btn.dataset.view);
+				// View switched — the overlay sidebar releases the content again.
+				SLRAppUI.collapseSidebar(state, _sidebar, $);
+			});
 		});
 
 		// Delegated once, here — every view's "no project open" notice
@@ -3173,6 +3186,9 @@ window.SLRApp = (() => {
 
 		SLRAppUI.injectIcons(state, $);
 		SLRAppUI.applyTheme(state, $);
+		// As an overlay the sidebar always starts collapsed — otherwise opening
+		// the app would greet you with content that is already dimmed out.
+		state.sidebarCollapsed = true;
 		SLRAppUI.setSidebarCollapsed(state, _sidebar, $);
 		SLRAppUI.updateFullscreenButton($);
 		bindEvents();

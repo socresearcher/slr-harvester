@@ -46,6 +46,16 @@ window.SLRAppUI = (() => {
     setSidebarCollapsed(state, sidebarEl, $);
   }
 
+  // Closes the sidebar if it is open. Expanded, it is an overlay sitting on
+  // top of dimmed content, so it should get out of the way the moment the
+  // user goes back to that content: clicking the dimmed area, switching
+  // views, or pressing Escape.
+  function collapseSidebar(state, sidebarEl, $) {
+    if (state.sidebarCollapsed) return;
+    state.sidebarCollapsed = true;
+    setSidebarCollapsed(state, sidebarEl, $);
+  }
+
   function injectIcons(state, $) {
     const logoEl = $('logo-icon');
     if (logoEl) logoEl.innerHTML = SLRIcons.logo;
@@ -167,6 +177,7 @@ window.SLRAppUI = (() => {
     toggleTheme,
     setSidebarCollapsed,
     toggleSidebar,
+    collapseSidebar,
     injectIcons,
     updateTopbar,
     updateFullscreenButton,
