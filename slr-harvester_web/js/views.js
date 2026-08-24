@@ -994,7 +994,6 @@ window.SLRViews = (() => {
     container.innerHTML = `
       <div class="projects-view">
         <div class="view-head">
-          <h2 class="view-title">Projects</h2>
           <p class="view-subtitle">Each project keeps its own searches, articles, tags and settings.</p>
         </div>
         <div class="projects-header">
@@ -2599,22 +2598,22 @@ window.SLRViews = (() => {
             </div>
             <div class="history-item" id="hist-${rawIndex}">
               <div class="history-item-header" data-hist="${rawIndex}">
-                <span class="history-chevron">${SLRIcons.chevronRight}</span>
-                <div class="history-meta">
-                  <div class="history-timestamp">${esc(run.timestamp)}</div>
-                  <div class="history-query-preview">${esc(queryPreview)}${run.query && run.query.length > 120 ? '\u2026' : ''}</div>
-                  ${tagBar}
-                </div>
-                <div class="history-badges">
-                  <div class="history-badges-row">
+                <div class="history-item-top">
+                  <span class="history-chevron">${SLRIcons.chevronRight}</span>
+                  <div class="history-meta">
+                    <div class="history-timestamp">${esc(run.timestamp)}</div>
+                    <div class="history-query-preview">${esc(queryPreview)}${run.query && run.query.length > 120 ? '\u2026' : ''}</div>
+                  </div>
+                  <div class="history-badges">
                     ${dbBadge}
                     <span class="history-count">${count} result${count !== 1 ? 's' : ''}</span>
                   </div>
-                  <div class="history-badges-row">
+                  <div class="history-actions">
                     ${actionButtons}
                     <button class="hist-copy-btn" data-query="${esc(run.query || '')}" title="Copy query to clipboard">${SLRIcons.copy}</button>
                   </div>
                 </div>
+                ${tagBar}
               </div>
               <div class="history-query-full">
                 <pre>${esc(run.query)}</pre>
@@ -2631,7 +2630,6 @@ window.SLRViews = (() => {
 
     const historyHead = `
       <div class="view-head">
-        <h2 class="view-title">Query History</h2>
         <p class="view-subtitle">Every search run in this project, with what it returned.</p>
       </div>`;
     container.innerHTML = `<div class="history-view">${historyHead}${tabsHTML}${bodyHTML}</div>`;
@@ -3590,7 +3588,6 @@ window.SLRViews = (() => {
     container.innerHTML = `
       <div class="viz-view">
         <div class="view-head">
-          <h2 class="view-title">Visualisations</h2>
           <p class="view-subtitle">Charts, the world map and the citation network for this project.</p>
         </div>
 
@@ -4149,7 +4146,6 @@ window.SLRViews = (() => {
     container.innerHTML = `
       <div class="databases-view">
         <div class="view-head">
-          <h2 class="view-title">Databases</h2>
           <p class="view-subtitle">Which sources this app searches itself, and which ones you open in their own interface.</p>
         </div>
 
@@ -5189,7 +5185,6 @@ window.SLRViews = (() => {
     container.innerHTML = `
       <div class="settings-view">
         <div class="view-head">
-          <h2 class="view-title">Workspace</h2>
           <p class="view-subtitle">Where this browser reads and writes your projects.</p>
         </div>
 
@@ -5285,7 +5280,6 @@ window.SLRViews = (() => {
     container.innerHTML = `
       <div class="settings-view">
         <div class="view-head">
-          <h2 class="view-title">Account</h2>
           <p class="view-subtitle">Your Cloud Sync sign-in &mdash; email address, password, and deletion.</p>
         </div>
 
@@ -5548,7 +5542,6 @@ window.SLRViews = (() => {
     container.innerHTML = `
       <div class="settings-view">
         <div class="view-head">
-          <h2 class="view-title">Settings</h2>
           <p class="view-subtitle">How this app reaches the databases, and what it does on its own.
             <button type="button" class="link-btn" id="settings-privacy-link">See what's stored and why</button>
           </p>
@@ -5731,7 +5724,6 @@ window.SLRViews = (() => {
     container.innerHTML = `
       <div class="settings-view">
         <div class="view-head">
-          <h2 class="view-title">Privacy</h2>
           <p class="view-subtitle">What this app stores, why, and how to remove it — based on what the code actually does, not a template.</p>
         </div>
 
@@ -6221,7 +6213,6 @@ window.SLRViews = (() => {
     container.innerHTML = `
       <div class="tags-view">
         <div class="view-head">
-          <h2 class="view-title">Tags</h2>
           <p class="view-subtitle">Colour schemes, tag names and the rules that assign them automatically.</p>
         </div>
         <div class="tags-header">

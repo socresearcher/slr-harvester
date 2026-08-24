@@ -2667,14 +2667,22 @@ a:hover {
   overflow: hidden;
 }
 
+/* Die Kopfzeile ist jetzt zweistoeckig: oben die Zeile aus Pfeil, Text und
+   Bubbles, darunter die Tag-Leiste ueber die ganze Kartenbreite. Vorher
+   steckte die Leiste mit im Textblock und endete dort, wo die Bubbles
+   anfingen - auf dem Telefon nach 93 von 310 Pixeln. */
 .history-item-header {
+  display: block;
+  padding: 16px 20px;
+  cursor: pointer;
+  user-select: none;
+}
+
+.history-item-top {
   display: flex;
   align-items: flex-start;
   justify-content: space-between;
   gap: 14px;
-  padding: 16px 20px;
-  cursor: pointer;
-  user-select: none;
 }
 
 .history-item-header:hover {
@@ -2715,24 +2723,30 @@ a:hover {
    mirrors .article-badges/.article-badges-row so both stay out of the
    .history-meta row and let the tag-distribution bar stretch much closer
    to the card's edge instead of being squeezed by everything on the right. */
+/* Quelle oben, Anzahl darunter - untereinander statt nebeneinander. Zu
+   zweit in einer Zeile brauchten sie 131 der 310 Pixel einer Telefonkarte
+   und liessen der Query 93 uebrig, von der dann noch 13 Prozent zu sehen
+   waren. */
 .history-badges {
   display: flex;
   flex-direction: column;
   align-items: flex-end;
+  gap: 5px;
+  flex-shrink: 0;
+}
+
+.history-actions {
+  display: flex;
+  align-items: center;
   gap: 6px;
   flex-shrink: 0;
 }
 
-.history-badges-row {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-}
-
 .history-timestamp {
-  font-size: 11.5px;
-  color: var(--text-faint);
-  margin-bottom: 3px;
+  font-size: 12px;
+  color: var(--text-muted);
+  white-space: nowrap;
+  margin-bottom: 4px;
 }
 
 .history-query-preview {
@@ -2754,7 +2768,7 @@ a:hover {
   height: 6px;
   border-radius: 3px;
   overflow: hidden;
-  margin-top: 8px;
+  margin-top: 10px;
   gap: 1px;
 }
 
@@ -2775,19 +2789,36 @@ a:hover {
   opacity: 0.8;
 }
 
+/* Dieselbe Pille wie das Quellenabzeichen darueber - gleiche Hoehe, gleiche
+   Schrift, gleiche Rundung. Und eine Mindestbreite, damit "19 results" und
+   "1000 results" nicht unterschiedlich breit untereinander stehen: die
+   beiden Bubbles bilden eine Spalte, und eine Spalte mit zwei verschieden
+   breiten Pillen sieht aus wie ein Versehen. */
+/* Eine feste Breite fuer beide Pillen, auf allen Fenstern gleich: sonst ist
+   die Karte mit 19 Treffern schmaler bepillt als die mit 1000, und die
+   Spalte rechts franst ueber die Liste hinweg aus. 86px fasst auch
+   "10000 results". */
+.history-badges .badge-source,
+.history-count {
+  min-width: 86px;
+}
+
 .history-count {
   display: inline-flex;
   align-items: center;
   justify-content: center;
+  height: 20px;
+  padding: 0 8px;
   background: var(--surface-3);
   border: 1px solid var(--border);
-  border-radius: 12px;
-  padding: 2px 10px;
-  font-size: 12px;
+  border-radius: 999px;
+  font-size: 10px;
+  font-weight: 700;
+  line-height: 1;
+  letter-spacing: .02em;
   color: var(--text-muted);
   white-space: nowrap;
   flex-shrink: 0;
-  width: auto;
   box-sizing: border-box;
 }
 
@@ -3349,10 +3380,18 @@ a.db-link:visited {
   margin: 0;
 }
 
+/* Der Abstand nach oben gilt nur, wenn wirklich eine Ueberschrift darueber
+   steht - und das ist nur noch in About der Fall. Ueberall sonst nennt die
+   Kopfleiste den Tab bereits beim Namen; ihn darunter zu wiederholen war
+   eine Zeile ohne Aussage. */
 .view-subtitle {
   font-size: 13px;
   color: var(--text-muted);
-  margin: 6px 0 0;
+  margin: 0;
+}
+
+.view-title + .view-subtitle {
+  margin-top: 6px;
 }
 
 .settings-subtitle {
@@ -3615,10 +3654,21 @@ a.db-link:visited {
   color: var(--accent);
 }
 
+/* flex: 1 1 0 statt der Vorgabe 0 1 auto - und das ist hier keine
+   Feinheit. Unter 560px darf die Kopfzeile umbrechen, damit der Status
+   rechts eine eigene Zeile bekommt. Ein Flex-Element wandert aber in die
+   naechste Zeile, sobald seine *Inhaltsbreite* nicht mehr neben den Pfeil
+   passt - und eine lange Frage im Q&A ist breit. Sie landete deshalb
+   komplett unter dem Pfeil, linksbuendig am Kartenrand. min-width: 0
+   allein hilft nicht: es erlaubt das Schrumpfen erst, nachdem die Zeile
+   schon zugeteilt ist. Mit flex-basis 0 ist die angenommene Breite null,
+   die Frage bleibt neben dem Pfeil und bricht innerhalb ihres eigenen
+   Kastens um - so wie es die Eintraege unter "More" ohnehin schon taten. */
 .collapse-title {
   font-size: 13.5px;
   font-weight: 600;
   color: var(--text);
+  flex: 1 1 0;
   min-width: 0;
 }
 
@@ -3651,6 +3701,38 @@ a.db-link:visited {
 .collapse-body > .form-field:last-child,
 .collapse-body > .settings-save-row:last-child {
   margin-bottom: 0;
+}
+
+@media (max-width: 560px) {
+  /* Die Aktionsknoepfe erscheinen erst beim Ueberfahren mit der Maus - auf
+     einem Telefon also nie, dort wischt man stattdessen. Unsichtbar belegten
+     sie trotzdem ihren Platz und nahmen ihn der Query weg. */
+  .history-actions {
+    display: none;
+  }
+
+  /* Zwei Zeilen statt einer: bei 310 Pixel Kartenbreite war von einer
+     Suchanfrage genau ein Achtel zu lesen, danach kamen die Punkte. Der
+     Umbruch bricht mitten im Wort, weil eine Query keine Woerter im Sinne
+     des Zeilenumbruchs hat - eine Klammer oder ein Operator ist ein
+     genauso guter Halt. */
+  .history-query-preview {
+    white-space: normal;
+    overflow-wrap: anywhere;
+    display: -webkit-box;
+    -webkit-line-clamp: 2;
+    -webkit-box-orient: vertical;
+    overflow: hidden;
+  }
+
+  .history-item-header {
+    padding: 14px 14px;
+  }
+
+  .history-item-top {
+    gap: 10px;
+  }
+
 }
 
 @media (max-width: 560px) {
