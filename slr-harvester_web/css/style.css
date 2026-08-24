@@ -2240,24 +2240,33 @@ a:hover {
   color: var(--text-faint);
 }
 
-/* Compact by design: this sits next to a quiet section label, so it must not
-   outweigh it. */
-.article-speak-btn {
+/* Beide Knoepfe im Kartenkopf — Read aloud und der Affiliations-Umschalter —
+   teilen sich ein Grundmass. Sie standen vorher zufaellig gleich da, weil
+   zwei getrennte Regeln zufaellig dieselben Werte trugen; dem Umschalter
+   fehlten allerdings nowrap und flex-shrink, so dass seine Beschriftung
+   unter Platzmangel in eine zweite Zeile rutschte und der Text aus dem
+   20px hohen Kasten nach unten heraushing — genau das "etwas tiefer
+   gestellt", das mal auffiel und mal nicht, je nach Fensterbreite und
+   Anzahl der Affiliations. Ein gemeinsames Grundmass kann nicht mehr
+   auseinanderlaufen. */
+.article-speak-btn,
+.article-affiliations-toggle {
   display: inline-flex;
   align-items: center;
+  justify-content: center;
   gap: 5px;
   height: 20px;
   padding: 0 7px;
   font-size: 11px;
   font-weight: 500;
   line-height: 1;
+  white-space: nowrap;
+  flex-shrink: 0;
   background: transparent;
   border: 1px solid var(--border);
   border-radius: var(--radius-sm);
   color: var(--text-muted);
   cursor: pointer;
-  white-space: nowrap;
-  flex-shrink: 0;
   transition: background var(--transition), color var(--transition), border-color var(--transition);
 }
 
@@ -2340,23 +2349,6 @@ a:hover {
    summary above it. */
 /* Sits in .article-detail-head next to the section title, so it is sized to
    match the Read aloud button rather than the old inline label row. */
-.article-affiliations-toggle {
-  display: inline-flex;
-  align-items: center;
-  gap: 4px;
-  height: 20px;
-  padding: 0 7px;
-  border-radius: var(--radius-sm);
-  border: 1px solid var(--border);
-  background: transparent;
-  color: var(--text-muted);
-  font-size: 11px;
-  font-weight: 500;
-  line-height: 1;
-  cursor: pointer;
-  transition: background var(--transition), color var(--transition), border-color var(--transition);
-}
-
 .article-affiliations-toggle:hover {
   background: var(--surface-3);
   color: var(--text);
@@ -3272,6 +3264,31 @@ a.db-link:visited {
   margin-bottom: 6px;
 }
 
+/* Ein Kopfbereich fuer jeden Tab.
+   Vorher fing jeder Tab anders an: About und Privacy mit einer 18px-
+   Ueberschrift, Settings direkt mit blassem 13px-Text, Projects, Tags,
+   History und Visualisations gleich mit einer 36-40px hohen Werkzeugleiste.
+   Der Kasten sass zwar ueberall exakt 20px unter der Kopfleiste — gemessen —
+   aber gelesen wurde das als drei verschiedene Abstaende, weil oben eben
+   drei verschiedene Dinge standen. Jetzt beginnt jeder Tab mit demselben
+   Block, und damit stimmt der Abstand nicht nur rechnerisch, sondern auch
+   fuer das Auge. Der Bezugspunkt ist About, so wie gewuenscht. */
+.view-head {
+  margin-bottom: 28px;
+}
+
+.view-title {
+  font-size: 18px;
+  font-weight: 600;
+  margin: 0;
+}
+
+.view-subtitle {
+  font-size: 13px;
+  color: var(--text-muted);
+  margin: 6px 0 0;
+}
+
 .settings-subtitle {
   font-size: 13px;
   color: var(--text-muted);
@@ -3647,6 +3664,129 @@ a.db-link:visited {
 }
 
 .settings-error[hidden] { display: none; }
+
+/* Workspace und Account
+   ---------------------
+   Beide Ansichten sind bewusst offen statt aufklappbar: sie existieren, weil
+   genau diese Angaben vorher hinter einer zugeklappten Sektion lagen und
+   deshalb niemand fand. Sie noch einmal zuzuklappen waere derselbe Fehler
+   eine Ebene hoeher. */
+.settings-card {
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--surface);
+  padding: 14px 16px;
+  margin-bottom: 10px;
+}
+
+/* Die aktive Wahl steht ausgeschrieben da statt nur als gesetzter
+   Radioknopf - "wo liegen meine Projekte gerade" soll man lesen koennen,
+   ohne erst zu pruefen, welcher Punkt angehakt ist. */
+.workspace-active-card {
+  display: flex;
+  align-items: flex-start;
+  gap: 14px;
+  padding: 16px;
+  border: 1px solid var(--accent);
+  border-radius: var(--radius);
+  background: var(--accent-subtle);
+  margin-bottom: 4px;
+}
+
+.workspace-active-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 34px;
+  height: 34px;
+  border-radius: var(--radius-sm);
+  background: var(--surface);
+  border: 1px solid var(--border);
+  color: var(--accent);
+  flex-shrink: 0;
+}
+
+.workspace-active-icon svg {
+  width: 17px;
+  height: 17px;
+}
+
+.workspace-active-body {
+  min-width: 0;
+}
+
+.workspace-active-label {
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: .08em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+  margin: 0;
+}
+
+.workspace-active-name {
+  font-size: 16px;
+  font-weight: 600;
+  color: var(--text);
+  margin: 3px 0 0;
+}
+
+.workspace-active-where {
+  font-size: 12.5px;
+  color: var(--text-muted);
+  line-height: 1.6;
+  margin: 5px 0 0;
+}
+
+.account-identity-card {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 16px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--surface);
+  margin-bottom: 4px;
+}
+
+.account-identity-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 34px;
+  height: 34px;
+  border-radius: 50%;
+  background: var(--accent-subtle);
+  color: var(--accent);
+  flex-shrink: 0;
+}
+
+.account-identity-icon svg {
+  width: 17px;
+  height: 17px;
+}
+
+.account-identity-body {
+  flex: 1;
+  min-width: 0;
+}
+
+.account-identity-label {
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: .08em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+  margin: 0;
+}
+
+.account-identity-email {
+  font-size: 14.5px;
+  font-weight: 600;
+  color: var(--text);
+  margin: 3px 0 0;
+  overflow-wrap: anywhere;
+}
 
 .settings-group-label {
   font-size: 11.5px;

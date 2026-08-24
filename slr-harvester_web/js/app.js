@@ -528,6 +528,12 @@ window.SLRApp = (() => {
 					folderName: state.folderName,
 				});
 				break;
+			case 'workspace':
+				SLRViews.renderWorkspace(_container, { folderName: state.folderName });
+				break;
+			case 'account':
+				SLRViews.renderAccount(_container);
+				break;
 			case 'about':
 				SLRViews.renderAbout(_container);
 				break;

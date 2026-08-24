@@ -993,6 +993,10 @@ window.SLRViews = (() => {
 
     container.innerHTML = `
       <div class="projects-view">
+        <div class="view-head">
+          <h2 class="view-title">Projects</h2>
+          <p class="view-subtitle">Each project keeps its own searches, articles, tags and settings.</p>
+        </div>
         <div class="projects-header">
           <div>
             <p class="projects-subtitle">${projects.length} project${projects.length !== 1 ? 's' : ''} found</p>
@@ -1262,7 +1266,7 @@ window.SLRViews = (() => {
     // actually something to read.
     const abstract = a.abstract
       ? `<div class="article-detail-block">
-           <div class="article-detail-head">
+           <div class="article-detail-head article-detail-head-inline">
              <span class="article-detail-title">Abstract</span>
              <button class="article-speak-btn" data-action="speak-abstract"
                      title="Read this abstract aloud">
@@ -2422,7 +2426,12 @@ window.SLRViews = (() => {
       bodyHTML = `<div class="history-list">${items}</div>`;
     }
 
-    container.innerHTML = `<div class="history-view">${tabsHTML}${bodyHTML}</div>`;
+    const historyHead = `
+      <div class="view-head">
+        <h2 class="view-title">Query History</h2>
+        <p class="view-subtitle">Every search run in this project, with what it returned.</p>
+      </div>`;
+    container.innerHTML = `<div class="history-view">${historyHead}${tabsHTML}${bodyHTML}</div>`;
 
     container.querySelectorAll('.hist-tab').forEach(btn => {
       btn.addEventListener('click', () => SLRApp.setHistoryStatusFilter(btn.dataset.tab));
@@ -3377,6 +3386,10 @@ window.SLRViews = (() => {
 
     container.innerHTML = `
       <div class="viz-view">
+        <div class="view-head">
+          <h2 class="view-title">Visualisations</h2>
+          <p class="view-subtitle">Charts, the world map and the citation network for this project.</p>
+        </div>
 
         <div class="viz-section">
           <div class="viz-section-controls">
@@ -3932,6 +3945,10 @@ window.SLRViews = (() => {
 
     container.innerHTML = `
       <div class="databases-view">
+        <div class="view-head">
+          <h2 class="view-title">Databases</h2>
+          <p class="view-subtitle">Which sources this app searches itself, and which ones you open in their own interface.</p>
+        </div>
 
         ${groupSections}
 
@@ -4613,120 +4630,6 @@ window.SLRViews = (() => {
     });
   }
 
-  function renderCloudSyncSection() {
-    const backend = SLRData.getBackend();
-    const cloudUser = SLRDataCloud.currentUser();
-
-    const cloudMeta = cloudUser
-      ? cloudUser.email
-      : (backend === 'cloud' ? 'Selected — not signed in' : 'Not in use');
-
-    const cloudBody = `
-        <p class="field-hint" style="margin-top:0">
-          Sign Up/Log In from the Home screen to sync your projects through the
-          cloud instead of a local folder — works on any browser or device,
-          including mobile, where the File System Access API isn't available.
-        </p>
-
-        <div class="form-field" style="margin-top:14px">
-          <label>Active workspace</label>
-          <div class="backend-switch-row">
-            <label class="backend-switch-option">
-              <input type="radio" name="backend-switch" value="local" ${backend === 'local' ? 'checked' : ''}>
-              Local Folder
-            </label>
-            <label class="backend-switch-option">
-              <input type="radio" name="backend-switch" value="cloud" ${backend === 'cloud' ? 'checked' : ''}>
-              Cloud Sync
-            </label>
-          </div>
-          <p class="field-hint">Local Folder reads/writes a folder on this device via the
-            File System Access API. Cloud Sync stores the same data in Supabase instead,
-            under your account, so it follows you across browsers and devices.</p>
-        </div>
-
-        ${cloudUser ? `
-          <div class="cloud-auth-status">
-            ${SLRIcons.check}
-            <span>Signed in as <strong>${esc(cloudUser.email)}</strong></span>
-            <button class="btn-secondary" id="settings-supabase-signout-btn">Sign Out</button>
-          </div>
-
-          <div class="account-credentials">
-            <h4>Change password</h4>
-            <div class="form-field">
-              <label for="account-new-password">New password</label>
-              <input class="form-input" id="account-new-password" type="password"
-                     autocomplete="new-password" placeholder="At least 6 characters">
-            </div>
-            <div class="form-field">
-              <label for="account-new-password2">Repeat new password</label>
-              <input class="form-input" id="account-new-password2" type="password"
-                     autocomplete="new-password">
-            </div>
-            <div class="settings-save-row">
-              <button class="btn-primary" id="account-password-btn">Change password</button>
-              <span class="settings-saved-msg" id="account-password-msg">Changed!</span>
-            </div>
-            <p class="settings-error" id="account-password-error" hidden></p>
-          </div>
-
-          <div class="account-credentials">
-            <h4>Change email address</h4>
-            <p class="field-hint" style="margin-top:0">
-              Currently <strong>${esc(cloudUser.email)}</strong>. Changing it is not immediate:
-              Supabase sends a confirmation link to the new address — and, with the default
-              "Secure email change" setting, to the current one as well. The change takes effect
-              once the link(s) have been opened; until then you keep signing in with the old
-              address.
-            </p>
-            <div class="form-field" style="margin-top:12px">
-              <label for="account-new-email">New email address</label>
-              <input class="form-input" id="account-new-email" type="email"
-                     autocomplete="email" placeholder="name@example.com">
-            </div>
-            <div class="settings-save-row">
-              <button class="btn-primary" id="account-email-btn">Send confirmation</button>
-              <span class="settings-saved-msg" id="account-email-msg">Sent!</span>
-            </div>
-            <p class="settings-error" id="account-email-error" hidden></p>
-          </div>
-
-          <div class="danger-zone" id="account-danger-zone">
-            <h4>Delete account</h4>
-            <div id="account-deletion-state">
-              <p class="field-hint" style="margin-top:0">
-                Deletes <strong>all your projects, articles, tags and saved API keys</strong> from
-                the cloud straight away. The login itself is then removed after a
-                <strong>30-day grace period</strong> — sign in again within those 30 days and you
-                can call it off; after that the account is gone for good.
-              </p>
-              <p class="field-hint">
-                This affects Cloud Sync only. Anything in a local folder stays untouched on your
-                own device.
-              </p>
-              <div class="form-field" style="margin-top:12px;margin-bottom:8px">
-                <label for="account-delete-confirm">Type your email address to confirm</label>
-                <input class="form-input" id="account-delete-confirm" type="email"
-                       autocomplete="off" placeholder="${esc(cloudUser.email)}">
-              </div>
-              <button class="btn-danger" id="account-delete-btn" disabled>Delete my account</button>
-              <p class="settings-error" id="account-delete-error" hidden></p>
-            </div>
-          </div>
-        ` : `
-          ${renderSupabaseDevNotice()}
-        `}`;
-
-    return collapseSection({
-      id: 'settings-cloud',
-      title: 'Cloud Sync (Supabase)',
-      meta: cloudMeta,
-      metaSet: !!cloudUser,
-      open: false,
-      body: cloudBody,
-    });
-  }
 
   // Renders whichever of the two states applies: a pending deletion (with a
   // way out) or the request form.
@@ -5056,6 +4959,226 @@ window.SLRViews = (() => {
     refreshStatus();
   }
 
+  // Workspace
+  //
+  // Wo die Projekte liegen, war bisher eine zugeklappte Sektion namens
+  // "Cloud Sync (Supabase)" unter der Gruppe "Workspace & data" ganz unten
+  // in den Einstellungen - also drei Ebenen tief fuer die vielleicht
+  // grundlegendste Entscheidung der App. Jetzt ein eigener Menuepunkt, und
+  // die aktive Wahl steht als Erstes und ausgeschrieben da, nicht nur als
+  // angehakter Radioknopf.
+  function renderWorkspace(container, { folderName }) {
+    const backend    = SLRData.getBackend();
+    const cloudUser  = SLRDataCloud.currentUser();
+    const usingCloud = backend === 'cloud';
+
+    const activeLabel = usingCloud ? 'Cloud Sync' : 'Local Folder';
+    // Ganze Saetze je Fall statt eines Satzanfangs mit eingesetztem Fragment:
+    // "Projects are stored in no folder opened yet" ist kein Satz.
+    const activeWhere = usingCloud
+      ? (cloudUser
+          ? `Projects are stored in your account, <strong>${esc(cloudUser.email)}</strong>.`
+          : 'Cloud Sync is selected, but you are <strong>not signed in yet</strong>, so nothing is being synced.')
+      : (folderName
+          ? `Projects are stored in <strong>${esc(folderName)}</strong> on this device.`
+          : '<strong>No folder opened yet</strong> &mdash; pick one below to start storing projects.');
+
+    container.innerHTML = `
+      <div class="settings-view">
+        <div class="view-head">
+          <h2 class="view-title">Workspace</h2>
+          <p class="view-subtitle">Where this browser reads and writes your projects.</p>
+        </div>
+
+        <div class="workspace-active-card ${usingCloud ? 'is-cloud' : 'is-local'}">
+          <span class="workspace-active-icon">${usingCloud ? SLRIcons.databases : SLRIcons.folder}</span>
+          <div class="workspace-active-body">
+            <p class="workspace-active-label">Active workspace</p>
+            <p class="workspace-active-name">${esc(activeLabel)}</p>
+            <p class="workspace-active-where">${activeWhere}</p>
+          </div>
+        </div>
+
+        <p class="settings-group-label">Switch workspace</p>
+        <div class="settings-card">
+          <div class="backend-switch-row">
+            <label class="backend-switch-option">
+              <input type="radio" name="backend-switch" value="local" ${!usingCloud ? 'checked' : ''}>
+              Local Folder
+            </label>
+            <label class="backend-switch-option">
+              <input type="radio" name="backend-switch" value="cloud" ${usingCloud ? 'checked' : ''}>
+              Cloud Sync
+            </label>
+          </div>
+          <p class="field-hint">Local Folder reads and writes a folder on this device through the
+            File System Access API &mdash; nothing leaves the machine. Cloud Sync stores the same
+            data in Supabase under your account, so it follows you across browsers and devices, and
+            it is the only option on mobile, Firefox and Safari.</p>
+          <p class="field-hint">These are <strong>separate workspaces</strong>, not two views of the
+            same projects. Switching moves nothing; each side keeps what it already has.</p>
+        </div>
+
+        <p class="settings-group-label">Local folder</p>
+        <div class="settings-card">
+          <p class="field-hint" style="margin-top:0">
+            ${usingCloud
+              ? `Not in use right now. Opening a folder switches this browser to the local
+                 workspace; your cloud projects stay untouched and come back when you switch back.`
+              : folderName
+                ? `Currently open: <strong>${esc(folderName)}</strong>`
+                : 'No folder is currently open.'}
+          </p>
+          <button class="btn-secondary" id="settings-open-folder" style="margin-top:10px">
+            ${SLRIcons.folderOpen} ${usingCloud ? 'Open a local folder&hellip;' : 'Open different folder&hellip;'}
+          </button>
+        </div>
+
+        <p class="settings-group-label">Cloud Sync</p>
+        <div class="settings-card">
+          ${cloudUser
+            ? `<p class="field-hint" style="margin-top:0">Signed in as <strong>${esc(cloudUser.email)}</strong>.
+                 Password, email address and account deletion live under
+                 <button type="button" class="link-btn" id="workspace-goto-account">Account</button>.</p>`
+            : `<p class="field-hint" style="margin-top:0">Not signed in. Use <strong>Sign Up / Log In</strong>
+                 on the Home screen to create an account or sign in &mdash; after that, Cloud Sync keeps
+                 your projects in your account.</p>`}
+        </div>
+      </div>`;
+
+    wireCloudSyncSection(container);
+
+    const openBtn = container.querySelector('#settings-open-folder');
+    if (openBtn) openBtn.addEventListener('click', () => SLRApp.openFolder());
+
+    const acctLink = container.querySelector('#workspace-goto-account');
+    if (acctLink) acctLink.addEventListener('click', () => SLRApp.navigate('account'));
+  }
+
+  // Account
+  //
+  // Passwort, E-Mail-Adresse und Kontoloeschung lagen bisher am Ende einer
+  // zugeklappten Sektion, die "Cloud Sync (Supabase)" hiess - man musste
+  // also wissen, dass das eigene Konto dort drinsteckt.
+  function renderAccount(container) {
+    const cloudUser  = SLRDataCloud.currentUser();
+    const usingCloud = SLRData.getBackend() === 'cloud';
+
+    const signedOutBody = `
+      <div class="settings-card">
+        <p class="field-hint" style="margin-top:0">
+          ${usingCloud
+            ? `Cloud Sync is the active workspace, but you are not signed in yet. Use
+               <strong>Sign Up / Log In</strong> on the Home screen.`
+            : `An account only applies to <strong>Cloud Sync</strong>. You are currently working in a
+               <strong>local folder</strong>, which needs no account and stores nothing online.`}
+        </p>
+        <div class="settings-save-row" style="margin-top:12px">
+          <button class="btn-secondary" id="account-goto-home">Go to Home</button>
+          <button class="btn-secondary" id="account-goto-workspace">Workspace settings</button>
+        </div>
+      </div>`;
+
+    container.innerHTML = `
+      <div class="settings-view">
+        <div class="view-head">
+          <h2 class="view-title">Account</h2>
+          <p class="view-subtitle">Your Cloud Sync sign-in &mdash; email address, password, and deletion.</p>
+        </div>
+
+        ${cloudUser ? `
+          <div class="account-identity-card">
+            <span class="account-identity-icon">${SLRIcons.user}</span>
+            <div class="account-identity-body">
+              <p class="account-identity-label">Signed in as</p>
+              <p class="account-identity-email">${esc(cloudUser.email)}</p>
+            </div>
+            <button class="btn-secondary" id="settings-supabase-signout-btn">Sign Out</button>
+          </div>
+
+          <p class="settings-group-label">Sign-in details</p>
+          <div class="account-credentials">
+            <h4>Change password</h4>
+            <div class="form-field">
+              <label for="account-new-password">New password</label>
+              <input class="form-input" id="account-new-password" type="password"
+                     autocomplete="new-password" placeholder="At least 6 characters">
+            </div>
+            <div class="form-field">
+              <label for="account-new-password2">Repeat new password</label>
+              <input class="form-input" id="account-new-password2" type="password"
+                     autocomplete="new-password">
+            </div>
+            <div class="settings-save-row">
+              <button class="btn-primary" id="account-password-btn">Change password</button>
+              <span class="settings-saved-msg" id="account-password-msg">Changed!</span>
+            </div>
+            <p class="settings-error" id="account-password-error" hidden></p>
+          </div>
+
+          <div class="account-credentials">
+            <h4>Change email address</h4>
+            <p class="field-hint" style="margin-top:0">
+              Currently <strong>${esc(cloudUser.email)}</strong>. Changing it is not immediate:
+              Supabase sends a confirmation link to the new address &mdash; and, with the default
+              "Secure email change" setting, to the current one as well. The change takes effect
+              once the link(s) have been opened; until then you keep signing in with the old
+              address.
+            </p>
+            <div class="form-field" style="margin-top:12px">
+              <label for="account-new-email">New email address</label>
+              <input class="form-input" id="account-new-email" type="email"
+                     autocomplete="email" placeholder="name@example.com">
+            </div>
+            <div class="settings-save-row">
+              <button class="btn-primary" id="account-email-btn">Send confirmation</button>
+              <span class="settings-saved-msg" id="account-email-msg">Sent!</span>
+            </div>
+            <p class="settings-error" id="account-email-error" hidden></p>
+          </div>
+
+          <p class="settings-group-label">Danger zone</p>
+          <div class="danger-zone" id="account-danger-zone">
+            <h4>Delete account</h4>
+            <div id="account-deletion-state">
+              <p class="field-hint" style="margin-top:0">
+                Deletes <strong>all your projects, articles, tags and saved API keys</strong> from
+                the cloud straight away. The login itself is then removed after a
+                <strong>30-day grace period</strong> &mdash; sign in again within those 30 days and
+                you can call it off; after that the account is gone for good.
+              </p>
+              <p class="field-hint">
+                This affects Cloud Sync only. Anything in a local folder stays untouched on your
+                own device.
+              </p>
+              <div class="form-field" style="margin-top:12px;margin-bottom:8px">
+                <label for="account-delete-confirm">Type your email address to confirm</label>
+                <input class="form-input" id="account-delete-confirm" type="email"
+                       autocomplete="off" placeholder="${esc(cloudUser.email)}">
+              </div>
+              <button class="btn-danger" id="account-delete-btn" disabled>Delete my account</button>
+              <p class="settings-error" id="account-delete-error" hidden></p>
+            </div>
+          </div>
+        ` : signedOutBody}
+      </div>`;
+
+    if (cloudUser) {
+      const signOutBtn = container.querySelector('#settings-supabase-signout-btn');
+      if (signOutBtn) signOutBtn.addEventListener('click', () => SLRApp.cloudSignOut());
+      wireAccountCredentials(container);
+      wireAccountDeletion(container);
+      // Ohne das steht hier wieder das normale Loeschformular, obwohl bereits
+      // eine Loeschung laeuft — und die Schaltflaeche zum Abbrechen fehlte.
+      refreshDeletionState(container);
+    } else {
+      const home = container.querySelector('#account-goto-home');
+      if (home) home.addEventListener('click', () => SLRApp.navigate('welcome'));
+      const ws = container.querySelector('#account-goto-workspace');
+      if (ws) ws.addEventListener('click', () => SLRApp.navigate('workspace'));
+    }
+  }
+
   function renderSettings(container, { apiKey, instToken, openAlexKey, openAlexEmail, autoFetchEnabled, fetchMode, autoTagEnabled, autoRunScope, autoTagCategories, allTagCategories, folderName }) {
     const categories = Array.isArray(allTagCategories) ? allTagCategories : [];
     const enabledCategorySet = new Set(Array.isArray(autoTagCategories) && autoTagCategories.length ? autoTagCategories : categories);
@@ -5068,10 +5191,6 @@ window.SLRViews = (() => {
     const openAlexParts = [openAlexKey ? 'key' : null, openAlexEmail ? 'email' : null].filter(Boolean);
     const openAlexMeta = openAlexParts.length ? `${openAlexParts.join(' + ')} set` : 'Optional — not set';
     const automationMeta = `Auto-fetch ${autoFetchEnabled ? 'on' : 'off'} · Auto-tag ${autoTagEnabled ? 'on' : 'off'}`;
-    const workspaceMeta = SLRData.getBackend() === 'cloud'
-      ? 'Not in use — Cloud Sync active'
-      : (folderName || 'No folder open');
-
     const scopusBody = `
       <div class="scopus-api-notice">
         <span class="scopus-api-notice-icon">${SLRIcons.info}</span>
@@ -5219,38 +5338,18 @@ window.SLRViews = (() => {
         <span class="settings-saved-msg" id="settings-fetch-saved-msg">Saved!</span>
       </div>`;
 
-    // folderName kommt aus SLRData.workspaceLabel und ist im Cloud-Betrieb die
-    // E-Mail-Adresse des Kontos, nicht ein Ordnername — die hier als
-    // "Currently using" auszugeben war schlicht falsch. Was hier steht, haengt
-    // deshalb am tatsaechlich aktiven Backend.
-    const usingCloud = SLRData.getBackend() === 'cloud';
-    const folderBody = `
-      <div class="form-field" style="margin-bottom:0">
-        <p class="field-hint" style="margin-top:0">
-          ${usingCloud
-            ? `You are working in <strong>Cloud Sync</strong> right now — your projects live in
-               your account, not in a folder on this device. Opening a folder below switches
-               this browser over to the local workspace; your cloud projects stay untouched
-               and come back when you switch back.`
-            : folderName
-              ? `Currently using: <strong>${esc(folderName)}</strong>`
-              : 'No folder is currently open.'
-          }
-        </p>
-        <button class="btn-secondary" id="settings-open-folder" style="margin-top:8px">
-          ${SLRIcons.folderOpen} ${usingCloud ? 'Open a local folder&hellip;' : 'Open different folder&hellip;'}
-        </button>
-      </div>`;
-
     // Three groups instead of five flat sections. The split follows the
     // question a user is actually asking when they come here: "how do I reach
     // the databases", "what should the app do on its own", "where does my
     // data live" — rather than mirroring the order the features were built in.
     container.innerHTML = `
       <div class="settings-view">
-        <p class="settings-subtitle">Configure your API credentials and workspace.
-          <button type="button" class="link-btn" id="settings-privacy-link">See what's stored and why</button>
-        </p>
+        <div class="view-head">
+          <h2 class="view-title">Settings</h2>
+          <p class="view-subtitle">How this app reaches the databases, and what it does on its own.
+            <button type="button" class="link-btn" id="settings-privacy-link">See what's stored and why</button>
+          </p>
+        </div>
 
         <p class="settings-group-label">Database access</p>
         ${collapseSection({
@@ -5283,16 +5382,6 @@ window.SLRViews = (() => {
         <p class="settings-group-label">Reading</p>
         ${renderReadAloudSection()}
 
-        <p class="settings-group-label">Workspace &amp; data</p>
-        ${collapseSection({
-          id: 'settings-folder',
-          title: 'Local folder',
-          meta: workspaceMeta,
-          metaSet: !!folderName,
-          open: false,
-          body: folderBody,
-        })}
-        ${renderCloudSyncSection()}
       </div>`;
 
     function collectSettingsFromForm() {
@@ -5404,18 +5493,10 @@ window.SLRViews = (() => {
       }
     });
 
-    container.querySelector('#settings-open-folder').addEventListener('click', () => {
-      SLRApp.openFolder();
-    });
-
     container.querySelector('#settings-privacy-link')?.addEventListener('click', () => {
       SLRApp.navigate('privacy');
     });
 
-    wireCloudSyncSection(container);
-    wireAccountCredentials(container);
-    wireAccountDeletion(container);
-    refreshDeletionState(container);
     wireReadAloudSection(container);
     wireCollapseSections(container);
 
@@ -5446,8 +5527,10 @@ window.SLRViews = (() => {
   function renderPrivacy(container) {
     container.innerHTML = `
       <div class="settings-view">
-        <h2>Privacy</h2>
-        <p class="settings-subtitle">What this app stores, why, and how to remove it — based on what the code actually does, not a template.</p>
+        <div class="view-head">
+          <h2 class="view-title">Privacy</h2>
+          <p class="view-subtitle">What this app stores, why, and how to remove it — based on what the code actually does, not a template.</p>
+        </div>
 
         <div class="settings-section">
           <h3>Stored in this browser (<code>localStorage</code>)</h3>
@@ -5665,7 +5748,9 @@ window.SLRViews = (() => {
         <li><span class="about-li-icon" aria-hidden="true">${SLRIcons.corpus}</span><span><strong>Two-stage screening</strong> &mdash; Selected &rarr; Corpus, with per-article comments</span></li>
         <li><span class="about-li-icon" aria-hidden="true">${SLRIcons.tag}</span><span><strong>Tagging</strong> &mdash; keyword auto-tagging, editable rules, aliases, and ${COLOR_SCHEMES.length} colour palettes</span></li>
         <li><span class="about-li-icon" aria-hidden="true">${SLRIcons.search}</span><span><strong>Advanced list search</strong> &mdash; semicolon-separated terms for AND logic across title, abstract and journal</span></li>
-        <li><span class="about-li-icon" aria-hidden="true">${SLRIcons.chart}</span><span><strong>Visualisations</strong> &mdash; year and tag distribution, selection funnel, citation network, world map</span></li>
+        <li><span class="about-li-icon" aria-hidden="true">${SLRIcons.chart}</span><span><strong>Visualisations</strong> &mdash; year and tag distribution, selection funnel, world map of affiliation countries</span></li>
+        <li><span class="about-li-icon" aria-hidden="true">${SLRIcons.network}</span><span><strong>Citation network</strong> &mdash; which articles in a project cite each other, built from data the search already returns, without extra API calls</span></li>
+        <li><span class="about-li-icon" aria-hidden="true">${SLRIcons.speaker}</span><span><strong>Read aloud</strong> &mdash; abstracts spoken in English or German, either with the voices already on your device or with neural voices that run entirely in the browser</span></li>
         <li><span class="about-li-icon" aria-hidden="true">${SLRIcons.history}</span><span><strong>Query history</strong> &mdash; past searches with result counts and previews</span></li>
         <li><span class="about-li-icon" aria-hidden="true">${SLRIcons.supabaseLogo}</span><span><strong>Local folder or Cloud Sync</strong> &mdash; your files on your device, or synced across devices</span></li>
       </ul>`;
@@ -5681,6 +5766,9 @@ window.SLRViews = (() => {
           <li><span class="about-li-icon" aria-hidden="true">${SLRIcons.githubLogo}</span><span><strong>Hosted on GitHub Pages</strong> &mdash; <a href="https://socresearcher.github.io/slr-harvester/" target="_blank" rel="noopener">socresearcher.github.io/slr-harvester</a></span></li>
           <li><span class="about-li-icon" aria-hidden="true">${SLRIcons.supabaseLogo}</span><span><strong>Cloud Sync</strong> &mdash; optional Supabase-backed workspace, including mobile</span></li>
           <li><span class="about-li-icon" aria-hidden="true">${SLRIcons.databases}</span><span><strong>PubMed and OpenAlex</strong> added alongside Scopus</span></li>
+          <li><span class="about-li-icon" aria-hidden="true">${SLRIcons.network}</span><span><strong>Citation network</strong> &mdash; intra-project citation links, added alongside the world map</span></li>
+          <li><span class="about-li-icon" aria-hidden="true">${SLRIcons.speaker}</span><span><strong>Read aloud</strong> &mdash; device voices, or neural voices downloaded once and run offline</span></li>
+          <li><span class="about-li-icon" aria-hidden="true">${SLRIcons.user}</span><span><strong>Account management</strong> &mdash; change email or password, and delete the account with a 30-day grace period</span></li>
           <li><span class="about-li-icon" aria-hidden="true">${SLRIcons.sun}</span><span><strong>Dark &amp; light theme</strong> &mdash; full CSS custom property design system</span></li>
         </ul>
       </div>
@@ -5715,8 +5803,10 @@ window.SLRViews = (() => {
 
     container.innerHTML = `
       <div class="settings-view">
-        <h2>About SLR Harvester <span class="title-web">Web</span></h2>
-        <p class="settings-subtitle">A project-based workflow tool for conducting Systematic Literature Reviews.</p>
+        <div class="view-head">
+          <h2 class="view-title">About SLR Harvester <span class="title-web">Web</span></h2>
+          <p class="view-subtitle">A project-based workflow tool for conducting Systematic Literature Reviews.</p>
+        </div>
 
         <div class="about-links-row">
           <a class="about-link-btn" href="https://github.com/socresearcher" target="_blank" rel="noopener">
@@ -5926,6 +6016,10 @@ window.SLRViews = (() => {
 
     container.innerHTML = `
       <div class="tags-view">
+        <div class="view-head">
+          <h2 class="view-title">Tags</h2>
+          <p class="view-subtitle">Colour schemes, tag names and the rules that assign them automatically.</p>
+        </div>
         <div class="tags-header">
           <div class="tags-summary">
             ${SLRIcons.tag}
@@ -7081,6 +7175,8 @@ window.SLRViews = (() => {
     renderDatabases,
     renderSearch,
     renderSettings,
+    renderWorkspace,
+    renderAccount,
     renderAbout,
     renderPrivacy,
     renderTags,

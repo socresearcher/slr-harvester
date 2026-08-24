@@ -74,6 +74,8 @@ window.SLRAppUI = (() => {
       project: SLRIcons.project,
       autotag: SLRIcons.wand,
       settings: SLRIcons.settings,
+      workspace: SLRIcons.folder,
+      account: SLRIcons.user,
       info: SLRIcons.info,
     };
 
@@ -99,6 +101,8 @@ window.SLRAppUI = (() => {
       tags: 'Tags',
       'autotag-rules': 'Auto-Tag Rules',
       settings: 'Settings',
+      workspace: 'Workspace',
+      account: 'Account',
       about: 'About',
       databases: 'Databases',
       privacy: 'Privacy',
