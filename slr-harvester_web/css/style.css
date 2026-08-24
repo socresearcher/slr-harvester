@@ -2383,6 +2383,72 @@ a:hover {
   display: none;
 }
 
+/* Teilen-Blatt — nur dort zu sehen, wo der Browser kein eigenes hat
+   (navigator.share fehlt, praktisch: Firefox am Rechner). Es haengt an
+   <body>, nicht in der Karte: die Karte liegt in mehreren Behaeltern mit
+   overflow, in denen ein Menue am unteren Rand abgeschnitten wuerde. */
+.share-popup {
+  position: fixed;
+  z-index: 400;
+  min-width: 208px;
+  max-width: min(280px, calc(100vw - 24px));
+  padding: 6px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--surface);
+  box-shadow: 0 12px 32px rgba(0, 0, 0, .28);
+}
+
+.share-popup-title {
+  font-size: 11.5px;
+  color: var(--text-faint);
+  margin: 0;
+  padding: 6px 8px 8px;
+  border-bottom: 1px solid var(--border);
+  line-height: 1.4;
+}
+
+.share-popup-items {
+  display: flex;
+  flex-direction: column;
+  padding-top: 4px;
+}
+
+.share-popup-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  padding: 8px 8px;
+  border: 0;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--text);
+  font-size: 13px;
+  text-align: left;
+  cursor: pointer;
+  transition: background var(--transition);
+}
+
+.share-popup-item:hover {
+  background: var(--surface-3);
+}
+
+.share-popup-icon {
+  display: inline-flex;
+  color: var(--text-muted);
+  flex-shrink: 0;
+}
+
+.share-popup-icon svg {
+  width: 15px;
+  height: 15px;
+}
+
+.share-popup-item:hover .share-popup-icon {
+  color: var(--accent);
+}
+
 /* Identifier row — DOI and EID as linked items with copy buttons */
 .article-id-row {
   display: flex;

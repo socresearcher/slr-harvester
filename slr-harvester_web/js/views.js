@@ -1344,6 +1344,10 @@ window.SLRViews = (() => {
               ${networkBadge}
             </span>
             <span class="article-tag-row-actions">
+              <button class="badge badge-toggle badge-dim"
+                      data-action="share-article"
+                      title="Share this article"
+                      aria-label="Share this article">${SLRIcons.share}</button>
               <button class="badge badge-toggle ${a.selected ? 'badge-selected' : 'badge-dim'}"
                       data-action="toggle-selected"
                       title="${a.selected ? 'Remove from Selected' : 'Mark as Selected'}"
@@ -1390,6 +1394,203 @@ window.SLRViews = (() => {
 
   function showToastSafe(msg, isError) {
     if (typeof SLRApp !== 'undefined' && SLRApp.showToast) SLRApp.showToast(msg, isError);
+  }
+
+  // ── Sharing ────────────────────────────────────────────────────────
+  //
+  // Zwei Wege waren denkbar: ein gerendertes Kaertchen als Bild, oder ein
+  // Textblock mit Verweis. Es ist der Textblock geworden.
+  //
+  // Ein Bild sieht im Chat zwar huebsch aus, ist aber eine Sackgasse: der
+  // Empfaenger kann nichts anklicken, nichts kopieren, es nicht in Zotero
+  // ziehen und nicht darin suchen. Genau das will man mit einer Fundstelle
+  // aber tun. Ein DOI-Verweis ist dauerhaft, zitierfaehig und fuehrt zum
+  // Volltext; Titel, Autoren und Quelle davor machen daraus eine Nachricht,
+  // die auch ohne Anklicken schon aussagekraeftig ist. Dazu kommt, dass ein
+  // Bild eine Zeichenflaeche, Schriftmasse und Zeilenumbruchlogik braeuchte
+  // - viel Apparat fuer ein schlechteres Ergebnis.
+  //
+  // Geteilt wird ueber navigator.share, wo es das gibt: das ist genau das
+  // Blatt mit WhatsApp, Telegram, "In Dateien sichern" und allem anderen,
+  // was auf dem Geraet installiert ist - vom System gestellt, ohne eine
+  // einzige fremde Zeile Code. Wo es das nicht gibt (Firefox am Rechner,
+  // aeltere Browser), tritt ein eigenes kleines Blatt mit denselben Zielen
+  // an seine Stelle.
+  function articleYear(a) {
+    const m = String(a.date || '').match(/\d{4}/);
+    return m ? m[0] : '';
+  }
+
+  function articleUrl(a) {
+    if (a.doi) return 'https://doi.org/' + String(a.doi).replace(/^https?:\/\/doi\.org\//i, '');
+    const id = String(a.eid || a._id || '');
+    if (id.startsWith('openalex:')) return 'https://openalex.org/' + id.slice(9);
+    if (id.startsWith('pmid:'))     return 'https://pubmed.ncbi.nlm.nih.gov/' + id.slice(5) + '/';
+    if (id.startsWith('arxiv:'))    return 'https://arxiv.org/abs/' + id.slice(6);
+    if (id.startsWith('s2:'))       return 'https://www.semanticscholar.org/paper/' + id.slice(3);
+    if (/^2-s2\.0-/.test(id))       return 'https://www.scopus.com/record/display.uri?eid=' + encodeURIComponent(id) + '&origin=resultslist';
+    return '';
+  }
+
+  function shareParts(a) {
+    const year = articleYear(a);
+    const url  = articleUrl(a);
+    const head = [a.title, a.authors, [a.publicationName, year].filter(Boolean).join(', ')]
+      .map(v => String(v || '').trim()).filter(Boolean);
+    return { title: String(a.title || 'Article').trim(), url, text: head.join('\n') };
+  }
+
+  // Mit Abstract, wenn einer da ist - beim Kopieren und in der E-Mail, wo
+  // Laenge nicht stoert. Das Teilen-Blatt bekommt die kurze Fassung, sonst
+  // haengt in WhatsApp ein halber Bildschirm Flieẞtext.
+  function shareLongText(a) {
+    const p = shareParts(a);
+    const out = [p.text];
+    if (a.abstract) out.push('', String(a.abstract).trim());
+    if (p.url) out.push('', p.url);
+    return out.join('\n');
+  }
+
+  function shareShortText(a) {
+    const p = shareParts(a);
+    return p.url ? p.text + '\n' + p.url : p.text;
+  }
+
+  async function copyToClipboard(text) {
+    if (navigator.clipboard && window.isSecureContext) {
+      await navigator.clipboard.writeText(text);
+      return;
+    }
+    // http://localhost und aeltere Browser haben die Zwischenablage-API nicht.
+    const ta = document.createElement('textarea');
+    ta.value = text;
+    ta.setAttribute('readonly', '');
+    ta.style.cssText = 'position:fixed;top:-1000px;opacity:0';
+    document.body.appendChild(ta);
+    ta.select();
+    try { document.execCommand('copy'); } finally { ta.remove(); }
+  }
+
+  function closeSharePopup() {
+    const open = document.querySelector('.share-popup');
+    if (open) open.remove();
+    document.removeEventListener('click', onShareOutside, true);
+    document.removeEventListener('keydown', onShareKey, true);
+  }
+
+  function onShareOutside(ev) {
+    const pop = document.querySelector('.share-popup');
+    if (pop && !pop.contains(ev.target) && !ev.target.closest('[data-action="share-article"]')) closeSharePopup();
+  }
+
+  function onShareKey(ev) {
+    if (ev.key === 'Escape') { ev.stopPropagation(); closeSharePopup(); }
+  }
+
+  function openSharePopup(anchorEl, article) {
+    closeSharePopup();
+    const p = shareParts(article);
+    const short = shareShortText(article);
+    const subject = p.title;
+    const body = shareLongText(article);
+
+    const items = [
+      { key: 'copy',     icon: SLRIcons.copy,     label: 'Copy citation' },
+      p.url ? { key: 'copyLink', icon: SLRIcons.link, label: 'Copy link' } : null,
+      { key: 'mail',     icon: SLRIcons.mail,     label: 'Email' },
+      { key: 'whatsapp', icon: SLRIcons.whatsapp, label: 'WhatsApp' },
+      { key: 'telegram', icon: SLRIcons.telegram, label: 'Telegram' },
+      { key: 'file',     icon: SLRIcons.download, label: 'Save as file' },
+    ].filter(Boolean);
+
+    const pop = document.createElement('div');
+    pop.className = 'share-popup';
+    pop.setAttribute('role', 'menu');
+    pop.innerHTML = `
+      <p class="share-popup-title">${esc(truncateLabel(p.title, 60))}</p>
+      <div class="share-popup-items">
+        ${items.map(it => `
+          <button type="button" class="share-popup-item" data-share="${esc(it.key)}" role="menuitem">
+            <span class="share-popup-icon" aria-hidden="true">${it.icon}</span>
+            <span>${esc(it.label)}</span>
+          </button>`).join('')}
+      </div>`;
+    document.body.appendChild(pop);
+
+    // Am Knopf ausrichten, aber immer im Fenster bleiben.
+    const r = anchorEl.getBoundingClientRect();
+    const pr = pop.getBoundingClientRect();
+    let left = Math.min(r.left, window.innerWidth - pr.width - 12);
+    let top  = r.bottom + 6;
+    if (top + pr.height > window.innerHeight - 12) top = Math.max(12, r.top - pr.height - 6);
+    pop.style.left = Math.max(12, left) + 'px';
+    pop.style.top  = top + 'px';
+
+    pop.addEventListener('click', async ev => {
+      const btn = ev.target.closest('[data-share]');
+      if (!btn) return;
+      ev.stopPropagation();
+      const key = btn.dataset.share;
+      closeSharePopup();
+      try {
+        if (key === 'copy') {
+          await copyToClipboard(body);
+          showToastSafe('Citation copied');
+        } else if (key === 'copyLink') {
+          await copyToClipboard(p.url);
+          showToastSafe('Link copied');
+        } else if (key === 'mail') {
+          window.location.href = 'mailto:?subject=' + encodeURIComponent(subject) + '&body=' + encodeURIComponent(body);
+        } else if (key === 'whatsapp') {
+          window.open('https://wa.me/?text=' + encodeURIComponent(short), '_blank', 'noopener');
+        } else if (key === 'telegram') {
+          const u = p.url
+            ? 'https://t.me/share/url?url=' + encodeURIComponent(p.url) + '&text=' + encodeURIComponent(p.text)
+            : 'https://t.me/share/url?url=' + encodeURIComponent(short);
+          window.open(u, '_blank', 'noopener');
+        } else if (key === 'file') {
+          const blob = new Blob([body], { type: 'text/plain;charset=utf-8' });
+          const url = URL.createObjectURL(blob);
+          const link = document.createElement('a');
+          link.href = url;
+          link.download = (p.title.replace(/[^\w\s-]/g, '').trim().slice(0, 60) || 'article') + '.txt';
+          document.body.appendChild(link);
+          link.click();
+          link.remove();
+          setTimeout(() => URL.revokeObjectURL(url), 1000);
+        }
+      } catch (e) {
+        showToastSafe('Could not share: ' + (e.message || e), true);
+      }
+    });
+
+    setTimeout(() => {
+      document.addEventListener('click', onShareOutside, true);
+      document.addEventListener('keydown', onShareKey, true);
+    }, 0);
+  }
+
+  async function shareArticle(eid, btn) {
+    const articles = (typeof SLRApp !== 'undefined' && SLRApp.state && SLRApp.state.articles) || [];
+    const article = articles.find(a => (a.eid || a._id) === eid);
+    if (!article) return;
+
+    if (navigator.share) {
+      const p = shareParts(article);
+      try {
+        // url getrennt uebergeben, nicht in den Text: Ziele, die einen
+        // Verweis eigenstaendig behandeln (Telegram, Mail), bekommen ihn
+        // dann als solchen statt als Zeichenkette im Flieẞtext.
+        await navigator.share(p.url ? { title: p.title, text: p.text, url: p.url }
+                                    : { title: p.title, text: p.text });
+        return;
+      } catch (e) {
+        // Abbrechen im System-Blatt ist kein Fehler und darf nicht in einem
+        // Ersatzmenue enden - alles andere schon.
+        if (e && (e.name === 'AbortError' || e.name === 'NotAllowedError')) return;
+      }
+    }
+    openSharePopup(btn, article);
   }
 
   function wireArticleActions(listEl, projectData) {
@@ -1451,6 +1652,8 @@ window.SLRViews = (() => {
         openTagPickerPopup(btn, eid, projectData);
       } else if (action === 'show-network') {
         SLRApp.showArticleNetwork(eid);
+      } else if (action === 'share-article') {
+        shareArticle(eid, btn);
       }
     });
   }
@@ -5751,6 +5954,7 @@ window.SLRViews = (() => {
         <li><span class="about-li-icon" aria-hidden="true">${SLRIcons.chart}</span><span><strong>Visualisations</strong> &mdash; year and tag distribution, selection funnel, world map of affiliation countries</span></li>
         <li><span class="about-li-icon" aria-hidden="true">${SLRIcons.network}</span><span><strong>Citation network</strong> &mdash; which articles in a project cite each other, built from data the search already returns, without extra API calls</span></li>
         <li><span class="about-li-icon" aria-hidden="true">${SLRIcons.speaker}</span><span><strong>Read aloud</strong> &mdash; abstracts spoken in English or German, either with the voices already on your device or with neural voices that run entirely in the browser</span></li>
+        <li><span class="about-li-icon" aria-hidden="true">${SLRIcons.share}</span><span><strong>Sharing</strong> &mdash; send a single article on as citation plus DOI link, through the device's own share sheet or by copy, email, messenger or file</span></li>
         <li><span class="about-li-icon" aria-hidden="true">${SLRIcons.history}</span><span><strong>Query history</strong> &mdash; past searches with result counts and previews</span></li>
         <li><span class="about-li-icon" aria-hidden="true">${SLRIcons.supabaseLogo}</span><span><strong>Local folder or Cloud Sync</strong> &mdash; your files on your device, or synced across devices</span></li>
       </ul>`;

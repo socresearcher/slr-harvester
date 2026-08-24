@@ -309,6 +309,25 @@ window.SLRIcons = (() => {
        <path d="m2 7 10 7 10-7"/>`
     ),
 
+    // Three nodes joined by two lines — the same shape Android, WhatsApp and
+    // Telegram use for "share", so it needs no label to be understood.
+    share: base(
+      `<circle cx="18" cy="5" r="3"/>
+       <circle cx="6" cy="12" r="3"/>
+       <circle cx="18" cy="19" r="3"/>
+       <path d="m8.59 13.51 6.83 3.98"/>
+       <path d="m15.41 6.51-6.82 3.98"/>`
+    ),
+
+    whatsapp: base(
+      `<path d="M21 11.5a8.38 8.38 0 0 1-.9 3.8 8.5 8.5 0 0 1-7.6 4.7 8.38 8.38 0 0 1-3.8-.9L3 21l1.9-5.7a8.38 8.38 0 0 1-.9-3.8 8.5 8.5 0 0 1 4.7-7.6 8.38 8.38 0 0 1 3.8-.9h.5a8.48 8.48 0 0 1 8 8v.5z"/>`
+    ),
+
+    telegram: base(
+      `<path d="M21.5 4.5 2.8 11.7a.5.5 0 0 0 .04.94l4.66 1.4 1.76 5.3a.5.5 0 0 0 .87.16l2.5-2.86 4.6 3.38a.5.5 0 0 0 .78-.3l3.2-14.6a.5.5 0 0 0-.71-.56z"/>
+       <path d="m7.5 14.04 10.4-6.9-7.9 8.3"/>`
+    ),
+
     // Pencil / rename
     pencil: base(
       `<path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/>
