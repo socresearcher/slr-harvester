@@ -74,6 +74,88 @@ window.SLRDataCloud = (() => {
     return client;
   }
 
+
+  // ── Account credentials ───────────────────────────────────────────────────
+  // Both go through Supabase Auth's updateUser; neither touches our own
+  // tables, and neither needs anything set up server-side beyond what sign-up
+  // already required.
+
+  async function changePassword(newPassword) {
+    const client = requireAuth();
+    const { error } = await client.auth.updateUser({ password: newPassword });
+    if (error) throw new Error(error.message);
+  }
+
+  // Supabase does not swap the address on the spot: it sends a confirmation
+  // link, and with "Secure email change" enabled (the default) it sends one to
+  // the OLD address as well — both have to be clicked before the change takes
+  // effect. So the account keeps working under the old address in the
+  // meantime, which the UI says plainly rather than implying instant success.
+  async function changeEmail(newEmail) {
+    const client = requireAuth();
+    const { error } = await client.auth.updateUser(
+      { email: newEmail },
+      { emailRedirectTo: currentOrigin() }
+    );
+    if (error) throw new Error(error.message);
+  }
+
+  // ── Account deletion ──────────────────────────────────────────────────────
+  // Two separate things happen, and the UI is explicit about both: the user's
+  // own data rows are deleted immediately (RLS lets an account delete its
+  // own rows), while the login itself is scheduled for removal after a grace
+  // period, because deleting a row in auth.users needs the service role and
+  // this app only ever holds the anon key. See supabase/schema.sql.
+
+  async function getDeletionRequest() {
+    const client = requireClient();
+    if (!_user) return null;
+    const { data, error } = await client
+      .from('account_deletion_requests')
+      .select('requested_at, scheduled_for')
+      .eq('user_id', _user.id)
+      .maybeSingle();
+    // Table not created yet (schema.sql not run) — treat as "no request"
+    // rather than breaking Settings for everyone.
+    if (error) return null;
+    return data || null;
+  }
+
+  async function requestAccountDeletion({ wipeNow = true } = {}) {
+    const client = requireAuth();
+    const userId = _user.id;
+
+    if (wipeNow) {
+      // The part that actually matters for privacy, and the part this client
+      // is allowed to do: remove the research data now, not in 30 days.
+      const p = await client.from('projects').delete().eq('user_id', userId);
+      if (p.error) throw new Error('Could not delete your projects: ' + p.error.message);
+      const s = await client.from('user_settings').delete().eq('user_id', userId);
+      if (s.error) throw new Error('Could not delete your settings: ' + s.error.message);
+    }
+
+    const { data, error } = await client
+      .from('account_deletion_requests')
+      .upsert({ user_id: userId, requested_at: new Date().toISOString() }, { onConflict: 'user_id' })
+      .select('requested_at, scheduled_for')
+      .maybeSingle();
+    if (error) {
+      throw new Error(
+        'Your data was deleted, but the account removal could not be scheduled: ' + error.message +
+        ' — the account_deletion_requests table is probably missing (see supabase/schema.sql).');
+    }
+    return data;
+  }
+
+  async function cancelAccountDeletion() {
+    const client = requireAuth();
+    const { error } = await client
+      .from('account_deletion_requests')
+      .delete()
+      .eq('user_id', _user.id);
+    if (error) throw new Error('Could not cancel the deletion: ' + error.message);
+  }
+
   // ── Auth ──────────────────────────────────────────────────────────────────
 
   // Confirmation and magic-link emails redirect here by default; Supabase's
@@ -562,6 +644,11 @@ window.SLRDataCloud = (() => {
     signInWithMagicLink,
     resendConfirmation,
     signOut,
+    changePassword,
+    changeEmail,
+    getDeletionRequest,
+    requestAccountDeletion,
+    cancelAccountDeletion,
     restoreSession,
     currentUser,
 

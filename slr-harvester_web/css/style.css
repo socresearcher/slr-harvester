@@ -2211,40 +2211,28 @@ a:hover {
   font-size: 13px;
   color: var(--text-muted);
   line-height: 1.65;
-  margin-bottom: 10px;
 }
 
-/* Section header above the abstract, with Read aloud on the right. Sits
-   inside .article-detail, so it only exists while the card is expanded. */
-/* Voice picker plus its Test button on one line — going from "different
-   voice" to "this is how it sounds" should be a single glance. */
-.tts-voice-row {
-  display: flex;
-  gap: 8px;
-  align-items: stretch;
+/* One block per kind of information inside an expanded card — abstract,
+   affiliation countries, affiliations. They carry different content but they
+   are peers, so they share one heading style and one spacing rhythm instead
+   of each bringing its own. Previously the abstract had a title while the
+   affiliations used an inline bold "Label:" prefix, at a different size,
+   with different gaps above and below. */
+.article-detail-block + .article-detail-block {
+  margin-top: 14px;
 }
 
-.tts-voice-row .form-input { flex: 1; min-width: 0; }
-
-.tts-voice-row .btn-secondary {
-  flex-shrink: 0;
-  padding: 6px 12px;
-}
-
-.tts-rate-slider {
-  width: 100%;
-  accent-color: var(--accent);
-}
-
-.article-abstract-head {
+.article-detail-head {
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: 10px;
+  min-height: 20px;
   margin-bottom: 6px;
 }
 
-.article-abstract-label {
+.article-detail-title {
   font-size: 11px;
   font-weight: 600;
   letter-spacing: .08em;
@@ -2252,15 +2240,39 @@ a:hover {
   color: var(--text-faint);
 }
 
-.article-speak-btn {
-  height: 26px;
-  padding: 0 10px;
-  font-size: 12px;
+/* Beide Knoepfe im Kartenkopf — Read aloud und der Affiliations-Umschalter —
+   teilen sich ein Grundmass. Sie standen vorher zufaellig gleich da, weil
+   zwei getrennte Regeln zufaellig dieselben Werte trugen; dem Umschalter
+   fehlten allerdings nowrap und flex-shrink, so dass seine Beschriftung
+   unter Platzmangel in eine zweite Zeile rutschte und der Text aus dem
+   20px hohen Kasten nach unten heraushing — genau das "etwas tiefer
+   gestellt", das mal auffiel und mal nicht, je nach Fensterbreite und
+   Anzahl der Affiliations. Ein gemeinsames Grundmass kann nicht mehr
+   auseinanderlaufen. */
+.article-speak-btn,
+.article-affiliations-toggle {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 5px;
+  height: 20px;
+  padding: 0 7px;
+  font-size: 11px;
+  font-weight: 500;
+  line-height: 1;
+  white-space: nowrap;
+  flex-shrink: 0;
+  background: transparent;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  color: var(--text-muted);
+  cursor: pointer;
+  transition: background var(--transition), color var(--transition), border-color var(--transition);
 }
 
 .article-speak-btn svg {
-  width: 13px;
-  height: 13px;
+  width: 11px;
+  height: 11px;
 }
 
 .article-speak-btn:hover {
@@ -2278,7 +2290,7 @@ a:hover {
   /* On a phone the label is the first thing that can go — the icon carries
      the meaning well enough there. */
   .article-speak-label { display: none; }
-  .article-speak-btn { padding: 0 8px; }
+  .article-speak-btn { padding: 0 6px; }
 }
 
 .article-abstract.no-abstract {
@@ -2298,15 +2310,10 @@ a:hover {
   align-items: flex-start;
 }
 
-.article-affiliation-countries .article-detail-label {
-  color: var(--text);
-  font-weight: 600;
-  min-width: 132px;
-}
-
-.article-affiliation-countries .article-detail-value {
+.article-detail-value {
+  font-size: 12.5px;
   color: var(--text-muted);
-  line-height: 1.5;
+  line-height: 1.6;
 }
 
 .article-country-item {
@@ -2325,33 +2332,23 @@ a:hover {
   color: var(--text-faint);
 }
 
+/* Der Abstract-Kopf schiebt seinen Vorlese-Knopf bewusst an den rechten
+   Kartenrand: dort ist er erwartbar, weil er zum ganzen Abschnitt gehoert.
+   Der Affiliations-Umschalter gehoert dagegen zum Wort davor — er sagt,
+   wie viele Namen sich hinter der Zeile verbergen. Mit
+   justify-content: space-between landete er auf breiten Fenstern ueber
+   tausend Pixel neben seiner Beschriftung und war schlicht nicht mehr zu
+   finden. Also bleibt er hier direkt daneben stehen, so wie vor dem Umbau
+   auf Abschnittsueberschriften. */
+.article-detail-head-inline {
+  justify-content: flex-start;
+}
+
 /* Raw affiliation names (Fetch Affiliations) — collapsed behind a toggle
    since a full institution list can run much longer than the country
    summary above it. */
-.article-affiliations-meta {
-  align-items: center;
-}
-
-.article-affiliations-meta .article-detail-label {
-  color: var(--text);
-  font-weight: 600;
-  min-width: 132px;
-}
-
-.article-affiliations-toggle {
-  display: inline-flex;
-  align-items: center;
-  gap: 4px;
-  padding: 2px 9px;
-  border-radius: 20px;
-  border: 1px solid var(--border);
-  background: var(--surface-2);
-  color: var(--text-muted);
-  font-size: 11.5px;
-  cursor: pointer;
-  transition: background var(--transition), color var(--transition), border-color var(--transition);
-}
-
+/* Sits in .article-detail-head next to the section title, so it is sized to
+   match the Read aloud button rather than the old inline label row. */
 .article-affiliations-toggle:hover {
   background: var(--surface-3);
   color: var(--text);
@@ -3267,6 +3264,31 @@ a.db-link:visited {
   margin-bottom: 6px;
 }
 
+/* Ein Kopfbereich fuer jeden Tab.
+   Vorher fing jeder Tab anders an: About und Privacy mit einer 18px-
+   Ueberschrift, Settings direkt mit blassem 13px-Text, Projects, Tags,
+   History und Visualisations gleich mit einer 36-40px hohen Werkzeugleiste.
+   Der Kasten sass zwar ueberall exakt 20px unter der Kopfleiste — gemessen —
+   aber gelesen wurde das als drei verschiedene Abstaende, weil oben eben
+   drei verschiedene Dinge standen. Jetzt beginnt jeder Tab mit demselben
+   Block, und damit stimmt der Abstand nicht nur rechnerisch, sondern auch
+   fuer das Auge. Der Bezugspunkt ist About, so wie gewuenscht. */
+.view-head {
+  margin-bottom: 28px;
+}
+
+.view-title {
+  font-size: 18px;
+  font-weight: 600;
+  margin: 0;
+}
+
+.view-subtitle {
+  font-size: 13px;
+  color: var(--text-muted);
+  margin: 6px 0 0;
+}
+
 .settings-subtitle {
   font-size: 13px;
   color: var(--text-muted);
@@ -3375,6 +3397,29 @@ a.db-link:visited {
 .about-v1-header strong {
   font-size: 14px;
   color: var(--text-muted);
+}
+
+/* Einleitungsabsatz eines Abschnitts auf der Datenschutzseite. Vorher liefen
+   die beiden obersten als .field-hint (11,5px, --text-faint) und der Rest mit
+   denselben Werten inline an acht Stellen wiederholt — dasselbe Element in
+   zwei Größen und zwei Graustufen, je nachdem wo man hinsah. Eine Definition,
+   und der Abstand nach unten sitzt hier statt in Inline-Styles, damit
+   zwischen Erklärung und der folgenden Aufzählung überall gleich viel Luft
+   ist. */
+.privacy-lead {
+  font-size: 13px;
+  color: var(--text-muted);
+  line-height: 1.7;
+  margin-top: 10px;
+  margin-bottom: 12px;
+}
+
+.privacy-lead:first-of-type {
+  margin-top: 2px;
+}
+
+.privacy-lead + .privacy-lead {
+  margin-top: -2px;
 }
 
 .about-feature-list {
@@ -3558,6 +3603,191 @@ a.db-link:visited {
 /* Group heading above a run of sections. Adds order without introducing a
    second collapsible level — nested accordions are exactly the kind of depth
    that makes a settings page hard to scan. */
+/* Passwort- und E-Mail-Änderung: eigene Blöcke innerhalb von Cloud Sync,
+   durch eine Linie getrennt, damit sie nicht mit dem Anmeldestatus darüber
+   verschwimmen — aber ohne eigenen Rahmen, sonst steckte wieder eine Karte
+   in einer Karte. */
+.account-credentials {
+  margin-top: 18px;
+  padding-top: 16px;
+  border-top: 1px solid var(--border-subtle);
+}
+
+.account-credentials h4 {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text);
+  margin-bottom: 10px;
+}
+
+/* Account deletion — set apart from the rest of Cloud Sync, because it is
+   the one control here that cannot be undone. */
+.danger-zone {
+  margin-top: 18px;
+  padding-top: 16px;
+  border-top: 1px solid var(--border);
+}
+
+.danger-zone h4 {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--danger);
+  margin-bottom: 8px;
+}
+
+.deletion-pending {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 12px 14px;
+  border: 1px solid var(--danger);
+  background: var(--danger-subtle);
+  border-radius: var(--radius);
+  font-size: 13px;
+  color: var(--text);
+  line-height: 1.6;
+}
+
+.deletion-pending svg {
+  width: 16px;
+  height: 16px;
+  color: var(--danger);
+  flex-shrink: 0;
+  margin-top: 2px;
+}
+
+.settings-error {
+  margin-top: 10px;
+  font-size: 12.5px;
+  color: var(--danger);
+  line-height: 1.5;
+}
+
+.settings-error[hidden] { display: none; }
+
+/* Workspace und Account
+   ---------------------
+   Beide Ansichten sind bewusst offen statt aufklappbar: sie existieren, weil
+   genau diese Angaben vorher hinter einer zugeklappten Sektion lagen und
+   deshalb niemand fand. Sie noch einmal zuzuklappen waere derselbe Fehler
+   eine Ebene hoeher. */
+.settings-card {
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--surface);
+  padding: 14px 16px;
+  margin-bottom: 10px;
+}
+
+/* Die aktive Wahl steht ausgeschrieben da statt nur als gesetzter
+   Radioknopf - "wo liegen meine Projekte gerade" soll man lesen koennen,
+   ohne erst zu pruefen, welcher Punkt angehakt ist. */
+.workspace-active-card {
+  display: flex;
+  align-items: flex-start;
+  gap: 14px;
+  padding: 16px;
+  border: 1px solid var(--accent);
+  border-radius: var(--radius);
+  background: var(--accent-subtle);
+  margin-bottom: 4px;
+}
+
+.workspace-active-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 34px;
+  height: 34px;
+  border-radius: var(--radius-sm);
+  background: var(--surface);
+  border: 1px solid var(--border);
+  color: var(--accent);
+  flex-shrink: 0;
+}
+
+.workspace-active-icon svg {
+  width: 17px;
+  height: 17px;
+}
+
+.workspace-active-body {
+  min-width: 0;
+}
+
+.workspace-active-label {
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: .08em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+  margin: 0;
+}
+
+.workspace-active-name {
+  font-size: 16px;
+  font-weight: 600;
+  color: var(--text);
+  margin: 3px 0 0;
+}
+
+.workspace-active-where {
+  font-size: 12.5px;
+  color: var(--text-muted);
+  line-height: 1.6;
+  margin: 5px 0 0;
+}
+
+.account-identity-card {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 16px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--surface);
+  margin-bottom: 4px;
+}
+
+.account-identity-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 34px;
+  height: 34px;
+  border-radius: 50%;
+  background: var(--accent-subtle);
+  color: var(--accent);
+  flex-shrink: 0;
+}
+
+.account-identity-icon svg {
+  width: 17px;
+  height: 17px;
+}
+
+.account-identity-body {
+  flex: 1;
+  min-width: 0;
+}
+
+.account-identity-label {
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: .08em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+  margin: 0;
+}
+
+.account-identity-email {
+  font-size: 14.5px;
+  font-weight: 600;
+  color: var(--text);
+  margin: 3px 0 0;
+  overflow-wrap: anywhere;
+}
+
 .settings-group-label {
   font-size: 11.5px;
   font-weight: 600;
@@ -3747,11 +3977,43 @@ a.db-link:visited {
   margin-top: 8px;
 }
 
+/* Sits after the buttons, not between them: at opacity 0 it still occupies
+   its box, and standing in the middle it pushed Save and Test visibly apart
+   for no reason. */
 .settings-saved-msg {
   font-size: 12.5px;
   color: var(--green);
   opacity: 0;
+  margin-left: 4px;
   transition: opacity .3s;
+}
+
+/* Voice picker and its Test button on one line — going from "different voice"
+   to "this is how it sounds" should be a single glance. The picker takes the
+   whole remaining width: voice names are short, but the list is what the row
+   is about, so the button claims only what it needs. nowrap is deliberate —
+   without this rule the select (block, width:100%) and the button stacked,
+   which is what made the button look like a stray control on its own line. */
+.tts-voice-row {
+  display: flex;
+  flex-wrap: nowrap;
+  align-items: center;
+  gap: 10px;
+}
+
+.tts-voice-row .form-input {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.tts-voice-row .tts-test-btn {
+  flex: 0 0 auto;
+  padding: 7px 14px;
+}
+
+.tts-rate-slider {
+  width: 100%;
+  accent-color: var(--accent);
 }
 
 .settings-saved-msg.visible {

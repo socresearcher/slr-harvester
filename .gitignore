@@ -51,5 +51,16 @@ slr-harvester_web/backups/
 slr-harvester_web/TASKS.md
 slr-harvester_web/SUGGESTIONS.md
 
+# Wrangler-Zwischenspeicher (entsteht beim Ausfuehren von wrangler in diesem Ordner)
+.wrangler/
+
 # Dev-only AI-agent instructions, not part of the public repo
 CLAUDE.md
+
+# Internal security planning notes — never publish a roadmap of unfixed gaps
+SECURITY_PLAN.md
+
+# Interne Deployment-Dokumentation (SLR Harvester) — beschreibt Projektkennungen,
+# Datenbankstruktur und offene Sicherheitspunkte; gehoert nicht in ein oeffentliches Repo.
+SUPABASE.md
+INFRASTRUKTUR.md

@@ -26,7 +26,12 @@
 window.SLRTts = (() => {
 
   const STORE_KEY = 'slr-tts';
+  // Piper synthesises a whole chunk in one go, so longer pieces are fine and
+  // actually sound better. The device engine gets much shorter ones: Chrome
+  // stops speaking after roughly 15 seconds, and staying well under that is
+  // what makes the workaround below unnecessary.
   const MAX_CHUNK = 180;
+  const MAX_CHUNK_SYSTEM = 110;
 
   // ── Settings ──────────────────────────────────────────────────────
   const DEFAULTS = {
@@ -86,20 +91,21 @@ window.SLRTts = (() => {
   }
 
   // ── Chunking ──────────────────────────────────────────────────────
-  function splitIntoChunks(text) {
+  function splitIntoChunks(text, maxLen) {
+    const limit = maxLen || MAX_CHUNK;
     const sentences = String(text || '').replace(/\s+/g, ' ').trim().split(/(?<=[.!?:;])\s+/);
     const chunks = [];
     let buf = '';
     for (const sentence of sentences) {
       let rest = sentence;
-      while (rest.length > MAX_CHUNK) {
-        let cut = rest.lastIndexOf(',', MAX_CHUNK);
-        if (cut < 40) cut = rest.lastIndexOf(' ', MAX_CHUNK);
-        if (cut < 40) cut = MAX_CHUNK;
+      while (rest.length > limit) {
+        let cut = rest.lastIndexOf(',', limit);
+        if (cut < 40) cut = rest.lastIndexOf(' ', limit);
+        if (cut < 40) cut = limit;
         chunks.push(rest.slice(0, cut + 1).trim());
         rest = rest.slice(cut + 1).trim();
       }
-      if ((buf + ' ' + rest).trim().length > MAX_CHUNK) {
+      if ((buf + ' ' + rest).trim().length > limit) {
         if (buf) chunks.push(buf.trim());
         buf = rest;
       } else {
@@ -155,29 +161,74 @@ window.SLRTts = (() => {
     return voicesForLang(lang)[0] || null;
   }
 
-  let watchdog = null;
+  let stallGuard = null;
 
-  function speakSystem(chunks, lang, onDone) {
+  // One utterance at a time, chained on its own end event.
+  //
+  // The previous version queued every sentence at once and then pinged
+  // pause()/resume() every nine seconds to defeat Chrome's ~15-second
+  // cut-off. Both parts were wrong: Chrome drops entries from a queue that
+  // is filled synchronously, and a pause() immediately followed by resume()
+  // makes it abandon the utterance it is on and continue with the next —
+  // which is exactly "every so often a whole sentence is missing", on any
+  // voice. Speaking one short piece at a time removes the need for the
+  // workaround entirely, because no single utterance gets near the cut-off.
+  function speakSystem(chunks, lang, onDone, token) {
     const synth = window.speechSynthesis;
     if (!synth) { onDone(); return; }
     synth.cancel();
+    clearTimeout(stallGuard);
     const voice = pickSystemVoice(lang);
-    chunks.forEach((chunk, i) => {
+    const rate = settings.rate || 1;
+    let i = 0;
+
+    const next = () => {
+      if (token !== speakToken) return;            // stopped meanwhile
+      if (i >= chunks.length) { onDone(); return; }
+      const chunk = chunks[i++];
       const utt = new SpeechSynthesisUtterance(chunk);
       if (voice) { utt.voice = voice; utt.lang = voice.lang; }
       else utt.lang = lang === 'de' ? 'de-DE' : 'en-US';
-      utt.rate = settings.rate || 1;
-      if (i === chunks.length - 1) utt.onend = onDone;
-      utt.onerror = e => { if (e.error !== 'interrupted' && e.error !== 'canceled') onDone(); };
+      utt.rate = rate;
+
+      let advanced = false;
+      const advance = () => {
+        if (advanced || token !== speakToken) return;
+        advanced = true;
+        clearTimeout(stallGuard);
+        next();
+      };
+
+      utt.onend = advance;
+      utt.onerror = e => {
+        // A cancel/interrupt is our own doing (stop, or a new read) — the
+        // chain must not continue in that case.
+        if (e.error === 'interrupted' || e.error === 'canceled') return;
+        advance();
+      };
+
+      // Chrome occasionally swallows the end event outright. Without this the
+      // reading would simply stop mid-abstract, so once the engine reports
+      // itself idle we move on regardless.
+      const expectedMs = Math.max(6000, (chunk.length / (13 * rate)) * 1000 + 4000);
+      const armed = Date.now();
+      const check = () => {
+        if (advanced || token !== speakToken) return;
+        if (synth.speaking || synth.pending) {
+          // Still going — but if it has run far past any plausible duration,
+          // the engine is wedged; cut it loose rather than hang forever.
+          if (Date.now() - armed > expectedMs * 4) { synth.cancel(); advanced = false; advance(); return; }
+          stallGuard = setTimeout(check, 1500);
+          return;
+        }
+        advance();
+      };
+      stallGuard = setTimeout(check, expectedMs);
+
       synth.speak(utt);
-    });
-    // Chrome pauses its own synthesis after ~15 seconds. This nudges it while
-    // anything is still queued.
-    clearInterval(watchdog);
-    watchdog = setInterval(() => {
-      if (!synth.speaking && !synth.pending) { clearInterval(watchdog); return; }
-      synth.pause(); synth.resume();
-    }, 9000);
+    };
+
+    next();
   }
 
   // ── Engine 2: Piper (neural, in-browser) ──────────────────────────
@@ -469,7 +520,7 @@ window.SLRTts = (() => {
 
   async function speakPiper(chunks, lang, onDone, onProgress) {
     const voice = piperVoice(lang);
-    const token = ++speakToken;
+    const token = speakToken;
     const multi = voice.speaker != null;
     let sess = null;
     if (multi) await multiSpeakerModel(voice.id, onProgress);
@@ -488,7 +539,7 @@ window.SLRTts = (() => {
 
   function stop() {
     speakToken++;
-    clearInterval(watchdog);
+    clearTimeout(stallGuard);
     if (window.speechSynthesis) window.speechSynthesis.cancel();
     stopAudioSource();
     setSpeaking(false);
@@ -502,6 +553,8 @@ window.SLRTts = (() => {
     const lang = options.lang || detectLang(text);
     const chunks = splitIntoChunks(text);
     if (!chunks.length) return;
+    // A fresh read invalidates whatever was running before.
+    speakToken++;
     setSpeaking(true);
     const done = () => setSpeaking(false);
 
@@ -512,10 +565,10 @@ window.SLRTts = (() => {
         console.warn('Neural voice unavailable, falling back to a device voice:', err);
         await resetSession();
         if (options.onFallback) options.onFallback(err);
-        speakSystem(chunks, lang, done);
+        speakSystem(splitIntoChunks(text, MAX_CHUNK_SYSTEM), lang, done, speakToken);
       });
     } else {
-      speakSystem(chunks, lang, done);
+      speakSystem(splitIntoChunks(text, MAX_CHUNK_SYSTEM), lang, done, speakToken);
     }
   }
 
