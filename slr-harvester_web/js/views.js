@@ -1247,8 +1247,19 @@ window.SLRViews = (() => {
           </span>` : ''}
       </div>` : '';
 
+    // Read-aloud sits in the detail area, which only exists while the card is
+    // expanded — so the button appears exactly where the abstract it reads is,
+    // and never clutters the collapsed list. Offered only when there is
+    // actually something to read.
     const abstract = a.abstract
-      ? `<div class="article-abstract">${esc(a.abstract)}</div>`
+      ? `<div class="article-abstract-head">
+           <span class="article-abstract-label">Abstract</span>
+           <button class="articles-action-btn article-speak-btn" data-action="speak-abstract"
+                   title="Read this abstract aloud">
+             ${SLRIcons.speaker}<span class="article-speak-label">Read aloud</span>
+           </button>
+         </div>
+         <div class="article-abstract">${esc(a.abstract)}</div>`
       : `<div class="article-abstract no-abstract">No abstract available.</div>`;
 
     const comment = a.comment
@@ -1342,6 +1353,30 @@ window.SLRViews = (() => {
 
   //  Article action helpers 
 
+  // Keeps the button in step with what is actually happening: while reading
+  // it turns into a stop button, and it resets itself when the text ends or
+  // something else takes over the speaker.
+  let unwatchSpeaking = null;
+  function setSpeakBtnState(btn, on) {
+    const label = btn.querySelector('.article-speak-label');
+    const icon  = btn.querySelector('svg');
+    btn.classList.toggle('is-speaking', !!on);
+    if (label) label.textContent = on ? 'Stop' : 'Read aloud';
+    if (icon && icon.parentNode) {
+      icon.outerHTML = on ? SLRIcons.speakerOff : SLRIcons.speaker;
+    }
+    if (unwatchSpeaking) { unwatchSpeaking(); unwatchSpeaking = null; }
+    if (on) {
+      unwatchSpeaking = SLRTts.onStateChange(speaking => {
+        if (!speaking && btn.isConnected) setSpeakBtnState(btn, false);
+      });
+    }
+  }
+
+  function showToastSafe(msg, isError) {
+    if (typeof SLRApp !== 'undefined' && SLRApp.showToast) SLRApp.showToast(msg, isError);
+  }
+
   function wireArticleActions(listEl, projectData) {
     if (!listEl || !projectData) return;
     listEl.addEventListener('click', ev => {
@@ -1360,6 +1395,19 @@ window.SLRViews = (() => {
       if (!btn) return;
       ev.stopPropagation();
       const action = btn.dataset.action;
+
+      // Read the abstract aloud. Handled before the eid lookup: the text is
+      // right there in the card, so this works even for the rare article
+      // without an identifier. A second click stops it again.
+      if (action === 'speak-abstract') {
+        const detail = btn.closest('.article-detail');
+        const textEl = detail ? detail.querySelector('.article-abstract') : null;
+        if (!textEl) return;
+        setSpeakBtnState(btn, SLRTts.toggle(textEl.textContent, {
+          onFallback: () => showToastSafe('Neural voice unavailable — using a device voice'),
+        }));
+        return;
+      }
 
       // Pure UI state, no article identity needed — handled before the eid
       // lookup below so it still works even on the rare article with none.
@@ -4619,6 +4667,201 @@ window.SLRViews = (() => {
     }
   }
 
+
+  // ── Read aloud settings ─────────────────────────────────────────────
+  // Same collapsible pattern and the same form controls as every other
+  // settings section, so it reads as part of the page rather than a bolt-on.
+  function systemVoiceOptions(lang) {
+    const list = SLRTts.voicesForLang(lang);
+    const cur = (SLRTts.getSettings().voices || {})[lang] || '';
+    const best = list[0];
+    if (!list.length) {
+      return `<option value="">No ${lang === 'de' ? 'German' : 'English'} voice installed on this device</option>`;
+    }
+    return `<option value="">Automatic${best ? ' — ' + esc(best.name) : ''}</option>` +
+      list.map(v => `<option value="${esc(v.voiceURI)}" ${v.voiceURI === cur ? 'selected' : ''}>${SLRTts.voiceQualityScore(v) > 0 ? '\u2728 ' : ''}${esc(v.name)} — ${esc(v.lang)}</option>`).join('');
+  }
+
+  function piperVoiceOptions(lang, stored) {
+    const cur = SLRTts.voiceKey(SLRTts.piperVoice(lang));
+    return SLRTts.PIPER_VOICES[lang].map(v => {
+      const key = SLRTts.voiceKey(v);
+      const mark = (stored || []).includes(v.id) ? '\u2713 ' : '';
+      return `<option value="${esc(key)}" ${key === cur ? 'selected' : ''}>${mark}${esc(v.label)}</option>`;
+    }).join('');
+  }
+
+  function renderReadAloudSection() {
+    const t = SLRTts.getSettings();
+    const neural = t.engine === 'neural';
+    const body = `
+      <p class="field-hint" style="margin-top:0">Reads an article's abstract aloud — the
+        <strong>Read aloud</strong> button appears in the abstract of any expanded article card.
+        The language is detected per text, so English and German abstracts each get their own voice.</p>
+
+      <div class="form-field" style="margin-top:14px">
+        <label for="tts-engine">Voice engine</label>
+        <select class="form-input" id="tts-engine">
+          <option value="system" ${neural ? '' : 'selected'}>Device voices — instant, no download</option>
+          <option value="neural" ${neural ? 'selected' : ''}>Neural voices — natural, one-time download</option>
+        </select>
+        <p class="field-hint">${neural
+          ? 'Runs a neural voice model directly in this browser — no account, no server, nothing sent anywhere. Each language downloads once (~63 MB) and is then kept offline.'
+          : 'Uses the voices installed on this device. Instant and works everywhere; quality depends on what the device offers (\u2728 marks the natural-sounding ones).'}</p>
+      </div>
+
+      <div class="form-field">
+        <label for="tts-voice-en">English voice</label>
+        <div class="tts-voice-row">
+          <select class="form-input" id="tts-voice-en">${neural ? piperVoiceOptions('en', []) : systemVoiceOptions('en')}</select>
+          <button class="btn-secondary" type="button" data-tts-test="en">${SLRIcons.speaker} Test</button>
+        </div>
+      </div>
+
+      <div class="form-field">
+        <label for="tts-voice-de">German voice</label>
+        <div class="tts-voice-row">
+          <select class="form-input" id="tts-voice-de">${neural ? piperVoiceOptions('de', []) : systemVoiceOptions('de')}</select>
+          <button class="btn-secondary" type="button" data-tts-test="de">${SLRIcons.speaker} Test</button>
+        </div>
+      </div>
+
+      <div class="form-field">
+        <label for="tts-rate">Speed — <span id="tts-rate-label">${(t.rate || 1).toFixed(2)}\u00d7</span></label>
+        <input type="range" class="tts-rate-slider" id="tts-rate" min="0.7" max="1.3" step="0.05" value="${t.rate || 1}">
+      </div>
+
+      <div id="tts-neural-block" ${neural ? '' : 'hidden'}>
+        <p class="field-hint" id="tts-status">Checking stored voices\u2026</p>
+        <div class="settings-save-row">
+          <button class="btn-secondary" type="button" id="tts-download">Download selected voices</button>
+          <button class="btn-secondary" type="button" id="tts-remove">Remove downloads</button>
+        </div>
+      </div>
+
+      <div class="settings-save-row">
+        <button class="btn-secondary" type="button" id="tts-stop">${SLRIcons.speakerOff} Stop</button>
+      </div>`;
+
+    return collapseSection({
+      id: 'settings-readaloud',
+      title: 'Read aloud',
+      meta: neural ? 'Neural voices' : 'Device voices',
+      metaSet: neural,
+      open: false,
+      body,
+    });
+  }
+
+  function wireReadAloudSection(container) {
+    const $$ = sel => container.querySelector(sel);
+    const engine = $$('#tts-engine');
+    if (!engine) return;
+
+    const refreshStatus = async () => {
+      const status = $$('#tts-status');
+      if (!status || SLRTts.getSettings().engine !== 'neural') return;
+      const stored = await SLRTts.storedVoices();
+      const active = ['de', 'en'].map(l => SLRTts.piperVoice(l).id);
+      const missing = active.filter(id => !stored.includes(id));
+      status.textContent = stored.length
+        ? `On this device: ${stored.map(SLRTts.voiceLabel).join(', ')}`
+            + (missing.length
+              ? ` — ${missing.map(SLRTts.voiceLabel).join(' and ')} still to download (~63 MB each, fetched automatically on first use).`
+              : ' — both selected voices are ready.')
+        : 'Nothing downloaded yet — the selected voice is fetched the first time you use it (~63 MB per language, then kept offline).';
+      // Mark the already-downloaded ones in the pickers.
+      ['de', 'en'].forEach(lang => {
+        const sel = $$(`#tts-voice-${lang}`);
+        if (sel) sel.innerHTML = piperVoiceOptions(lang, stored);
+      });
+      const dl = $$('#tts-download');
+      if (dl) dl.textContent = missing.length ? 'Download selected voices' : 'Selected voices are downloaded';
+    };
+
+    engine.addEventListener('change', () => {
+      SLRTts.stop();
+      SLRTts.set({ engine: engine.value === 'neural' ? 'neural' : 'system' });
+      // Die Ansicht neu zeichnen lassen — der Motorwechsel tauscht beide
+      // Stimmenlisten und die Erklaertexte aus.
+      SLRApp.navigate('settings');
+    });
+
+    ['de', 'en'].forEach(lang => {
+      const sel = $$(`#tts-voice-${lang}`);
+      if (!sel) return;
+      sel.addEventListener('change', () => {
+        const t = SLRTts.getSettings();
+        SLRTts.stop();
+        if (t.engine === 'neural') {
+          SLRTts.set({ piper: { ...t.piper, [lang]: sel.value } });
+          // The loaded model has to go, or the next sentence still comes out
+          // in the previous voice.
+          SLRTts.resetSession();
+        } else {
+          SLRTts.set({ voices: { ...t.voices, [lang]: sel.value } });
+        }
+      });
+    });
+
+    const rate = $$('#tts-rate');
+    if (rate) rate.addEventListener('input', () => {
+      SLRTts.set({ rate: parseFloat(rate.value) || 1 });
+      const label = $$('#tts-rate-label');
+      if (label) label.textContent = (parseFloat(rate.value) || 1).toFixed(2) + '\u00d7';
+    });
+
+    container.querySelectorAll('[data-tts-test]').forEach(btn => {
+      btn.addEventListener('click', async () => {
+        const lang = btn.dataset.ttsTest;
+        SLRTts.stop();
+        const status = $$('#tts-status');
+        if (SLRTts.getSettings().engine === 'neural' && status) {
+          const v = SLRTts.piperVoice(lang);
+          const stored = await SLRTts.storedVoices();
+          if (!stored.includes(v.id)) {
+            status.textContent = `Preparing ${SLRTts.voiceLabel(v.id)} — the first use downloads the voice (~63 MB)\u2026`;
+          }
+        }
+        SLRTts.speak(lang === 'de'
+          ? 'Diese Stimme liest Ihnen die Zusammenfassung eines Artikels vor.'
+          : 'This voice reads the abstract of an article aloud.', {
+            lang,
+            onProgress: p => { if (status && p && p.total) status.textContent = `Downloading voice\u2026 ${Math.round((p.loaded / p.total) * 100)}%`; },
+            onFallback: () => showToastSafe('Neural voice unavailable — using a device voice', true),
+          });
+        setTimeout(refreshStatus, 800);
+      });
+    });
+
+    $$('#tts-stop')?.addEventListener('click', () => SLRTts.stop());
+
+    $$('#tts-download')?.addEventListener('click', async () => {
+      const btn = $$('#tts-download');
+      const status = $$('#tts-status');
+      btn.disabled = true;
+      try {
+        await SLRTts.downloadVoices(msg => { if (status) status.textContent = msg; });
+        await refreshStatus();
+        showToastSafe('Neural voices ready');
+      } catch (e) {
+        if (status) status.textContent = 'Download failed: ' + (e && e.message ? e.message : e);
+      } finally {
+        btn.disabled = false;
+      }
+    });
+
+    $$('#tts-remove')?.addEventListener('click', async () => {
+      const status = $$('#tts-status');
+      if (status) status.textContent = 'Removing\u2026';
+      const left = await SLRTts.removeVoices();
+      await refreshStatus();
+      showToastSafe(left.length ? `Could not remove: ${left.length} voice(s) still stored` : 'Downloaded voices removed');
+    });
+
+    refreshStatus();
+  }
+
   function renderSettings(container, { apiKey, instToken, openAlexKey, openAlexEmail, autoFetchEnabled, fetchMode, autoTagEnabled, autoRunScope, autoTagCategories, allTagCategories, folderName }) {
     const categories = Array.isArray(allTagCategories) ? allTagCategories : [];
     const enabledCategorySet = new Set(Array.isArray(autoTagCategories) && autoTagCategories.length ? autoTagCategories : categories);
@@ -4829,6 +5072,9 @@ window.SLRViews = (() => {
           body: automationBody,
         })}
 
+        <p class="settings-group-label">Reading</p>
+        ${renderReadAloudSection()}
+
         <p class="settings-group-label">Workspace &amp; data</p>
         ${collapseSection({
           id: 'settings-folder',
@@ -4925,6 +5171,7 @@ window.SLRViews = (() => {
     });
 
     wireCloudSyncSection(container);
+    wireReadAloudSection(container);
     wireCollapseSections(container);
 
     container.querySelectorAll('.secret-toggle-btn').forEach(btn => {
