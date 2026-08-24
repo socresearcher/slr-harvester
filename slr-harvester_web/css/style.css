@@ -2323,6 +2323,18 @@ a:hover {
   color: var(--text-faint);
 }
 
+/* Der Abstract-Kopf schiebt seinen Vorlese-Knopf bewusst an den rechten
+   Kartenrand: dort ist er erwartbar, weil er zum ganzen Abschnitt gehoert.
+   Der Affiliations-Umschalter gehoert dagegen zum Wort davor — er sagt,
+   wie viele Namen sich hinter der Zeile verbergen. Mit
+   justify-content: space-between landete er auf breiten Fenstern ueber
+   tausend Pixel neben seiner Beschriftung und war schlicht nicht mehr zu
+   finden. Also bleibt er hier direkt daneben stehen, so wie vor dem Umbau
+   auf Abschnittsueberschriften. */
+.article-detail-head-inline {
+  justify-content: flex-start;
+}
+
 /* Raw affiliation names (Fetch Affiliations) — collapsed behind a toggle
    since a full institution list can run much longer than the country
    summary above it. */

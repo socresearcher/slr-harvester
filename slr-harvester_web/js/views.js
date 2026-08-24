@@ -1230,7 +1230,7 @@ window.SLRViews = (() => {
     const affiliations = Array.isArray(a.affiliations) ? a.affiliations.filter(Boolean) : [];
     const affiliationsDetail = affiliations.length
       ? `<div class="article-detail-block">
-           <div class="article-detail-head">
+           <div class="article-detail-head article-detail-head-inline">
              <span class="article-detail-title">Affiliations</span>
              <button type="button" class="article-affiliations-toggle" data-action="toggle-affiliations" aria-expanded="false">
                ${SLRIcons.chevronRight}<span>Show ${affiliations.length} affiliation${affiliations.length !== 1 ? 's' : ''}</span>
