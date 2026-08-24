@@ -190,3 +190,59 @@ alter table public.user_settings add column if not exists auto_tag_custom_keywor
 -- rename/recolor/delete categories, not just keyword additions). Run this
 -- once if user_settings already existed before this column did.
 alter table public.user_settings add column if not exists auto_tag_rules jsonb;
+
+
+-- ── Account deletion (run once) ───────────────────────────────────────────
+-- Self-service account deletion with a 30-day grace period.
+--
+-- Why this needs server-side SQL at all: the app is a static site holding
+-- only the anon key, and the anon key cannot delete a row in auth.users —
+-- that requires the service role. What the app CAN do under RLS is delete
+-- the user's own data rows and record the request; the actual auth record is
+-- removed by the function below.
+create table if not exists public.account_deletion_requests (
+  user_id       uuid primary key references auth.users(id) on delete cascade,
+  requested_at  timestamptz not null default now(),
+  scheduled_for timestamptz not null default (now() + interval '30 days')
+);
+
+alter table public.account_deletion_requests enable row level security;
+
+-- Users see and manage only their own request — same rule as every other
+-- table here.
+drop policy if exists "own deletion request" on public.account_deletion_requests;
+create policy "own deletion request" on public.account_deletion_requests
+  for all using (auth.uid() = user_id) with check (auth.uid() = user_id);
+
+grant select, insert, update, delete on public.account_deletion_requests to authenticated;
+
+-- Removes every account whose grace period has expired. SECURITY DEFINER so
+-- it can reach auth.users; both data tables cascade from there, so deleting
+-- the user removes projects and settings with it.
+create or replace function public.process_account_deletions()
+returns integer
+language plpgsql
+security definer
+set search_path = public, auth
+as $$
+declare
+  n integer := 0;
+begin
+  delete from auth.users u
+  using public.account_deletion_requests r
+  where u.id = r.user_id and r.scheduled_for <= now();
+  get diagnostics n = row_count;
+  return n;
+end;
+$$;
+
+revoke all on function public.process_account_deletions() from public, anon, authenticated;
+
+-- Run it automatically once a day. Needs the pg_cron extension (Supabase:
+-- Database → Extensions → enable "pg_cron"). Without this the requests are
+-- still recorded and the data is still deleted immediately on request — only
+-- the final removal of the login itself waits for a manual run of
+--   select public.process_account_deletions();
+-- create extension if not exists pg_cron;
+-- select cron.schedule('slr-process-account-deletions', '0 3 * * *',
+--                      $$select public.process_account_deletions()$$);

@@ -2211,40 +2211,28 @@ a:hover {
   font-size: 13px;
   color: var(--text-muted);
   line-height: 1.65;
-  margin-bottom: 10px;
 }
 
-/* Section header above the abstract, with Read aloud on the right. Sits
-   inside .article-detail, so it only exists while the card is expanded. */
-/* Voice picker plus its Test button on one line — going from "different
-   voice" to "this is how it sounds" should be a single glance. */
-.tts-voice-row {
-  display: flex;
-  gap: 8px;
-  align-items: stretch;
+/* One block per kind of information inside an expanded card — abstract,
+   affiliation countries, affiliations. They carry different content but they
+   are peers, so they share one heading style and one spacing rhythm instead
+   of each bringing its own. Previously the abstract had a title while the
+   affiliations used an inline bold "Label:" prefix, at a different size,
+   with different gaps above and below. */
+.article-detail-block + .article-detail-block {
+  margin-top: 14px;
 }
 
-.tts-voice-row .form-input { flex: 1; min-width: 0; }
-
-.tts-voice-row .btn-secondary {
-  flex-shrink: 0;
-  padding: 6px 12px;
-}
-
-.tts-rate-slider {
-  width: 100%;
-  accent-color: var(--accent);
-}
-
-.article-abstract-head {
+.article-detail-head {
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: 10px;
+  min-height: 20px;
   margin-bottom: 6px;
 }
 
-.article-abstract-label {
+.article-detail-title {
   font-size: 11px;
   font-weight: 600;
   letter-spacing: .08em;
@@ -2252,15 +2240,30 @@ a:hover {
   color: var(--text-faint);
 }
 
+/* Compact by design: this sits next to a quiet section label, so it must not
+   outweigh it. */
 .article-speak-btn {
-  height: 26px;
-  padding: 0 10px;
-  font-size: 12px;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  height: 20px;
+  padding: 0 7px;
+  font-size: 11px;
+  font-weight: 500;
+  line-height: 1;
+  background: transparent;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  color: var(--text-muted);
+  cursor: pointer;
+  white-space: nowrap;
+  flex-shrink: 0;
+  transition: background var(--transition), color var(--transition), border-color var(--transition);
 }
 
 .article-speak-btn svg {
-  width: 13px;
-  height: 13px;
+  width: 11px;
+  height: 11px;
 }
 
 .article-speak-btn:hover {
@@ -2278,7 +2281,7 @@ a:hover {
   /* On a phone the label is the first thing that can go — the icon carries
      the meaning well enough there. */
   .article-speak-label { display: none; }
-  .article-speak-btn { padding: 0 8px; }
+  .article-speak-btn { padding: 0 6px; }
 }
 
 .article-abstract.no-abstract {
@@ -2298,15 +2301,10 @@ a:hover {
   align-items: flex-start;
 }
 
-.article-affiliation-countries .article-detail-label {
-  color: var(--text);
-  font-weight: 600;
-  min-width: 132px;
-}
-
-.article-affiliation-countries .article-detail-value {
+.article-detail-value {
+  font-size: 12.5px;
   color: var(--text-muted);
-  line-height: 1.5;
+  line-height: 1.6;
 }
 
 .article-country-item {
@@ -2328,26 +2326,21 @@ a:hover {
 /* Raw affiliation names (Fetch Affiliations) — collapsed behind a toggle
    since a full institution list can run much longer than the country
    summary above it. */
-.article-affiliations-meta {
-  align-items: center;
-}
-
-.article-affiliations-meta .article-detail-label {
-  color: var(--text);
-  font-weight: 600;
-  min-width: 132px;
-}
-
+/* Sits in .article-detail-head next to the section title, so it is sized to
+   match the Read aloud button rather than the old inline label row. */
 .article-affiliations-toggle {
   display: inline-flex;
   align-items: center;
   gap: 4px;
-  padding: 2px 9px;
-  border-radius: 20px;
+  height: 20px;
+  padding: 0 7px;
+  border-radius: var(--radius-sm);
   border: 1px solid var(--border);
-  background: var(--surface-2);
+  background: transparent;
   color: var(--text-muted);
-  font-size: 11.5px;
+  font-size: 11px;
+  font-weight: 500;
+  line-height: 1;
   cursor: pointer;
   transition: background var(--transition), color var(--transition), border-color var(--transition);
 }
@@ -3558,6 +3551,51 @@ a.db-link:visited {
 /* Group heading above a run of sections. Adds order without introducing a
    second collapsible level — nested accordions are exactly the kind of depth
    that makes a settings page hard to scan. */
+/* Account deletion — set apart from the rest of Cloud Sync, because it is
+   the one control here that cannot be undone. */
+.danger-zone {
+  margin-top: 18px;
+  padding-top: 16px;
+  border-top: 1px solid var(--border);
+}
+
+.danger-zone h4 {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--danger);
+  margin-bottom: 8px;
+}
+
+.deletion-pending {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 12px 14px;
+  border: 1px solid var(--danger);
+  background: var(--danger-subtle);
+  border-radius: var(--radius);
+  font-size: 13px;
+  color: var(--text);
+  line-height: 1.6;
+}
+
+.deletion-pending svg {
+  width: 16px;
+  height: 16px;
+  color: var(--danger);
+  flex-shrink: 0;
+  margin-top: 2px;
+}
+
+.settings-error {
+  margin-top: 10px;
+  font-size: 12.5px;
+  color: var(--danger);
+  line-height: 1.5;
+}
+
+.settings-error[hidden] { display: none; }
+
 .settings-group-label {
   font-size: 11.5px;
   font-weight: 600;
