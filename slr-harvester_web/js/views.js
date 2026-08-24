@@ -4816,7 +4816,7 @@ window.SLRViews = (() => {
         <label for="tts-voice-en">English voice</label>
         <div class="tts-voice-row">
           <select class="form-input" id="tts-voice-en">${neural ? piperVoiceOptions('en', []) : systemVoiceOptions('en')}</select>
-          <button class="btn-secondary" type="button" data-tts-test="en">${SLRIcons.speaker} Test</button>
+          <button class="btn-secondary tts-test-btn" type="button" data-tts-test="en">${SLRIcons.speaker} Test</button>
         </div>
       </div>
 
@@ -4824,7 +4824,7 @@ window.SLRViews = (() => {
         <label for="tts-voice-de">German voice</label>
         <div class="tts-voice-row">
           <select class="form-input" id="tts-voice-de">${neural ? piperVoiceOptions('de', []) : systemVoiceOptions('de')}</select>
-          <button class="btn-secondary" type="button" data-tts-test="de">${SLRIcons.speaker} Test</button>
+          <button class="btn-secondary tts-test-btn" type="button" data-tts-test="de">${SLRIcons.speaker} Test</button>
         </div>
       </div>
 
@@ -4976,7 +4976,9 @@ window.SLRViews = (() => {
     const openAlexParts = [openAlexKey ? 'key' : null, openAlexEmail ? 'email' : null].filter(Boolean);
     const openAlexMeta = openAlexParts.length ? `${openAlexParts.join(' + ')} set` : 'Optional — not set';
     const automationMeta = `Auto-fetch ${autoFetchEnabled ? 'on' : 'off'} · Auto-tag ${autoTagEnabled ? 'on' : 'off'}`;
-    const workspaceMeta = folderName || 'No folder open';
+    const workspaceMeta = SLRData.getBackend() === 'cloud'
+      ? 'Not in use — Cloud Sync active'
+      : (folderName || 'No folder open');
 
     const scopusBody = `
       <div class="scopus-api-notice">
@@ -5019,8 +5021,8 @@ window.SLRViews = (() => {
 
       <div class="settings-save-row">
         <button class="btn-primary" id="settings-save-btn">Save Scopus Settings</button>
-        <span class="settings-saved-msg" id="settings-saved-msg">Saved!</span>
         <button class="btn-secondary" type="button" id="settings-scopus-test-btn">Test API Key</button>
+        <span class="settings-saved-msg" id="settings-saved-msg">Saved!</span>
       </div>
       <div id="settings-scopus-test-result" class="scopus-test-result" hidden></div>`;
 
@@ -5056,8 +5058,10 @@ window.SLRViews = (() => {
 
       <div class="settings-save-row">
         <button class="btn-primary" id="settings-openalex-save-btn">Save OpenAlex Settings</button>
+        <button class="btn-secondary" type="button" id="settings-openalex-test-btn">Test API Key</button>
         <span class="settings-saved-msg" id="settings-openalex-saved-msg">Saved!</span>
-      </div>`;
+      </div>
+      <div id="settings-openalex-test-result" class="scopus-test-result" hidden></div>`;
 
     const automationBody = `
       <p class="field-hint" style="margin-top:0">Configure how metadata enrichment runs by default in the Articles view and after new searches.</p>
@@ -5123,16 +5127,26 @@ window.SLRViews = (() => {
         <span class="settings-saved-msg" id="settings-fetch-saved-msg">Saved!</span>
       </div>`;
 
+    // folderName kommt aus SLRData.workspaceLabel und ist im Cloud-Betrieb die
+    // E-Mail-Adresse des Kontos, nicht ein Ordnername — die hier als
+    // "Currently using" auszugeben war schlicht falsch. Was hier steht, haengt
+    // deshalb am tatsaechlich aktiven Backend.
+    const usingCloud = SLRData.getBackend() === 'cloud';
     const folderBody = `
       <div class="form-field" style="margin-bottom:0">
         <p class="field-hint" style="margin-top:0">
-          ${folderName
-            ? `Currently using: <strong>${esc(folderName)}</strong>`
-            : 'No folder is currently open.'
+          ${usingCloud
+            ? `You are working in <strong>Cloud Sync</strong> right now — your projects live in
+               your account, not in a folder on this device. Opening a folder below switches
+               this browser over to the local workspace; your cloud projects stay untouched
+               and come back when you switch back.`
+            : folderName
+              ? `Currently using: <strong>${esc(folderName)}</strong>`
+              : 'No folder is currently open.'
           }
         </p>
         <button class="btn-secondary" id="settings-open-folder" style="margin-top:8px">
-          ${SLRIcons.folderOpen} Open different folder&hellip;
+          ${SLRIcons.folderOpen} ${usingCloud ? 'Open a local folder&hellip;' : 'Open different folder&hellip;'}
         </button>
       </div>`;
 
@@ -5255,6 +5269,40 @@ window.SLRViews = (() => {
         const result = await SLRApp.testScopusApiKey(keyInput, tokenInput);
         resultEl.innerHTML = formatScopusTestResult(result);
         resultEl.classList.add(result.hasKey && result.std && result.std.ok ? 'scopus-test-ok' : 'scopus-test-fail');
+      } catch (err) {
+        resultEl.textContent = `Test failed: ${err && err.message ? err.message : String(err)}`;
+        resultEl.classList.add('scopus-test-fail');
+      } finally {
+        btn.disabled = false;
+        btn.textContent = originalLabel;
+      }
+    });
+
+    container.querySelector('#settings-openalex-test-btn')?.addEventListener('click', async () => {
+      const btn = container.querySelector('#settings-openalex-test-btn');
+      const resultEl = container.querySelector('#settings-openalex-test-result');
+      if (!btn || !resultEl) return;
+      btn.disabled = true;
+      const originalLabel = btn.textContent;
+      btn.textContent = 'Testing…';
+      resultEl.hidden = false;
+      resultEl.className = 'scopus-test-result';
+      resultEl.textContent = 'Contacting api.openalex.org…';
+      try {
+        const r = await SLRApp.testOpenAlexKey(
+          container.querySelector('#settings-openalex-key').value.trim(),
+          container.querySelector('#settings-openalex-email').value.trim());
+        if (r.ok) {
+          const used = [r.hasKey ? 'API key' : null, r.hasEmail ? 'contact email' : null].filter(Boolean);
+          resultEl.innerHTML = `<div>&#10003; OpenAlex responded (HTTP ${esc(String(r.status))}).</div>` +
+            (used.length
+              ? `<div>Accepted with your ${esc(used.join(' and '))} — requests run outside the anonymous pool.</div>`
+              : `<div>No key or contact email set, so this ran anonymously. That works, but is the first thing rate-limited under load.</div>`);
+          resultEl.classList.add('scopus-test-ok');
+        } else {
+          resultEl.innerHTML = `<div>&#10007; OpenAlex refused the request (HTTP ${esc(String(r.status))}${r.detail ? `: ${esc(r.detail)}` : ''}).</div>`;
+          resultEl.classList.add('scopus-test-fail');
+        }
       } catch (err) {
         resultEl.textContent = `Test failed: ${err && err.message ? err.message : String(err)}`;
         resultEl.classList.add('scopus-test-fail');

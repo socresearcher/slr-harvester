@@ -1233,6 +1233,37 @@ window.SLRApp = (() => {
 	// and for diagnosing "unable to authenticate"-style errors without running a
 	// full search. Checks STANDARD view (basic key validity) and, only if that
 	// succeeds, COMPLETE view (the view configured via slr_config.json's "View").
+	// OpenAlex braucht weder Schlüssel noch Konto — ein Test prüft deshalb
+	// etwas anderes als bei Scopus: erstens, ob die Suche überhaupt erreichbar
+	// ist, und zweitens, ob Schlüssel bzw. Kontaktadresse akzeptiert werden und
+	// die Anfrage damit aus dem anonymen Kontingent herauskommt.
+	async function testOpenAlexKey(overrideKey, overrideEmail) {
+		const config = await SLRData.loadConfig();
+		const key = String(overrideKey != null && overrideKey !== ''
+			? overrideKey : ((config && config.OpenAlexKey) || state.settings.openAlexKey || '')).trim();
+		const email = String(overrideEmail != null && overrideEmail !== ''
+			? overrideEmail : ((config && config.OpenAlexEmail) || state.settings.openAlexEmail || '')).trim();
+
+		const url = new URL('https://api.openalex.org/works');
+		url.searchParams.set('search', 'test');
+		url.searchParams.set('per-page', '1');
+		if (key) url.searchParams.set('api_key', key);
+		if (email) url.searchParams.set('mailto', email);
+
+		try {
+			const res = await fetch(url.toString(), { headers: { 'Accept': 'application/json' } });
+			const body = await res.text().catch(() => '');
+			let detail = '';
+			if (!res.ok) {
+				try { detail = (JSON.parse(body).message) || ''; } catch (e) { detail = body.slice(0, 200); }
+			}
+			return { ok: res.ok, status: res.status, detail, hasKey: !!key, hasEmail: !!email };
+		} catch (err) {
+			return { ok: false, status: 0, detail: err && err.message ? err.message : 'Network error',
+				hasKey: !!key, hasEmail: !!email };
+		}
+	}
+
 	async function testScopusApiKey(overrideApiKey, overrideInstToken) {
 		const config = await SLRData.loadConfig();
 		// Prefer whatever is currently typed in the Settings form (even if unsaved)
@@ -3239,6 +3270,7 @@ window.SLRApp = (() => {
 		createProject,
 		saveSettings,
 		testScopusApiKey,
+		testOpenAlexKey,
 		executeSearch,
 		cancelSearch,
 		trashHistoryQuery,
