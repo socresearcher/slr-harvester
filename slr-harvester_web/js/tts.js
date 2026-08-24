@@ -91,29 +91,63 @@ window.SLRTts = (() => {
   }
 
   // ── Chunking ──────────────────────────────────────────────────────
+  //
+  // Every chunk is spoken in the order it is returned, so this function has
+  // exactly one hard requirement: joining the result back together must give
+  // the input again, in the same order. It did not.
+  //
+  // The oversized-sentence branch pushed its pieces straight onto `chunks`
+  // while `buf` still held an earlier sentence that had not been flushed
+  // yet. That earlier sentence was then appended *after* them. A text like
+  // "Kurzer Satz. Ein zweiter, sehr langer Satz …" came out as the long
+  // sentence first and "Kurzer Satz." second — which is heard as the reading
+  // starting in the middle, and as sentences turning up where they do not
+  // belong. `flush()` before any push is the whole fix; the property is
+  // asserted in the tests below.
   function splitIntoChunks(text, maxLen) {
     const limit = maxLen || MAX_CHUNK;
     const sentences = String(text || '').replace(/\s+/g, ' ').trim().split(/(?<=[.!?:;])\s+/);
     const chunks = [];
     let buf = '';
+
+    const flush = () => {
+      const t = buf.trim();
+      if (t) chunks.push(t);
+      buf = '';
+    };
+
     for (const sentence of sentences) {
-      let rest = sentence;
+      let rest = sentence.trim();
+      if (!rest) continue;
+
+      // A single sentence longer than the limit gets broken at a comma, or
+      // failing that at a space, or failing that mid-word.
       while (rest.length > limit) {
+        flush();
         let cut = rest.lastIndexOf(',', limit);
         if (cut < 40) cut = rest.lastIndexOf(' ', limit);
         if (cut < 40) cut = limit;
-        chunks.push(rest.slice(0, cut + 1).trim());
+        const piece = rest.slice(0, cut + 1).trim();
+        if (piece) chunks.push(piece);
         rest = rest.slice(cut + 1).trim();
       }
-      if ((buf + ' ' + rest).trim().length > limit) {
-        if (buf) chunks.push(buf.trim());
-        buf = rest;
-      } else {
-        buf = (buf + ' ' + rest).trim();
-      }
+      if (!rest) continue;
+
+      if ((buf ? buf + ' ' + rest : rest).length > limit) flush();
+      buf = buf ? buf + ' ' + rest : rest;
     }
-    if (buf) chunks.push(buf.trim());
+    flush();
     return chunks.filter(Boolean);
+  }
+
+  // Chrome cuts a single utterance off at roughly fifteen seconds, silently.
+  // 110 characters is about eight seconds at normal speed — but the rate
+  // slider goes down to 0.7, which stretches the same chunk towards twelve,
+  // and a slow reader would start losing the tail of every chunk. Scaling the
+  // limit with the rate keeps every piece the same length in *time*.
+  function systemChunkLimit() {
+    const rate = settings.rate || 1;
+    return Math.max(60, Math.round(MAX_CHUNK_SYSTEM * Math.min(1, rate)));
   }
 
   // ── Engine 1: device voices ───────────────────────────────────────
@@ -176,59 +210,89 @@ window.SLRTts = (() => {
   function speakSystem(chunks, lang, onDone, token) {
     const synth = window.speechSynthesis;
     if (!synth) { onDone(); return; }
-    synth.cancel();
     clearTimeout(stallGuard);
     const voice = pickSystemVoice(lang);
     const rate = settings.rate || 1;
     let i = 0;
 
-    const next = () => {
+    const startChunk = (attempt) => {
       if (token !== speakToken) return;            // stopped meanwhile
       if (i >= chunks.length) { onDone(); return; }
-      const chunk = chunks[i++];
+      const chunk = chunks[i];
+
       const utt = new SpeechSynthesisUtterance(chunk);
       if (voice) { utt.voice = voice; utt.lang = voice.lang; }
       else utt.lang = lang === 'de' ? 'de-DE' : 'en-US';
       utt.rate = rate;
 
-      let advanced = false;
+      let started = false;    // onstart fired
+      let sawBusy = false;    // engine reported itself busy at least once
+      let settled = false;
+
       const advance = () => {
-        if (advanced || token !== speakToken) return;
-        advanced = true;
+        if (settled || token !== speakToken) return;
+        settled = true;
         clearTimeout(stallGuard);
-        next();
+        i += 1;
+        startChunk(0);
       };
 
+      utt.onstart = () => { started = true; };
       utt.onend = advance;
       utt.onerror = e => {
+        if (settled || token !== speakToken) return;
         // A cancel/interrupt is our own doing (stop, or a new read) — the
         // chain must not continue in that case.
-        if (e.error === 'interrupted' || e.error === 'canceled') return;
+        if (e.error === 'interrupted' || e.error === 'canceled') { settled = true; return; }
         advance();
       };
 
-      // Chrome occasionally swallows the end event outright. Without this the
-      // reading would simply stop mid-abstract, so once the engine reports
-      // itself idle we move on regardless.
-      const expectedMs = Math.max(6000, (chunk.length / (13 * rate)) * 1000 + 4000);
-      const armed = Date.now();
-      const check = () => {
-        if (advanced || token !== speakToken) return;
+      // Two failures need two different answers, and the previous version
+      // conflated them into one — which is what lost text.
+      //
+      //   never started    the engine dropped the utterance. Nothing was
+      //                    spoken, so say this same chunk again.
+      //   started, no end  it was spoken and the end event went missing.
+      //                    Move on; repeating it would say it twice.
+      //
+      // What it must never do is what it did before: cancel() an utterance
+      // that is still speaking because it has outrun an estimated duration,
+      // and then advance. That truncates a sentence mid-word and jumps to
+      // the next one — audible as a half-sentence swallowed. The estimate is
+      // gone; only the engine's own idea of "am I still busy" decides.
+      const watch = () => {
+        if (settled || token !== speakToken) return;
         if (synth.speaking || synth.pending) {
-          // Still going — but if it has run far past any plausible duration,
-          // the engine is wedged; cut it loose rather than hang forever.
-          if (Date.now() - armed > expectedMs * 4) { synth.cancel(); advanced = false; advance(); return; }
-          stallGuard = setTimeout(check, 1500);
+          sawBusy = true;
+          stallGuard = setTimeout(watch, 400);
           return;
         }
-        advance();
+        if (started || sawBusy) { advance(); return; }
+        if (attempt < 3) {
+          settled = true;
+          clearTimeout(stallGuard);
+          // Drop the stale utterance first, or it may still surface later
+          // and speak the chunk a second time.
+          synth.cancel();
+          setTimeout(() => startChunk(attempt + 1), 150);
+          return;
+        }
+        advance();  // three tries is enough; better one gap than a dead stop
       };
-      stallGuard = setTimeout(check, expectedMs);
+      // Generous first look: on the very first use the engine can take a
+      // moment to get going, and treating that as a drop would make it
+      // stutter. Only a genuinely idle engine gets a repeat.
+      stallGuard = setTimeout(watch, 1000);
 
       synth.speak(utt);
     };
 
-    next();
+    // Chrome drops an utterance handed to it in the same tick as cancel(),
+    // which is why the first sentence of an abstract regularly went missing.
+    // A paused engine (it can get stuck that way) never starts at all.
+    synth.cancel();
+    if (synth.paused) synth.resume();
+    setTimeout(() => startChunk(0), 140);
   }
 
   // ── Engine 2: Piper (neural, in-browser) ──────────────────────────
@@ -565,10 +629,10 @@ window.SLRTts = (() => {
         console.warn('Neural voice unavailable, falling back to a device voice:', err);
         await resetSession();
         if (options.onFallback) options.onFallback(err);
-        speakSystem(splitIntoChunks(text, MAX_CHUNK_SYSTEM), lang, done, speakToken);
+        speakSystem(splitIntoChunks(text, systemChunkLimit()), lang, done, speakToken);
       });
     } else {
-      speakSystem(splitIntoChunks(text, MAX_CHUNK_SYSTEM), lang, done, speakToken);
+      speakSystem(splitIntoChunks(text, systemChunkLimit()), lang, done, speakToken);
     }
   }
 
