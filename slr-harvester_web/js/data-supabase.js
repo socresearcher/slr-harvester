@@ -75,6 +75,31 @@ window.SLRDataCloud = (() => {
   }
 
 
+  // ── Account credentials ───────────────────────────────────────────────────
+  // Both go through Supabase Auth's updateUser; neither touches our own
+  // tables, and neither needs anything set up server-side beyond what sign-up
+  // already required.
+
+  async function changePassword(newPassword) {
+    const client = requireAuth();
+    const { error } = await client.auth.updateUser({ password: newPassword });
+    if (error) throw new Error(error.message);
+  }
+
+  // Supabase does not swap the address on the spot: it sends a confirmation
+  // link, and with "Secure email change" enabled (the default) it sends one to
+  // the OLD address as well — both have to be clicked before the change takes
+  // effect. So the account keeps working under the old address in the
+  // meantime, which the UI says plainly rather than implying instant success.
+  async function changeEmail(newEmail) {
+    const client = requireAuth();
+    const { error } = await client.auth.updateUser(
+      { email: newEmail },
+      { emailRedirectTo: currentOrigin() }
+    );
+    if (error) throw new Error(error.message);
+  }
+
   // ── Account deletion ──────────────────────────────────────────────────────
   // Two separate things happen, and the UI is explicit about both: the user's
   // own data rows are deleted immediately (RLS lets an account delete its
@@ -619,6 +644,8 @@ window.SLRDataCloud = (() => {
     signInWithMagicLink,
     resendConfirmation,
     signOut,
+    changePassword,
+    changeEmail,
     getDeletionRequest,
     requestAccountDeletion,
     cancelAccountDeletion,

@@ -4652,6 +4652,46 @@ window.SLRViews = (() => {
             <button class="btn-secondary" id="settings-supabase-signout-btn">Sign Out</button>
           </div>
 
+          <div class="account-credentials">
+            <h4>Change password</h4>
+            <div class="form-field">
+              <label for="account-new-password">New password</label>
+              <input class="form-input" id="account-new-password" type="password"
+                     autocomplete="new-password" placeholder="At least 6 characters">
+            </div>
+            <div class="form-field">
+              <label for="account-new-password2">Repeat new password</label>
+              <input class="form-input" id="account-new-password2" type="password"
+                     autocomplete="new-password">
+            </div>
+            <div class="settings-save-row">
+              <button class="btn-primary" id="account-password-btn">Change password</button>
+              <span class="settings-saved-msg" id="account-password-msg">Changed!</span>
+            </div>
+            <p class="settings-error" id="account-password-error" hidden></p>
+          </div>
+
+          <div class="account-credentials">
+            <h4>Change email address</h4>
+            <p class="field-hint" style="margin-top:0">
+              Currently <strong>${esc(cloudUser.email)}</strong>. Changing it is not immediate:
+              Supabase sends a confirmation link to the new address — and, with the default
+              "Secure email change" setting, to the current one as well. The change takes effect
+              once the link(s) have been opened; until then you keep signing in with the old
+              address.
+            </p>
+            <div class="form-field" style="margin-top:12px">
+              <label for="account-new-email">New email address</label>
+              <input class="form-input" id="account-new-email" type="email"
+                     autocomplete="email" placeholder="name@example.com">
+            </div>
+            <div class="settings-save-row">
+              <button class="btn-primary" id="account-email-btn">Send confirmation</button>
+              <span class="settings-saved-msg" id="account-email-msg">Sent!</span>
+            </div>
+            <p class="settings-error" id="account-email-error" hidden></p>
+          </div>
+
           <div class="danger-zone" id="account-danger-zone">
             <h4>Delete account</h4>
             <div id="account-deletion-state">
@@ -4718,6 +4758,58 @@ window.SLRViews = (() => {
       } catch (e) {
         const err = host.querySelector('#account-delete-error');
         if (err) { err.hidden = false; err.textContent = e.message || String(e); }
+      }
+    });
+  }
+
+  function wireAccountCredentials(container) {
+    const $$ = sel => container.querySelector(sel);
+    const show = (id, msg) => { const el = $$(id); if (el) { el.hidden = false; el.textContent = msg; } };
+    const clear = id => { const el = $$(id); if (el) el.hidden = true; };
+    const flash = id => {
+      const el = $$(id);
+      if (!el) return;
+      el.classList.add('visible');
+      setTimeout(() => el.classList.remove('visible'), 2500);
+    };
+
+    $$('#account-password-btn')?.addEventListener('click', async () => {
+      clear('#account-password-error');
+      const a = $$('#account-new-password').value;
+      const b = $$('#account-new-password2').value;
+      if (a.length < 6) { show('#account-password-error', 'The password must be at least 6 characters long.'); return; }
+      if (a !== b) { show('#account-password-error', 'The two passwords do not match.'); return; }
+      const btn = $$('#account-password-btn');
+      btn.disabled = true;
+      try {
+        await SLRDataCloud.changePassword(a);
+        $$('#account-new-password').value = '';
+        $$('#account-new-password2').value = '';
+        flash('#account-password-msg');
+        showToastSafe('Password changed');
+      } catch (e) {
+        show('#account-password-error', e.message || String(e));
+      } finally {
+        btn.disabled = false;
+      }
+    });
+
+    $$('#account-email-btn')?.addEventListener('click', async () => {
+      clear('#account-email-error');
+      const email = $$('#account-new-email').value.trim();
+      const current = (SLRDataCloud.currentUser() || {}).email || '';
+      if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)) { show('#account-email-error', 'Please enter a valid email address.'); return; }
+      if (email.toLowerCase() === current.toLowerCase()) { show('#account-email-error', 'That is already your current address.'); return; }
+      const btn = $$('#account-email-btn');
+      btn.disabled = true;
+      try {
+        await SLRDataCloud.changeEmail(email);
+        flash('#account-email-msg');
+        showToastSafe('Confirmation sent — open the link to complete the change');
+      } catch (e) {
+        show('#account-email-error', e.message || String(e));
+      } finally {
+        btn.disabled = false;
       }
     });
   }
@@ -5321,6 +5413,7 @@ window.SLRViews = (() => {
     });
 
     wireCloudSyncSection(container);
+    wireAccountCredentials(container);
     wireAccountDeletion(container);
     refreshDeletionState(container);
     wireReadAloudSection(container);
@@ -5358,7 +5451,7 @@ window.SLRViews = (() => {
 
         <div class="settings-section">
           <h3>Stored in this browser (<code>localStorage</code>)</h3>
-          <p class="field-hint" style="margin-top:2px">Not cookies: <code>localStorage</code> is a
+          <p class="privacy-lead">Not cookies: <code>localStorage</code> is a
             different mechanism with different rules — it is scoped to this browser profile and
             this site's origin, no other site can read it, and unlike a cookie it is never
             attached to requests automatically. Only what you explicitly search or save is sent
@@ -5384,7 +5477,7 @@ window.SLRViews = (() => {
 
         <div class="settings-section">
           <h3>Sent to external services</h3>
-          <p class="field-hint" style="margin-top:2px">Only when you actively search or enrich
+          <p class="privacy-lead">Only when you actively search or enrich
             articles &mdash; each request goes directly from your browser to that service, not
             through any server this app runs (there isn't one). Each is an independent third
             party with its own privacy policy; this app has no visibility into what they log.</p>
@@ -5416,19 +5509,19 @@ window.SLRViews = (() => {
 
         <div class="settings-section">
           <h3>Deleting your data</h3>
-          <p style="font-size:13px;color:var(--text-muted);line-height:1.7">
+          <p class="privacy-lead">
             <strong>In this browser</strong> — everything listed above (all <code>localStorage</code>
             keys and the IndexedDB entry) is scoped to this browser profile and this site's origin.
             Your browser's own <strong>"Clear site data" / "Clear browsing data"</strong> removes all
             of it in one step and resets the app to a first-visit state (Chrome/Edge: the padlock
             icon next to the address bar → Site settings → Clear data).
           </p>
-          <p style="font-size:13px;color:var(--text-muted);margin-top:8px;line-height:1.7">
+          <p class="privacy-lead">
             <strong>Local Folder</strong> — your research data was never copied anywhere else. It is
             the files in the folder you chose, fully under your own control; delete them like any
             other files.
           </p>
-          <p style="font-size:13px;color:var(--text-muted);margin-top:8px;line-height:1.7">
+          <p class="privacy-lead">
             <strong>Neural read-aloud voices</strong> — if you enabled them, the downloaded voice
             models sit in this browser's Origin Private File System. <em>Settings → Reading → Read
             aloud → Remove downloads</em> deletes them; so does clearing site data.
@@ -5437,17 +5530,17 @@ window.SLRViews = (() => {
 
         <div class="settings-section">
           <h3>Deleting your Cloud Sync account</h3>
-          <p style="font-size:13px;color:var(--text-muted);line-height:1.7">
+          <p class="privacy-lead">
             You can delete your account yourself, from
             <button type="button" class="link-btn" id="privacy-goto-settings">Settings → Cloud Sync</button>.
             Two things happen, and they happen on different timelines — deliberately, and worth
             being precise about:
           </p>
-          <ul class="about-feature-list" style="margin-top:10px">
+          <ul class="about-feature-list">
             <li><span class="about-li-icon" aria-hidden="true">${SLRIcons.trash}</span><span><strong>Your data is deleted immediately.</strong> Every project, article, tag, comment and saved API key belonging to your account is removed from the database the moment you confirm. This is the part that actually matters for privacy, and it is not deferred.</span></li>
             <li><span class="about-li-icon" aria-hidden="true">${SLRIcons.history}</span><span><strong>The login is removed after 30 days.</strong> A grace period, so an account deleted by mistake is recoverable: sign in again within those 30 days and Settings offers <em>Cancel deletion</em>. After that the login record is deleted for good and the email address is no longer held anywhere.</span></li>
           </ul>
-          <p style="font-size:13px;color:var(--text-muted);margin-top:10px;line-height:1.7">
+          <p class="privacy-lead">
             To be straight about the mechanics: this app is a static site holding only a public
             anon key, which by design cannot delete a login record — that needs elevated database
             rights. So the app deletes what it is allowed to delete (all your rows) right away and
@@ -5455,7 +5548,7 @@ window.SLRViews = (() => {
             30 days are up. If you would rather not wait, or want written confirmation, ask via
             <a href="https://github.com/socresearcher/slr-harvester/issues" target="_blank" rel="noopener">GitHub</a>.
           </p>
-          <p style="font-size:13px;color:var(--text-muted);margin-top:8px;line-height:1.7">
+          <p class="privacy-lead">
             <strong>Signing out</strong> is separate and harmless: it clears the session on this
             device only and leaves your account and data untouched.
           </p>
@@ -6058,18 +6151,20 @@ window.SLRViews = (() => {
           <span>Auto-tag (in Articles) scores each article's journal name, title, and abstract against these keyword rules and assigns the highest-scoring category. Rename, recolour, delete, or add categories and keywords freely — changes apply across every project. Turn whole categories on/off per project from Settings &rarr; Auto-tag disciplines.</span>
         </div>
 
-        <div class="scheme-panel">
-          <div class="tag-add-form" id="autotag-add-category-form" style="display:none">
-            <div class="tag-add-form-inner">
-              <input type="color" class="tag-color-input" id="autotag-new-color" value="#64A8FF">
-              <input type="text"  class="tag-name-input"  id="autotag-new-name" placeholder="Category name" maxlength="40">
-              <button class="btn-primary btn-sm" id="autotag-add-category-confirm">Add</button>
-              <button class="btn-secondary btn-sm" id="autotag-add-category-cancel">Cancel</button>
-            </div>
+        <div class="tag-add-form" id="autotag-add-category-form" style="display:none">
+          <div class="tag-add-form-inner">
+            <input type="color" class="tag-color-input" id="autotag-new-color" value="#64A8FF">
+            <input type="text"  class="tag-name-input"  id="autotag-new-name" placeholder="Category name" maxlength="40">
+            <button class="btn-primary btn-sm" id="autotag-add-category-confirm">Add</button>
+            <button class="btn-secondary btn-sm" id="autotag-add-category-cancel">Cancel</button>
           </div>
-
-          <div class="autotag-grid">${cardsHTML}</div>
         </div>
+
+        <!-- Kein .scheme-panel mehr um dieses Raster: die Kategoriekarten
+             sassen damit in einer Karte, die ihrerseits in der aufklappbaren
+             Karte "Auto-Tag Rules" steckte — drei Rahmen tief. Tags und
+             Colour Schemes listen ihren Inhalt direkt, hier jetzt genauso. -->
+        <div class="autotag-grid">${cardsHTML}</div>
       </div>`;
 
     container.querySelector('#autotag-reset-btn')?.addEventListener('click', () => {

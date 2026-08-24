@@ -3370,6 +3370,29 @@ a.db-link:visited {
   color: var(--text-muted);
 }
 
+/* Einleitungsabsatz eines Abschnitts auf der Datenschutzseite. Vorher liefen
+   die beiden obersten als .field-hint (11,5px, --text-faint) und der Rest mit
+   denselben Werten inline an acht Stellen wiederholt — dasselbe Element in
+   zwei Größen und zwei Graustufen, je nachdem wo man hinsah. Eine Definition,
+   und der Abstand nach unten sitzt hier statt in Inline-Styles, damit
+   zwischen Erklärung und der folgenden Aufzählung überall gleich viel Luft
+   ist. */
+.privacy-lead {
+  font-size: 13px;
+  color: var(--text-muted);
+  line-height: 1.7;
+  margin-top: 10px;
+  margin-bottom: 12px;
+}
+
+.privacy-lead:first-of-type {
+  margin-top: 2px;
+}
+
+.privacy-lead + .privacy-lead {
+  margin-top: -2px;
+}
+
 .about-feature-list {
   list-style: none;
   font-size: 13px;
@@ -3551,6 +3574,23 @@ a.db-link:visited {
 /* Group heading above a run of sections. Adds order without introducing a
    second collapsible level — nested accordions are exactly the kind of depth
    that makes a settings page hard to scan. */
+/* Passwort- und E-Mail-Änderung: eigene Blöcke innerhalb von Cloud Sync,
+   durch eine Linie getrennt, damit sie nicht mit dem Anmeldestatus darüber
+   verschwimmen — aber ohne eigenen Rahmen, sonst steckte wieder eine Karte
+   in einer Karte. */
+.account-credentials {
+  margin-top: 18px;
+  padding-top: 16px;
+  border-top: 1px solid var(--border-subtle);
+}
+
+.account-credentials h4 {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text);
+  margin-bottom: 10px;
+}
+
 /* Account deletion — set apart from the rest of Cloud Sync, because it is
    the one control here that cannot be undone. */
 .danger-zone {
