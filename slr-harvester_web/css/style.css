@@ -2214,6 +2214,73 @@ a:hover {
   margin-bottom: 10px;
 }
 
+/* Section header above the abstract, with Read aloud on the right. Sits
+   inside .article-detail, so it only exists while the card is expanded. */
+/* Voice picker plus its Test button on one line — going from "different
+   voice" to "this is how it sounds" should be a single glance. */
+.tts-voice-row {
+  display: flex;
+  gap: 8px;
+  align-items: stretch;
+}
+
+.tts-voice-row .form-input { flex: 1; min-width: 0; }
+
+.tts-voice-row .btn-secondary {
+  flex-shrink: 0;
+  padding: 6px 12px;
+}
+
+.tts-rate-slider {
+  width: 100%;
+  accent-color: var(--accent);
+}
+
+.article-abstract-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  margin-bottom: 6px;
+}
+
+.article-abstract-label {
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: .08em;
+  text-transform: uppercase;
+  color: var(--text-faint);
+}
+
+.article-speak-btn {
+  height: 26px;
+  padding: 0 10px;
+  font-size: 12px;
+}
+
+.article-speak-btn svg {
+  width: 13px;
+  height: 13px;
+}
+
+.article-speak-btn:hover {
+  border-color: var(--accent);
+  color: var(--text);
+}
+
+.article-speak-btn.is-speaking {
+  border-color: var(--accent);
+  background: var(--accent-subtle);
+  color: var(--accent-hover);
+}
+
+@media (max-width: 560px) {
+  /* On a phone the label is the first thing that can go — the icon carries
+     the meaning well enough there. */
+  .article-speak-label { display: none; }
+  .article-speak-btn { padding: 0 8px; }
+}
+
 .article-abstract.no-abstract {
   color: var(--text-faint);
   font-style: italic;
