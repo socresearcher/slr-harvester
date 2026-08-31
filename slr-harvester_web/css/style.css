@@ -6719,6 +6719,46 @@ a.db-link:visited {
   color: var(--text-faint, var(--text-muted));
 }
 
+/* ----- Meistreferenzierte Autor:innen -------------------------------------
+   Eigene Regeln statt der Tag-Balken: dort steht neben jedem Balken ein
+   Prozentanteil an einer Gesamtmenge. Hier waere der sinnlos, weil eine
+   Arbeit mehrere Autor:innen hat und die Anteile zusammen weit ueber hundert
+   Prozent ergaeben. An seiner Stelle steht die Zahl der Arbeiten. */
+.viz-authors-tabs {
+  display: flex;
+  gap: 6px;
+  margin-bottom: 14px;
+}
+
+.viz-authors-note {
+  margin-bottom: 14px;
+  padding: 10px 12px;
+  font-size: 12.5px;
+  line-height: 1.55;
+  color: var(--text-muted);
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+}
+
+/* Die Randnummer sitzt in der Beschriftungsspalte und darf nicht mit dem
+   Namen mitlaufen, sonst stehen die Namen treppenfoermig. */
+.viz-rank {
+  display: inline-block;
+  width: 2.2em;
+  margin-right: .5em;
+  flex-shrink: 0;
+  text-align: right;
+  color: var(--text-faint);
+  font-variant-numeric: tabular-nums;
+}
+
+.viz-authors-more {
+  padding: 10px 4px 2px;
+  font-size: 12px;
+  color: var(--text-faint);
+}
+
 .viz-empty-bars {
   text-align: center;
   padding: 32px;
