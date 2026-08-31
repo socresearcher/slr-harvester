@@ -64,3 +64,18 @@ SECURITY_PLAN.md
 # Datenbankstruktur und offene Sicherheitspunkte; gehoert nicht in ein oeffentliches Repo.
 SUPABASE.md
 INFRASTRUKTUR.md
+
+# Internes Arbeitspapier samt Satzumgebung — NIEMALS veroeffentlichen.
+# Der Ordner enthaelt das Papier (PAPER.md), die daraus erzeugte Satzfassung,
+# das Titelbild und die fertigen PDF/HTML-Ausgaben. Er benennt offene
+# Sicherheitspunkte und Kontenstrukturen und gehoert unter keinen Umstaenden
+# in ein oeffentliches Repository.
+paper/
+
+# Frueherer Ablageort derselben Datei (jetzt unter paper/PAPER.md).
+# Eintrag bleibt, damit eine alte Arbeitskopie sie nicht doch noch mitnimmt.
+PAPER.md
+
+# Windows-Ordnersymbol (lokale Darstellung, nichts fuer das Repo)
+desktop.ini
+*.ico

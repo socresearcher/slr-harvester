@@ -3228,9 +3228,16 @@ window.SLRViews = (() => {
     // without ever locking the chart to a viewport-height clamp() (that used
     // to make charts towering in portrait and squashed in landscape).
     const CHART_HEIGHT_MIN = 160, CHART_HEIGHT_MAX = 700;
+    // One standard size for every chart. The bars chart at its default track
+    // height is the reference: compact enough that a whole chart fits on
+    // screen without scrolling, on a laptop as well as on a phone. Doughnut,
+    // year bars, world map and PRISMA now start from the same figure instead
+    // of each having grown its own default (320/440 before, which pushed the
+    // legend below the fold on smaller screens). Portrait still gets more,
+    // because there is more vertical room there.
     const getDefaultChartHeight = () => {
       const portrait = typeof window.matchMedia === 'function' && window.matchMedia('(orientation: portrait)').matches;
-      return portrait ? 440 : 320;
+      return portrait ? 340 : 260;
     };
     const getChartHeight = (storageKey) => {
       const saved = parseInt(localStorage.getItem(storageKey), 10);
@@ -3638,28 +3645,36 @@ window.SLRViews = (() => {
     // landscape being squashed). Shared by every resizable chart (bars,
     // doughnut, year) — each just passes its own handle/area ids and
     // localStorage key so their heights persist independently.
-    const wireChartResize = (el, { handleId, areaId, storageKey }) => {
+    // areaEl/applyHeight/startFrom exist for the world map: it has no box to
+    // clip — the SVG scales itself — so its resize caps the SVG through a
+    // custom property, and the current value has to be read back from that
+    // property rather than measured off a container.
+    const wireChartResize = (el, { handleId, areaId, storageKey, areaEl, applyHeight, startFrom }) => {
       const handle = el.querySelector('#' + handleId);
-      const area   = el.querySelector('#' + areaId);
+      const area   = areaEl || el.querySelector('#' + areaId);
       if (!handle || !area) return;
       let dragging = false, startY = 0, startH = 0;
       handle.addEventListener('pointerdown', ev => {
         dragging = true;
         startY = ev.clientY;
-        startH = area.getBoundingClientRect().height;
+        startH = startFrom ? startFrom(area) : area.getBoundingClientRect().height;
         handle.classList.add('is-dragging');
         try { handle.setPointerCapture(ev.pointerId); } catch (_) { /* ignore */ }
       });
       handle.addEventListener('pointermove', ev => {
         if (!dragging) return;
         const newH = Math.max(CHART_HEIGHT_MIN, Math.min(CHART_HEIGHT_MAX, startH + (ev.clientY - startY)));
-        area.style.height = newH + 'px';
+        if (applyHeight) applyHeight(area, newH); else area.style.height = newH + 'px';
+        area.dataset.chartHeight = String(Math.round(newH));
       });
       const endDrag = ev => {
         if (!dragging) return;
         dragging = false;
         handle.classList.remove('is-dragging');
-        localStorage.setItem(storageKey, String(Math.round(area.getBoundingClientRect().height)));
+        const finalH = applyHeight
+          ? parseInt(area.dataset.chartHeight, 10)
+          : Math.round(area.getBoundingClientRect().height);
+        if (Number.isFinite(finalH)) localStorage.setItem(storageKey, String(finalH));
         if (ev && handle.releasePointerCapture && ev.pointerId != null) {
           try { handle.releasePointerCapture(ev.pointerId); } catch (_) { /* noop */ }
         }
@@ -3711,13 +3726,42 @@ window.SLRViews = (() => {
     // No CSS height/overflow involved, which is exactly what avoids the
     // clipping the other charts used to have before they could scale.
     const PRISMA_DETAIL_MIN = 160, PRISMA_DETAIL_MAX = 700;
-    const PRISMA_HIDE_CONNECTORS_BELOW = 460;
-    const PRISMA_HIDE_SOURCES_BELOW = 300;
+    const PRISMA_TIGHTEN_BELOW = 520;
+    const PRISMA_HIDE_CONNECTORS_BELOW = 280;
+    const PRISMA_HIDE_SOURCES_BELOW = 210;
+    // The standard size the other charts use, expressed on PRISMA's own
+    // scale: arrows already tightened, boxes just under full size. Dragging
+    // still reaches both ends.
+    const PRISMA_DETAIL_DEFAULT = 420;
     const getPrismaDetailLevel = () => {
       const saved = parseInt(localStorage.getItem('slr-prisma-chart-height'), 10);
-      return (Number.isFinite(saved) && saved >= PRISMA_DETAIL_MIN && saved <= PRISMA_DETAIL_MAX) ? saved : PRISMA_DETAIL_MAX;
+      return (Number.isFinite(saved) && saved >= PRISMA_DETAIL_MIN && saved <= PRISMA_DETAIL_MAX) ? saved : PRISMA_DETAIL_DEFAULT;
     };
+
+    // Linear interpolation, clamped at both ends.
+    const between = (v, from, to, a, b) => {
+      const t = Math.max(0, Math.min(1, (v - from) / (to - from)));
+      return a + (b - a) * t;
+    };
+
+    // Shrinking happens in three overlapping stages rather than all at once,
+    // because hiding a step outright loses information the reader may need:
+    //
+    //   700 -> 460   the connector arrows shorten (whitespace only, no loss)
+    //   520 -> 300   the boxes themselves scale down (still fully readable)
+    //   below 280    connectors hide; below 210 the per-source row as well
+    //
+    // The ranges overlap on purpose, so the drag feels continuous instead of
+    // snapping between three fixed looks.
     const applyPrismaDetailLevel = (wrap, level) => {
+      wrap.style.setProperty('--prisma-conn',  between(level, 460, 700, 0.28, 1).toFixed(3));
+      wrap.style.setProperty('--prisma-scale', between(level, 300, 520, 0.72, 1).toFixed(3));
+      // Shortening the arrow's padding alone barely helps: the exclusion card
+      // inside sets the height, and its second line ("Duplicates removed (same
+      // EID or DOI ...)") is what makes it two lines tall. That reason line is
+      // the least essential piece, so it goes before anything else is hidden —
+      // the count and its label stay.
+      wrap.classList.toggle('prisma-tight', level < PRISMA_TIGHTEN_BELOW);
       wrap.classList.toggle('prisma-hide-connectors', level < PRISMA_HIDE_CONNECTORS_BELOW);
       wrap.classList.toggle('prisma-hide-sources', level < PRISMA_HIDE_SOURCES_BELOW);
     };
@@ -3782,6 +3826,19 @@ window.SLRViews = (() => {
         segs.forEach(s   => { s.addEventListener('mouseenter', () => activate(s.dataset.tagKey)); s.addEventListener('mouseleave', reset); });
         items.forEach(li => { li.addEventListener('mouseenter', () => activate(li.dataset.tagKey)); li.addEventListener('mouseleave', reset); });
         wireChartResize(el, { handleId: 'viz-year-resize-handle', areaId: 'viz-year-bars-area', storageKey: 'slr-year-chart-height' });
+      } else if (chartType === 'world') {
+        const wrap = el.querySelector('.viz-world-wrap');
+        if (wrap) {
+          const h = getChartHeight('slr-world-chart-height');
+          wrap.style.setProperty('--viz-map-h', h + 'px');
+          wireChartResize(el, {
+            handleId: 'viz-world-resize-handle',
+            storageKey: 'slr-world-chart-height',
+            areaEl: wrap,
+            startFrom: () => getChartHeight('slr-world-chart-height'),
+            applyHeight: (target, newH) => target.style.setProperty('--viz-map-h', newH + 'px'),
+          });
+        }
       }
       if (chartType === 'world') {
         const countries = [...el.querySelectorAll('.viz-world-country-has-data[data-country-key]')];
@@ -3869,17 +3926,45 @@ window.SLRViews = (() => {
           ? rows.join('')
           : `<p style="color:var(--text-faint);padding:8px 0">${esc(emptyMsg)}</p>`;
 
-        const openArticleListModal = (title, subsetArticles) => {
-          if (!overlay) return;
-          const rows = subsetArticles.map(a => {
-            const hex  = tagColor(projectData, a.color);
-            const year = a.yearNum || '';
-            return `<div class="history-result-item">
+        // A row in these lists used to be a dead end: it named an article but
+        // said nothing about it, and finding out more meant leaving the flow
+        // diagram for the article list and searching there. Each row now
+        // expands in place instead — enough detail to recognise the record
+        // without losing the context it was opened from.
+        const articleRow = (a, idx, prefix) => {
+          const hex   = tagColor(projectData, a.color);
+          const year  = a.yearNum || '';
+          const id    = `${prefix}-${idx}`;
+          const facts = [];
+          if (a.authors)  facts.push(['Authors', a.authors]);
+          if (a.journal || a.publicationName) facts.push(['Source', a.journal || a.publicationName]);
+          if (a.doctype)  facts.push(['Type', a.doctype]);
+          if (a.doi)      facts.push(['DOI', a.doi]);
+          if (a.eid)      facts.push(['ID', a.eid]);
+          if (Number.isFinite(a.citedby) && a.citedby > 0) facts.push(['Cited by', String(a.citedby)]);
+          if (a.tag)      facts.push(['Tag', a.tag]);
+          const factsHTML = facts.map(([k, v]) =>
+            `<div class="prisma-detail-fact"><dt>${esc(k)}</dt><dd>${esc(String(v))}</dd></div>`).join('');
+          const abstractHTML = a.abstract
+            ? `<p class="prisma-detail-abstract">${esc(a.abstract)}</p>`
+            : `<p class="prisma-detail-abstract prisma-detail-empty">No abstract stored for this record.</p>`;
+          return `<div class="history-result-item history-result-item--expandable"
+                       data-expand="${esc(id)}" tabindex="0" role="button" aria-expanded="false"
+                       aria-controls="${esc(id)}">
               <div class="history-result-dot" ${hex ? `style="background:${esc(hex)}"` : ''}></div>
               <div class="history-result-title">${esc(a.title)}</div>
               <div class="history-result-year">${esc(String(year))}</div>
+              <span class="prisma-expand-caret" aria-hidden="true"></span>
+            </div>
+            <div class="prisma-detail hidden" id="${esc(id)}">
+              <dl class="prisma-detail-facts">${factsHTML}</dl>
+              ${abstractHTML}
             </div>`;
-          });
+        };
+
+        const openArticleListModal = (title, subsetArticles) => {
+          if (!overlay) return;
+          const rows = subsetArticles.map((a, i) => articleRow(a, i, 'excl'));
           renderPrismaDetailModal(overlay, {
             title,
             subtitle: `${subsetArticles.length.toLocaleString()} record${subsetArticles.length !== 1 ? 's' : ''}`,
@@ -3909,13 +3994,32 @@ window.SLRViews = (() => {
         const openDuplicatesModal = () => {
           if (!overlay) return;
           const dups = computeDuplicates(history);
-          const rows = dups.map(d => {
+          // Duplicates carry their own provenance (which database, which run)
+          // on top of the article fields, so the meta line stays and the
+          // expandable detail is appended below it.
+          const rows = dups.map((d, i) => {
             const viewKey = (d.view || 'scopus').toLowerCase();
             const dbLabel = DB_LABELS[viewKey] || d.view || 'Scopus';
-            return `<div class="prisma-modal-row">
-              <div class="prisma-modal-row-title">${esc(d.title || 'Untitled')}</div>
-              <div class="prisma-modal-row-meta">Duplicate found in ${esc(dbLabel)} · ${esc(d.timestamp || '')}</div>
-            </div>`;
+            const id = `dup-${i}`;
+            const facts = [];
+            if (d.authors) facts.push(['Authors', d.authors]);
+            if (d.doi)     facts.push(['DOI', d.doi]);
+            if (d.eid)     facts.push(['ID', d.eid]);
+            facts.push(['Found in', dbLabel]);
+            if (d.timestamp) facts.push(['Query run', d.timestamp]);
+            const factsHTML = facts.map(([k, v]) =>
+              `<div class="prisma-detail-fact"><dt>${esc(k)}</dt><dd>${esc(String(v))}</dd></div>`).join('');
+            return `<div class="prisma-modal-row prisma-modal-row--expandable"
+                         data-expand="${esc(id)}" tabindex="0" role="button" aria-expanded="false"
+                         aria-controls="${esc(id)}">
+                <div class="prisma-modal-row-title">${esc(d.title || 'Untitled')}</div>
+                <div class="prisma-modal-row-meta">Duplicate found in ${esc(dbLabel)} · ${esc(d.timestamp || '')}</div>
+                <span class="prisma-expand-caret" aria-hidden="true"></span>
+              </div>
+              <div class="prisma-detail hidden" id="${esc(id)}">
+                <dl class="prisma-detail-facts">${factsHTML}</dl>
+                ${d.abstract ? `<p class="prisma-detail-abstract">${esc(d.abstract)}</p>` : ''}
+              </div>`;
           });
           renderPrismaDetailModal(overlay, {
             title: 'Removed Duplicates',
@@ -4011,7 +4115,10 @@ window.SLRViews = (() => {
         : currentChart === 'year'
             ? renderYearBars(currentMode, currentGroupBy, showLegend, showNone)
           : currentChart === 'world'
-            ? SLRWorldMap.renderWorldMap(getSubset(currentMode), showLegend)
+            ? SLRWorldMap.renderWorldMap(getSubset(currentMode), showLegend) +
+              '<div class="viz-col-resize-handle" id="viz-world-resize-handle" ' +
+              'title="Drag to resize the map" role="separator" aria-orientation="horizontal">' +
+              '<span class="viz-col-resize-grip"></span></div>'
           : currentChart === 'prisma'
             ? renderPrisma()
             : renderBars(currentMode, currentGroupBy, showNone);
@@ -7131,6 +7238,29 @@ window.SLRViews = (() => {
     const closeModal = () => { overlay.classList.add('hidden'); overlay.innerHTML = ''; };
     overlay.querySelector('#prisma-modal-close').addEventListener('click', closeModal);
     overlay.addEventListener('click', e => { if (e.target === overlay) closeModal(); });
+
+    // Rows that carry data-expand toggle the panel named by the attribute.
+    // Delegated rather than bound per row: these lists can hold hundreds of
+    // records, and one listener on the body beats hundreds on the rows.
+    const body = overlay.querySelector('.modal-body');
+    if (body) {
+      const toggle = (row) => {
+        const panel = body.querySelector('#' + CSS.escape(row.dataset.expand));
+        if (!panel) return;
+        const open = panel.classList.toggle('hidden');
+        row.setAttribute('aria-expanded', String(!open));
+        row.classList.toggle('is-open', !open);
+      };
+      body.addEventListener('click', e => {
+        const row = e.target.closest('[data-expand]');
+        if (row && body.contains(row)) toggle(row);
+      });
+      body.addEventListener('keydown', e => {
+        if (e.key !== 'Enter' && e.key !== ' ') return;
+        const row = e.target.closest('[data-expand]');
+        if (row && body.contains(row)) { e.preventDefault(); toggle(row); }
+      });
+    }
   }
 
   //  New Project modal

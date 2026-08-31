@@ -6615,10 +6615,15 @@ a.db-link:visited {
   flex: none;
 }
 
+/* --viz-map-h is set from JS (the resize handle) and defaults to the same
+   standard size as the other charts. With aspect-ratio and height:auto the
+   browser reduces the used WIDTH to honour max-height, so the map shrinks
+   proportionally instead of being clipped — and the status note and legend
+   below it stay visible either way. */
 .viz-world-svg {
   width: 100%;
   height: auto;
-  max-height: none;
+  max-height: var(--viz-map-h, 260px);
   aspect-ratio: 1000 / 520;
   display: block;
   margin: 0 auto;
@@ -6900,6 +6905,17 @@ a.db-link:visited {
   margin-top: 4px;
 }
 
+/* Two knobs drive every size in the flow diagram, both set from JS by
+   applyPrismaDetailLevel:
+     --prisma-scale  box padding and type size          (1 = full)
+     --prisma-conn   length of the connector arrows     (1 = full)
+   Declared here as well so the diagram is correctly sized before the first
+   drag, and so a stylesheet-only reading of this file is complete. */
+.prisma-wrap {
+  --prisma-scale: 0.83;
+  --prisma-conn: 0.28;
+}
+
 .prisma-steps {
   display: flex;
   flex-direction: column;
@@ -6908,12 +6924,12 @@ a.db-link:visited {
 .prisma-box {
   border: 1.5px solid var(--border);
   border-radius: var(--radius);
-  padding: 16px 20px 12px;
+  padding: calc(14px * var(--prisma-scale)) 18px calc(11px * var(--prisma-scale));
   border-left-width: 4px;
 }
 
 .prisma-box-stage {
-  font-size: 9.5px;
+  font-size: calc(9.5px * var(--prisma-scale));
   font-weight: 700;
   text-transform: uppercase;
   letter-spacing: 0.1em;
@@ -6924,17 +6940,17 @@ a.db-link:visited {
 .prisma-box-body {
   display: flex;
   align-items: center;
-  gap: 16px;
-  margin-bottom: 12px;
+  gap: calc(14px * var(--prisma-scale));
+  margin-bottom: calc(10px * var(--prisma-scale));
 }
 
 .prisma-box-n {
-  font-size: 40px;
+  font-size: calc(29px * var(--prisma-scale));
   font-weight: 700;
   color: var(--text);
   line-height: 1;
   flex-shrink: 0;
-  min-width: 64px;
+  min-width: calc(52px * var(--prisma-scale));
   text-align: right;
 }
 
@@ -6944,7 +6960,7 @@ a.db-link:visited {
 
 .prisma-box-desc {
   display: block;
-  font-size: 14px;
+  font-size: calc(13px * var(--prisma-scale));
   font-weight: 600;
   color: var(--text);
   line-height: 1.3;
@@ -6952,7 +6968,7 @@ a.db-link:visited {
 
 .prisma-box-meta {
   display: block;
-  font-size: 11.5px;
+  font-size: calc(11px * var(--prisma-scale));
   color: var(--text-muted);
   margin-top: 3px;
 }
@@ -6974,7 +6990,7 @@ a.db-link:visited {
 .prisma-step-connector {
   display: grid;
   grid-template-columns: 1fr 1fr;
-  min-height: 60px;
+  min-height: calc(58px * var(--prisma-conn));
 }
 
 .prisma-sc-vline {
@@ -6995,14 +7011,14 @@ a.db-link:visited {
 .prisma-sc-right {
   display: flex;
   align-items: center;
-  padding: 8px 4px 8px 16px;
+  padding: calc(8px * var(--prisma-conn)) 4px calc(8px * var(--prisma-conn)) 16px;
 }
 
 .prisma-sc-excl {
   position: relative;
   border: 1px dashed var(--border);
   border-radius: var(--radius);
-  padding: 8px 12px;
+  padding: calc(8px * var(--prisma-conn)) 12px;
   display: flex;
   align-items: center;
   gap: 10px;
@@ -7021,7 +7037,7 @@ a.db-link:visited {
 }
 
 .prisma-excl-n {
-  font-size: 22px;
+  font-size: calc(20px * var(--prisma-scale));
   font-weight: 700;
   color: var(--danger);
   flex-shrink: 0;
@@ -7067,6 +7083,86 @@ a.db-link:visited {
   outline: none;
 }
 
+/* Expandable rows in the PRISMA detail lists. The row itself keeps its
+   existing layout; only the caret and the hover affordance are added, plus
+   the panel that opens underneath it. */
+.history-result-item--expandable,
+.prisma-modal-row--expandable {
+  cursor: pointer;
+  position: relative;
+  padding-right: 26px;
+}
+
+.history-result-item--expandable:hover,
+.history-result-item--expandable:focus-visible,
+.prisma-modal-row--expandable:hover,
+.prisma-modal-row--expandable:focus-visible {
+  background: var(--surface-2);
+  outline: none;
+}
+
+.prisma-expand-caret {
+  position: absolute;
+  right: 8px;
+  top: 50%;
+  width: 7px;
+  height: 7px;
+  margin-top: -5px;
+  border-right: 1.5px solid var(--text-faint);
+  border-bottom: 1.5px solid var(--text-faint);
+  transform: rotate(45deg);
+  transition: transform .15s ease;
+}
+
+.is-open .prisma-expand-caret {
+  transform: rotate(-135deg);
+  margin-top: -2px;
+}
+
+.prisma-detail {
+  padding: 10px 14px 14px 26px;
+  border-left: 2px solid var(--border);
+  margin: 0 8px 8px 12px;
+}
+
+.prisma-detail-facts {
+  display: grid;
+  grid-template-columns: max-content 1fr;
+  gap: 3px 14px;
+  margin: 0 0 8px;
+}
+
+.prisma-detail-fact {
+  display: contents;
+}
+
+.prisma-detail-fact dt {
+  font-size: 10.5px;
+  text-transform: uppercase;
+  letter-spacing: .05em;
+  color: var(--text-faint);
+  white-space: nowrap;
+}
+
+.prisma-detail-fact dd {
+  font-size: 12px;
+  color: var(--text);
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+
+.prisma-detail-abstract {
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--text-muted);
+  margin: 0;
+}
+
+.prisma-detail-empty {
+  font-style: italic;
+  color: var(--text-faint);
+}
+
 .prisma-hint {
   text-align: center;
   font-size: 11px;
@@ -7079,6 +7175,12 @@ a.db-link:visited {
    connectors, then (dragged smaller still) the per-source boxes row too.
    Dragging back out past each threshold brings it back. See
    wirePrismaResize/applyPrismaDetailLevel in views.js. */
+/* First stage of tightening: the exclusion card drops to a single line.
+   The count and its label stay — only the explanatory second line goes. */
+.prisma-tight .prisma-excl-reason {
+  display: none;
+}
+
 .prisma-hide-connectors .prisma-step-connector {
   display: none;
 }
@@ -7110,8 +7212,8 @@ a.db-link:visited {
 }
 
 .prisma-box-source .prisma-box-n {
-  font-size: 32px;
-  min-width: 48px;
+  font-size: calc(23px * var(--prisma-scale));
+  min-width: calc(40px * var(--prisma-scale));
 }
 
 .prisma-box-source .prisma-box-body {
