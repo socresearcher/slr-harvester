@@ -1870,6 +1870,13 @@ a:hover {
   flex-shrink: 0;
   margin-top: 1px;
   order: 2;
+  /* min-width, not width: this steadies the column at the width a typical
+     source+type pair needs, so the facts row next to it starts at the same
+     place on card after card. A genuinely wider pair — "Semantic Scholar"
+     beside "Journal Issue" — still gets the room it needs rather than being
+     clipped; those cards then sit a few pixels off, which is the right
+     trade against truncating a label. */
+  min-width: 132px;
 }
 
 .article-badges-row {
@@ -1932,6 +1939,16 @@ a:hover {
   border: 1px solid rgba(230, 115, 0, .35);
 }
 
+/* Neutral grey on purpose: the other source badges name a database and are
+   coloured like one, while this one says "came out of a file" — a statement
+   about provenance, not about a publisher, and it should not compete with
+   them for attention. */
+.badge-source-import {
+  background: var(--surface-2);
+  color: var(--text-muted);
+  border: 1px solid var(--border);
+}
+
 .badge-source-arxiv {
   background: rgba(179, 27, 27, .12);
   color: #e05555;
@@ -1988,15 +2005,67 @@ a:hover {
 .badge-doctype-dissertation{ background: rgba(244, 162,  97,  .15); color: #d08030; border: 1px solid rgba(244, 162,  97,  .4); }
 .badge-doctype-report      { background: rgba(165, 172, 184, .15); color: #8a9aaa; border: 1px solid rgba(165, 172, 184, .4); }
 
+/* Two rows, not one wrapping sentence. The facts row always carries the same
+   three slots in the same order, so a column of cards can be read downwards —
+   the year sits under the year, the citation count under the citation count.
+   A missing value leaves a dash rather than collapsing, because a collapsed
+   slot would shift everything after it and break exactly that alignment. */
 .article-meta {
   display: flex;
-  align-items: center;
-  gap: 0;
+  flex-direction: column;
+  gap: 1px;
   margin-top: 3px;
   font-size: 12px;
   color: var(--text-muted);
-  flex-wrap: wrap;
   line-height: 1.6;
+}
+
+.article-meta-line {
+  display: flex;
+  align-items: baseline;
+  flex-wrap: wrap;
+  min-width: 0;
+}
+
+/* Fixed tracks, not a flow of text. Every card in a list has the same width,
+   so a 1fr journal column puts the year and the citation count at the same x
+   on every card — which is what makes the list readable downwards. With the
+   old middle-dot separators those two moved with the length of the journal
+   name and no two cards lined up. */
+.article-meta-facts {
+  display: grid;
+  /* Both trailing tracks are sized, not auto: an auto-sized citation
+     column is as wide as its own number, so "412 cited" and "7 cited"
+     produced different column widths and pushed the year back out of
+     alignment even with a steady badge column beside them. The minmax
+     still lets an unusually large count take the room it needs. */
+  grid-template-columns: minmax(0, 1fr) 3.5em minmax(5.5em, auto);
+  gap: 0 14px;
+  align-items: baseline;
+}
+
+/* The one part that has to give way, so it is the one that gets the ellipsis;
+   the full name stays available through the title attribute. */
+.article-meta-journal {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  min-width: 0;
+}
+
+/* Tabular figures so the digits themselves line up inside their columns —
+   without it a 2019 and a 2020 differ in width and the column only looks
+   aligned at its left edge. */
+.article-meta-year,
+.article-meta-cited {
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+}
+
+/* Dimmer than the surrounding muted text: a placeholder should be legible as
+   an absence, not read as a value. */
+.article-meta-missing {
+  color: var(--text-faint);
 }
 
 .meta-sep {
@@ -2595,12 +2664,108 @@ a:hover {
   gap: 12px;
 }
 
+/* Sits above the Articles list whenever it is restricted to a single query.
+   Deliberately loud — accent-tinted and full width — because a filtered list
+   that looks like an unfiltered one is the kind of thing a reader carries
+   into a methods section by mistake. */
+.query-filter-banner {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 14px;
+  margin-bottom: 10px;
+  border: 1px solid color-mix(in srgb, var(--accent) 40%, var(--border));
+  border-radius: var(--radius);
+  background: color-mix(in srgb, var(--accent) 8%, transparent);
+}
+
+.query-filter-icon {
+  display: flex;
+  flex-shrink: 0;
+  color: var(--accent);
+}
+
+.query-filter-icon svg {
+  width: 18px;
+  height: 18px;
+}
+
+.query-filter-text {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+  flex: 1;
+}
+
+.query-filter-label {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--accent);
+}
+
+.query-filter-query {
+  font-size: 12px;
+  color: var(--text);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.query-filter-sub {
+  font-size: 11px;
+  color: var(--text-faint);
+}
+
+.query-filter-clear {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  flex-shrink: 0;
+  height: 28px;
+  padding: 0 10px;
+  font-size: 12px;
+  font-weight: 500;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--surface);
+  color: var(--text-muted);
+  cursor: pointer;
+  transition: background .15s, color .15s, border-color .15s;
+}
+
+.query-filter-clear svg {
+  width: 14px;
+  height: 14px;
+}
+
+.query-filter-clear:hover {
+  background: var(--surface-2);
+  color: var(--text);
+  border-color: var(--accent);
+}
+
 .history-toolbar {
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: 12px;
   flex-wrap: wrap;
+}
+
+.history-toolbar-right {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+/* Two buttons where there used to be one, so they need a row of their own —
+   without it the second wraps under the first and the margin-top on each
+   opens a gap between them. */
+.hist-query-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
 }
 
 .hist-tabs {
@@ -2898,6 +3063,18 @@ a:hover {
 .hist-copy-btn:hover {
   background: var(--surface-2);
   color: var(--accent);
+}
+
+/* The one action in this row that changes what is on screen rather than
+   copying something, so it carries the accent border the copy button does
+   not. */
+.hist-show-articles-btn {
+  border-color: color-mix(in srgb, var(--accent) 45%, var(--border));
+  color: var(--accent);
+}
+
+.hist-show-articles-btn:hover {
+  background: color-mix(in srgb, var(--accent) 12%, transparent);
 }
 
 /* Die .hist-action-btn-Regeln sind mit den Knoepfen selbst entfallen —

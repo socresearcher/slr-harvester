@@ -145,11 +145,16 @@ window.SLRViews = (() => {
     scopus: 'Scopus', standard: 'Scopus', complete: 'Scopus', refexpanded: 'Scopus',
     pubmed: 'PubMed', arxiv: 'arXiv', s2: 'Semantic Scholar', openalex: 'OpenAlex',
     SCOPUS: 'Scopus', PUBMED: 'PubMed', ARXIV: 'arXiv', S2: 'Semantic Scholar', OPENALEX: 'OpenAlex',
+    // Not a database. It gets an entry here anyway so an imported list is
+    // labelled by where it came from instead of falling back to 'Scopus',
+    // which would be a plain untruth about the record's provenance.
+    import: 'Imported file',
   };
   const DB_SOURCE_KEY = {
     scopus: 'scopus', standard: 'scopus', complete: 'scopus', refexpanded: 'scopus',
     pubmed: 'pubmed', arxiv: 'arxiv', s2: 's2', openalex: 'openalex',
     SCOPUS: 'scopus', PUBMED: 'pubmed', ARXIV: 'arxiv', S2: 's2', OPENALEX: 'openalex',
+    import: 'import',
   };
   // Same per-source colors as the .badge-source-* CSS, reused for the PRISMA
   // Identification source boxes so a database reads as the same color everywhere.
@@ -1054,6 +1059,31 @@ window.SLRViews = (() => {
 
   //  Articles view 
 
+  // Shown above the Articles list while it is restricted to one query. It has
+  // to name the query, not just say that a filter is on: "1 of 12 queries"
+  // would leave the reader guessing which, and a filter whose subject is
+  // invisible is worse than no filter — it makes a short list look like a
+  // small project.
+  function buildQueryFilterBannerHTML(filter, projectData) {
+    if (!Number.isInteger(filter.runIndex)) return '';
+    const run = ((projectData && projectData.searchLog) || [])[filter.runIndex];
+    if (!run) return '';
+    const viewKey = String(run.view || 'scopus').toLowerCase();
+    const dbLabel = DB_LABELS[viewKey] || run.view || 'Scopus';
+    const query   = String(run.query || '').replace(/\s+/g, ' ');
+    return `
+      <div class="query-filter-banner">
+        <span class="query-filter-icon" aria-hidden="true">${SLRIcons.history}</span>
+        <div class="query-filter-text">
+          <span class="query-filter-label">Showing one query only</span>
+          <code class="query-filter-query" title="${esc(query)}">${esc(query.slice(0, 160))}${query.length > 160 ? '\u2026' : ''}</code>
+          <span class="query-filter-sub">${esc(dbLabel)} &middot; ${esc(run.timestamp || '')}</span>
+        </div>
+        <button type="button" class="query-filter-clear" data-action="clear-query-filter"
+                title="Show articles from every query again">${SLRIcons.close}<span>Show all</span></button>
+      </div>`;
+  }
+
   function renderArticles(container, articles, filter, projectData) {
     // Apply filters (Articles always operates on the full list — the old
     // All/Selected/Corpus mode switch was removed in favor of separate tabs)
@@ -1088,6 +1118,7 @@ window.SLRViews = (() => {
       <div class="articles-view">
 
         <div class="list-header-collapsible"><div class="list-header-collapsible-inner">
+        ${buildQueryFilterBannerHTML(filter, projectData)}
         <div class="corpus-banner">
           <span class="corpus-banner-stat">
             ${SLRIcons.articles}
@@ -1150,6 +1181,9 @@ window.SLRViews = (() => {
     wireArticleSwipeGestures(container.querySelector('#article-list'), projectData, 'all');
     wireListHeaderCollapse(container, container.querySelector('#article-list'));
     wireInfiniteScroll(container.querySelector('#article-list'), hasMore, () => SLRApp.bumpArticlesRenderLimit());
+
+    const clearQueryBtn = container.querySelector('[data-action="clear-query-filter"]');
+    if (clearQueryBtn) clearQueryBtn.addEventListener('click', () => SLRApp.clearQueryFilter());
   }
 
   // Author lists in bibliographic data routinely run to dozens of names —
@@ -1225,7 +1259,7 @@ window.SLRViews = (() => {
       : null;
 
     // Source badge and optional doc-type badge
-    const SOURCE_LABELS = { scopus: 'Scopus', arxiv: 'arXiv', pubmed: 'PubMed', s2: 'S2', openalex: 'OpenAlex' };
+    const SOURCE_LABELS = { scopus: 'Scopus', arxiv: 'arXiv', pubmed: 'PubMed', s2: 'S2', openalex: 'OpenAlex', import: 'Imported' };
     // Infer source from EID prefix for legacy entries that predate the source field
     const _eid = a._id || a.eid || '';
     const source = a.source
@@ -1279,21 +1313,37 @@ window.SLRViews = (() => {
          </div>`
       : '';
 
-    // Built here rather than inline in the template so the counting logic
-    // stays readable and the markup stays one expression.
+    // Two fixed lines, not one running sentence: authors on the first,
+    // journal/year/citations on the second. Because every card lays the same
+    // three facts out in the same order in the same place, a column of cards
+    // can be compared by eye — scanning down the year or the citation count
+    // no longer means re-reading a differently-shaped meta line each time.
+    //
+    // That only holds if the slots stay put when a value is missing, so an
+    // absent journal or year leaves a dash behind instead of collapsing and
+    // shifting everything after it one position to the left.
     const authorList = splitAuthors(a.authors);
     const authorsHTML = (() => {
-      if (!authorList.length) return '';
+      if (!authorList.length) return '<span class="article-meta-missing">No authors listed</span>';
       const shown = authorList.slice(0, AUTHORS_SHOWN);
       const rest  = authorList.slice(AUTHORS_SHOWN);
       const head  = `<span class="article-authors-shown">${esc(shown.join('; '))}</span>`;
-      if (!rest.length) return head + '<span class="meta-sep">&middot;</span>';
+      if (!rest.length) return head;
       return `<span class="article-authors">${head}<button type="button"
                   class="article-authors-more" data-action="toggle-authors"
                   aria-expanded="false"
                   title="Show the remaining ${rest.length} author${rest.length !== 1 ? 's' : ''}"
-                >+${rest.length} more</button><span class="article-authors-rest" hidden>${esc(rest.join('; '))}</span></span><span class="meta-sep">&middot;</span>`;
+                >+${rest.length} more</button><span class="article-authors-rest" hidden>${esc(rest.join('; '))}</span></span>`;
     })();
+
+    // No separators between the three: they sit in fixed grid tracks, so the
+    // columns themselves do the separating, and a middle dot would only add
+    // noise to a row whose whole point is to be scanned quickly.
+    const MISSING = '<span class="article-meta-missing">&mdash;</span>';
+    const factsHTML = `
+                <span class="article-meta-journal" ${a.publicationName ? `title="${esc(a.publicationName)}"` : ''}>${a.publicationName ? esc(a.publicationName) : MISSING}</span>
+                <span class="article-meta-year">${year ? esc(year) : MISSING}</span>
+                <span class="article-meta-cited">${a.citedby || 0} cited</span>`;
 
     const idRow = (doiLink || eidLink) ? `
       <div class="article-id-row">
@@ -1377,10 +1427,9 @@ window.SLRViews = (() => {
             <div class="article-main">
               <div class="article-title">${esc(a.title)}</div>
               <div class="article-meta">
-                ${authorsHTML}
-                ${a.publicationName ? `<span>${esc(a.publicationName)}</span><span class="meta-sep">&middot;</span>` : ''}
-                ${year ? `<span>${esc(year)}</span><span class="meta-sep">&middot;</span>` : ''}
-                <span>${a.citedby || 0} cited</span>
+                <div class="article-meta-line article-meta-authors">${authorsHTML}</div>
+                <div class="article-meta-line article-meta-facts">${factsHTML}
+                </div>
               </div>
             </div>
           </div>
@@ -2112,17 +2161,15 @@ window.SLRViews = (() => {
   function formatBibAuthors(authors) {
     const raw = String(authors || '').trim();
     if (!raw) return '';
-    // Author lists are joined with ';' (legacy) or ',' (Scopus/PubMed/OpenAlex/
-    // Crossref mappers all use ', ') — only fall back to ' and ' splitting for
-    // an already-prose-joined single pair with neither delimiter present.
-    const parts = raw.includes(';')
-      ? raw.split(/\s*;\s*/)
-      : raw.includes(',')
-        ? raw.split(/\s*,\s*/)
-        : raw.split(/\s+and\s+/i);
-    const cleaned = parts.map(part => part.trim()).filter(Boolean);
-    if (cleaned.length <= 1) return raw;
-    return cleaned.join(' and ');
+    // splitAuthors, not a bare comma split: databases write a single author as
+    // "Surname, Initials", and splitting that on the comma turned one person
+    // into two — every re-import then read a phantom co-author. splitAuthors
+    // re-joins the pair, which is the same rule the article card already uses.
+    const parts = raw.includes(';') || raw.includes(',')
+      ? splitAuthors(raw)
+      : raw.split(/\s+and\s+/i).map(part => part.trim()).filter(Boolean);
+    if (parts.length <= 1) return raw;
+    return parts.join(' and ');
   }
 
   function escBib(value) {
@@ -2171,16 +2218,11 @@ window.SLRViews = (() => {
   function splitAuthorsForRis(authors) {
     const raw = String(authors || '').trim();
     if (!raw) return [];
-    if (raw.includes(';')) {
-      return raw.split(/\s*;\s*/).map(part => part.trim()).filter(Boolean);
-    }
-    // Scopus/PubMed/OpenAlex/Crossref mappers all join multi-author lists with
-    // ', ' (see mapPubmedResult, mapOpenAlexResult, mapCrossrefSearchResult,
-    // fetchAuthorsViaDOI in app.js) — without this, every multi-author RIS
-    // export collapsed into a single garbled AU line.
-    if (raw.includes(',')) {
-      return raw.split(/\s*,\s*/).map(part => part.trim()).filter(Boolean);
-    }
+    // Same correction as in formatBibAuthors above: the mappers join authors
+    // with ', ' AND write each name as "Surname, Initials", so the comma alone
+    // cannot tell a separator from part of a name. splitAuthors knows the
+    // difference; a plain split produced one AU line per half-name.
+    if (raw.includes(';') || raw.includes(',')) return splitAuthors(raw);
     if (/\sand\s/i.test(raw)) {
       return raw.split(/\s+and\s+/i).map(part => part.trim()).filter(Boolean);
     }
@@ -2224,12 +2266,320 @@ window.SLRViews = (() => {
     return `"${text.replace(/"/g, '""')}"`;
   }
 
+  //  Import: reading .bib / .ris / .csv back in
+
+  // What every parser below produces. The shape is deliberately the same one
+  // the search mappers emit (mapPubmedResult and friends in app.js), because
+  // from here on an imported record has to be indistinguishable from a
+  // searched one — it lands in the same search log, is deduplicated by the
+  // same rule, and is screened with the same buttons.
+  //
+  // Two things are NOT imported, and both are on purpose:
+  //   * Tags and screening state. They live in slr_global_tags.json keyed by
+  //     id, not in the search log, so re-importing a list into the project it
+  //     came from finds its own annotations still attached. Writing them back
+  //     from the file would instead overwrite whatever the user has decided
+  //     since the export.
+  //   * Citation counts as a live value. They are read if present but never
+  //     refreshed — a number from a file is as old as the file.
+  function parseImportFile(text, filename) {
+    const name   = String(filename || '').toLowerCase();
+    const body   = String(text || '');
+    // Extension first, content sniffing only as a fallback: a file the user
+    // renamed is rarer than a format that superficially resembles another.
+    let format =
+      name.endsWith('.bib')  ? 'bib' :
+      name.endsWith('.ris')  ? 'ris' :
+      name.endsWith('.csv')  ? 'csv' :
+      /^\s*@[a-zA-Z]+\s*\{/.test(body) ? 'bib' :
+      /^\s*(TY|A1|AU|T1|TI)\s{2}-\s/m.test(body) ? 'ris' :
+      'csv';
+
+    const records =
+      format === 'bib' ? parseBib(body) :
+      format === 'ris' ? parseRis(body) :
+                         parseCsvRecords(body);
+
+    return { format, records: records.filter(r => r.title) };
+  }
+
+  // A record needs an id, and it has to be the SAME id next time the same
+  // record arrives — otherwise re-importing a file, or importing an exported
+  // list back into its own project, silently doubles every entry instead of
+  // merging with what is already there.
+  //
+  // Order of preference: the id the file carries (a round-trip through our own
+  // exporter keeps it, so nothing changes), then the DOI (globally unique and
+  // stable), then a hash of title and year as a last resort.
+  function importId(rec) {
+    const given = String(rec.eid || '').trim();
+    if (given) return given;
+    const doi = String(rec.doi || '').trim().toLowerCase();
+    if (doi) return doi;
+    const basis = `${String(rec.title || '').toLowerCase().replace(/\s+/g, ' ').trim()}|${rec.year || ''}`;
+    let hash = 0;
+    for (let i = 0; i < basis.length; i++) hash = (hash * 31 + basis.charCodeAt(i)) >>> 0;
+    return `import:${hash.toString(36)}`;
+  }
+
+  function toImportedArticle(rec) {
+    const year = String(rec.year || '').match(/\b(19|20)\d{2}\b/);
+    return {
+      eid:             importId(rec),
+      title:           String(rec.title || '').trim(),
+      authors:         String(rec.authors || '').trim(),
+      publicationName: String(rec.journal || '').trim(),
+      // getArticles reads the year off date.slice(0,4), so a bare year is a
+      // valid date here — no fake month and day are invented to fill it out.
+      date:            String(rec.date || (year ? year[0] : '')).trim(),
+      doi:             String(rec.doi || '').trim(),
+      abstract:        String(rec.abstract || '').trim(),
+      citedby:         parseInt(rec.citedby, 10) || 0,
+      source:          String(rec.source || '').trim() || 'import',
+      docType:         String(rec.docType || '').trim(),
+    };
+  }
+
+  //  BibTeX
+
+  function parseBib(text) {
+    const records = [];
+    // Entry starts are found by scanning rather than by one big regular
+    // expression: field values may contain braces of their own, which no
+    // regex can balance.
+    const re = /@([a-zA-Z]+)\s*\{/g;
+    let m;
+    while ((m = re.exec(text)) !== null) {
+      const open = re.lastIndex - 1;
+      const close = matchBrace(text, open);
+      if (close < 0) break;
+      records.push(parseBibEntry(text.slice(open + 1, close), m[1]));
+      re.lastIndex = close;
+    }
+    return records;
+  }
+
+  // Index of the '}' closing the '{' at `from`, or -1. Escaped braces (\{)
+  // do not count.
+  function matchBrace(text, from) {
+    let depth = 0;
+    for (let i = from; i < text.length; i++) {
+      const ch = text[i];
+      if (ch === '\\') { i++; continue; }
+      if (ch === '{') depth++;
+      else if (ch === '}') { depth--; if (depth === 0) return i; }
+    }
+    return -1;
+  }
+
+  function parseBibEntry(inner, entryType) {
+    const rec = { docType: entryType === 'article' ? 'article' : entryType };
+    // Everything up to the first comma is the citation key, which carries no
+    // information we keep — the id comes from the note/DOI instead.
+    let i = inner.indexOf(',');
+    if (i < 0) return rec;
+
+    while (i < inner.length) {
+      const eq = inner.indexOf('=', i);
+      if (eq < 0) break;
+      const key = inner.slice(i + 1, eq).trim().toLowerCase();
+      let j = eq + 1;
+      while (j < inner.length && /\s/.test(inner[j])) j++;
+      let value = '';
+      if (inner[j] === '{') {
+        const end = matchBrace(inner, j);
+        if (end < 0) break;
+        value = inner.slice(j + 1, end);
+        i = inner.indexOf(',', end);
+      } else if (inner[j] === '"') {
+        const end = inner.indexOf('"', j + 1);
+        if (end < 0) break;
+        value = inner.slice(j + 1, end);
+        i = inner.indexOf(',', end);
+      } else {
+        const end = inner.indexOf(',', j);
+        value = inner.slice(j, end < 0 ? inner.length : end);
+        i = end;
+      }
+      assignBibField(rec, key, unescapeBib(value));
+      if (i < 0) break;
+    }
+    return rec;
+  }
+
+  function assignBibField(rec, key, value) {
+    if (!value) return;
+    if (key === 'title')                          rec.title   = value;
+    else if (key === 'author')                    rec.authors = bibAuthorsToList(value);
+    else if (key === 'journal' || key === 'booktitle') rec.journal = value;
+    else if (key === 'year')                      rec.year    = value;
+    else if (key === 'doi')                       rec.doi     = value;
+    else if (key === 'abstract')                  rec.abstract = value;
+    // Our own exporter parks the id in note as "EID: ...". Any other note is
+    // not an id and is ignored rather than guessed at.
+    else if (key === 'note') {
+      const m = value.match(/EID:\s*(\S+)/i);
+      if (m) rec.eid = m[1];
+    }
+  }
+
+  // BibTeX joins authors with " and "; the app stores them separated by "; ",
+  // which is also what splitAuthors reads back.
+  function bibAuthorsToList(value) {
+    return String(value).split(/\s+and\s+/i).map(v => v.trim()).filter(Boolean).join('; ');
+  }
+
+  function unescapeBib(value) {
+    return String(value)
+      .replace(/[\r\n]+/g, ' ')
+      .replace(/\\([&%$#_{}])/g, '$1')
+      .replace(/[{}]/g, '')
+      .replace(/\s+/g, ' ')
+      .trim();
+  }
+
+  //  RIS
+
+  function parseRis(text) {
+    const records = [];
+    let rec = null;
+    let lastKey = null;
+    const authors = [];
+
+    const flush = () => {
+      if (!rec) return;
+      if (authors.length) rec.authors = authors.join('; ');
+      records.push(rec);
+      rec = null;
+      authors.length = 0;
+      lastKey = null;
+    };
+
+    for (const rawLine of String(text).split(/\r?\n/)) {
+      const m = rawLine.match(/^([A-Z][A-Z0-9])\s{2}-\s?(.*)$/);
+      if (!m) {
+        // A continuation line: RIS wraps long abstracts without repeating the
+        // tag. Dropping these truncated every long abstract at the first line.
+        if (rec && lastKey && rawLine.trim()) {
+          const add = ' ' + rawLine.trim();
+          if (lastKey === 'AB') rec.abstract = (rec.abstract || '') + add;
+          else if (lastKey === 'TI') rec.title = (rec.title || '') + add;
+        }
+        continue;
+      }
+      const [, key, value] = m;
+      if (key === 'TY') { flush(); rec = { docType: risTypeToDocType(value.trim()) }; lastKey = key; continue; }
+      if (!rec) rec = {};
+      const v = value.trim();
+      lastKey = key;
+      if (key === 'ER') { flush(); continue; }
+      if (!v) continue;
+      if (key === 'TI' || key === 'T1')                    rec.title = rec.title ? rec.title : v;
+      else if (key === 'AU' || key === 'A1')               authors.push(v);
+      else if (key === 'JO' || key === 'JF' || key === 'T2') rec.journal = rec.journal || v;
+      else if (key === 'PY' || key === 'Y1')               rec.year = rec.year || v;
+      else if (key === 'DA')                               rec.date = rec.date || v;
+      else if (key === 'DO')                               rec.doi = v;
+      else if (key === 'AB' || key === 'N2')               rec.abstract = rec.abstract || v;
+      else if (key === 'ID')                               rec.eid = v;
+    }
+    flush();
+    return records;
+  }
+
+  function risTypeToDocType(ty) {
+    const t = String(ty || '').toUpperCase();
+    if (t === 'JOUR') return 'article';
+    if (t === 'CONF' || t === 'CPAPER') return 'article';
+    if (t === 'CHAP') return 'chapter';
+    if (t === 'BOOK') return 'book';
+    if (t === 'THES') return 'dissertation';
+    if (t === 'RPRT') return 'report';
+    if (t === 'DATA') return 'dataset';
+    return '';
+  }
+
+  //  CSV
+
+  // Full RFC-4180 field scanning, not a split on commas: exported abstracts
+  // are quoted and routinely contain commas, and foreign files may even
+  // contain newlines inside a quoted field.
+  function parseCsvRows(text) {
+    const rows = [];
+    let row = [], field = '', inQuotes = false;
+    const src = String(text).replace(/^﻿/, '');
+
+    for (let i = 0; i < src.length; i++) {
+      const ch = src[i];
+      if (inQuotes) {
+        if (ch === '"') {
+          if (src[i + 1] === '"') { field += '"'; i++; }
+          else inQuotes = false;
+        } else field += ch;
+        continue;
+      }
+      if (ch === '"')       inQuotes = true;
+      else if (ch === ',')  { row.push(field); field = ''; }
+      else if (ch === '\n') { row.push(field); rows.push(row); row = []; field = ''; }
+      else if (ch !== '\r') field += ch;
+    }
+    if (field !== '' || row.length) { row.push(field); rows.push(row); }
+    return rows.filter(r => r.some(cell => String(cell).trim() !== ''));
+  }
+
+  // Header aliases so a file exported straight out of Scopus or Web of
+  // Science imports without the user having to rename columns first. Our own
+  // export headers are the first entry of each list.
+  const CSV_ALIASES = {
+    eid:      ['eid', 'id', 'accession number', 'ut (unique wos id)'],
+    title:    ['title', 'document title', 'article title', 'ti'],
+    authors:  ['authors', 'author', 'author full names', 'af', 'au'],
+    journal:  ['journal', 'source title', 'publication name', 'so'],
+    date:     ['date', 'publication date', 'cover date'],
+    year:     ['year', 'publication year', 'py'],
+    citedby:  ['citedby', 'cited by', 'times cited', 'citations', 'tc'],
+    doi:      ['doi', 'di'],
+    abstract: ['abstract', 'ab'],
+    source:   ['source', 'database'],
+    docType:  ['doctype', 'document type', 'dt', 'type'],
+  };
+
+  function parseCsvRecords(text) {
+    const rows = parseCsvRows(text);
+    if (rows.length < 2) return [];
+    const headers = rows[0].map(h => String(h).trim().toLowerCase());
+
+    // Resolve each field once, up front, instead of searching the header row
+    // again for every one of possibly thousands of rows.
+    const columnOf = {};
+    for (const [field, names] of Object.entries(CSV_ALIASES)) {
+      const idx = headers.findIndex(h => names.includes(h));
+      if (idx >= 0) columnOf[field] = idx;
+    }
+
+    return rows.slice(1).map(row => {
+      const rec = {};
+      for (const [field, idx] of Object.entries(columnOf)) {
+        const value = String(row[idx] ?? '').trim();
+        if (value) rec[field] = value;
+      }
+      return rec;
+    });
+  }
+
   function applyFilter(articles, filter, projectData) {
     let list = articles;
 
     // Mode
     if (filter.mode === 'selected') list = list.filter(a => a.selected);
     if (filter.mode === 'corpus')   list = list.filter(a => a.corpus);
+
+    // Single query. _runs comes from SLRData.getArticles and holds every run
+    // that returned this article — a duplicate found by two searches belongs
+    // to both, so this is a membership test and not an equality one.
+    if (Number.isInteger(filter.runIndex)) {
+      list = list.filter(a => Array.isArray(a._runs) && a._runs.includes(filter.runIndex));
+    }
 
     // Tag (multi-select — an article matches if its tag is any one of the
     // selected tags; empty selection means no tag filtering at all)
@@ -2547,7 +2897,7 @@ window.SLRViews = (() => {
     // the wrong entry.
     const tagged = (searchLog || []).map((run, rawIndex) => ({ run, rawIndex }));
 
-    const counts = { active: 0, archived: 0, trashed: 0 };
+    const counts = { active: 0, imported: 0, archived: 0, trashed: 0 };
     for (const { run } of tagged) {
       const s = run.status || 'active';
       if (counts[s] !== undefined) counts[s]++;
@@ -2564,13 +2914,21 @@ window.SLRViews = (() => {
       <div class="history-toolbar">
         <div class="hist-tabs" role="tablist">
           <button class="hist-tab${statusFilter === 'active' ? ' active' : ''}" data-tab="active" role="tab" aria-selected="${statusFilter === 'active'}">Active<span class="hist-tab-count">${counts.active}</span></button>
+          <button class="hist-tab${statusFilter === 'imported' ? ' active' : ''}" data-tab="imported" role="tab" aria-selected="${statusFilter === 'imported'}">${SLRIcons.upload}Imported<span class="hist-tab-count">${counts.imported}</span></button>
           <button class="hist-tab${statusFilter === 'archived' ? ' active' : ''}" data-tab="archived" role="tab" aria-selected="${statusFilter === 'archived'}">${SLRIcons.archive}Archived<span class="hist-tab-count">${counts.archived}</span></button>
           <button class="hist-tab${statusFilter === 'trashed' ? ' active' : ''}" data-tab="trashed" role="tab" aria-selected="${statusFilter === 'trashed'}">${SLRIcons.trash}Trash<span class="hist-tab-count">${counts.trashed}</span></button>
         </div>
-        <select class="filter-select" id="history-sort" title="Sort by date">
-          <option value="desc"${sortDir === 'desc' ? ' selected' : ''}>Newest first</option>
-          <option value="asc"${sortDir === 'asc' ? ' selected' : ''}>Oldest first</option>
-        </select>
+        <div class="history-toolbar-right">
+          <button type="button" class="articles-action-btn" id="history-import-btn"
+                  title="Read a .bib, .ris or .csv list into this project">
+            ${SLRIcons.upload} Import list
+          </button>
+          <input type="file" id="history-import-input" accept=".bib,.ris,.csv,.txt" hidden>
+          <select class="filter-select" id="history-sort" title="Sort by date">
+            <option value="desc"${sortDir === 'desc' ? ' selected' : ''}>Newest first</option>
+            <option value="asc"${sortDir === 'asc' ? ' selected' : ''}>Oldest first</option>
+          </select>
+        </div>
       </div>`;
 
     // Per-tab swipe/action mapping \u2014 left swipe (or the left action button)
@@ -2583,6 +2941,12 @@ window.SLRViews = (() => {
     } else if (statusFilter === 'archived') {
       leftAction  = { action: 'trash',   icon: SLRIcons.trash,   label: 'Trash',   cls: 'danger', title: 'Move to trash' };
       rightAction = { action: 'restore', icon: SLRIcons.restore, label: 'Restore', cls: 'accent', title: 'Restore to active' };
+    } else if (statusFilter === 'imported') {
+      // An imported list can be archived and trashed like any other entry;
+      // what it cannot do is become "Active", because that tab means "a search
+      // this project ran" and an import is not one.
+      leftAction  = { action: 'trash',   icon: SLRIcons.trash,   label: 'Trash',   cls: 'danger', title: 'Move to trash' };
+      rightAction = { action: 'archive', icon: SLRIcons.archive, label: 'Archive', cls: 'accent', title: 'Archive this list' };
     } else {
       leftAction  = { action: 'trash',   icon: SLRIcons.trash,   label: 'Trash',   cls: 'danger', title: 'Move to trash' };
       rightAction = { action: 'archive', icon: SLRIcons.archive, label: 'Archive', cls: 'accent', title: 'Archive this query' };
@@ -2591,6 +2955,7 @@ window.SLRViews = (() => {
     let bodyHTML;
     if (filtered.length === 0) {
       const emptyMsg = statusFilter === 'active' ? 'No query history found for this project.'
+        : statusFilter === 'imported' ? 'Nothing imported yet. Use "Import list" above to read a .bib, .ris or .csv file into this project.'
         : statusFilter === 'archived' ? 'No archived queries.'
         : 'Trash is empty.';
       bodyHTML = `<p style="color:var(--text-faint)">${esc(emptyMsg)}</p>`;
@@ -2661,7 +3026,7 @@ window.SLRViews = (() => {
             <div class="hist-swipe-action hist-swipe-reveal-right hist-swipe-${rightAction.cls}" data-action="${rightAction.action}" data-index="${rawIndex}" title="${esc(rightAction.title)}">
               ${rightAction.icon}<span>${esc(rightAction.label)}</span>
             </div>
-            <div class="history-item" id="hist-${rawIndex}" draggable="true" data-index="${rawIndex}">
+            <div class="history-item" id="hist-${rawIndex}" draggable="true" data-index="${rawIndex}" data-imported="${run.imported ? 'true' : 'false'}">
               <div class="history-item-header" data-hist="${rawIndex}">
                 <div class="history-item-top">
                   <span class="history-chevron">${SLRIcons.chevronRight}</span>
@@ -2678,8 +3043,12 @@ window.SLRViews = (() => {
               </div>
               <div class="history-query-full">
                 <pre>${esc(run.query)}</pre>
-                <button class="hist-copy-btn" data-query="${esc(run.query || '')}"
-                        title="Copy this query to the clipboard">${SLRIcons.copy}<span>Copy query</span></button>
+                <div class="hist-query-actions">
+                  <button class="hist-copy-btn" data-query="${esc(run.query || '')}"
+                          title="Copy this query to the clipboard">${SLRIcons.copy}<span>Copy query</span></button>
+                  <button class="hist-copy-btn hist-show-articles-btn" data-action="show-articles" data-index="${rawIndex}"
+                          title="Open the article list restricted to this query">${SLRIcons.articles}<span>Show these ${count} in Articles</span></button>
+                </div>
               </div>
               <div class="history-results-list">
                 ${resultsHTML}
@@ -2713,10 +3082,12 @@ window.SLRViews = (() => {
     };
 
     let draggedIndex = null;
+    let draggedImported = false;
 
     container.querySelectorAll('.history-item[draggable="true"]').forEach(card => {
       card.addEventListener('dragstart', ev => {
         draggedIndex = parseInt(card.dataset.index, 10);
+        draggedImported = card.dataset.imported === 'true';
         card.classList.add('is-dragging');
         // Some browsers refuse to start a drag without transfer data.
         try { ev.dataTransfer.setData('text/plain', String(draggedIndex)); } catch (_) { /* noop */ }
@@ -2724,6 +3095,7 @@ window.SLRViews = (() => {
       });
       card.addEventListener('dragend', () => {
         draggedIndex = null;
+        draggedImported = false;
         card.classList.remove('is-dragging');
         container.querySelectorAll('.hist-tab').forEach(t => t.classList.remove('drop-target'));
       });
@@ -2731,7 +3103,15 @@ window.SLRViews = (() => {
 
     container.querySelectorAll('.hist-tab').forEach(tab => {
       const move = MOVE_BY_TAB[tab.dataset.tab];
-      const usable = () => draggedIndex !== null && move && tab.dataset.tab !== statusFilter;
+      // Imported is not a drop target — a search is not an import, and nothing
+      // should be able to relabel it as one. The reverse is barred too: an
+      // imported list dropped on Active would be restored straight back to
+      // Imported, so the tab would light up and then appear to do nothing.
+      const usable = () =>
+        draggedIndex !== null &&
+        move &&
+        tab.dataset.tab !== statusFilter &&
+        !(draggedImported && tab.dataset.tab === 'active');
 
       tab.addEventListener('dragover', ev => {
         if (!usable()) return;
@@ -2746,6 +3126,7 @@ window.SLRViews = (() => {
         tab.classList.remove('drop-target');
         const idx = draggedIndex;
         draggedIndex = null;
+        draggedImported = false;
         // No confirm() here on purpose: dropping is already a deliberate,
         // two-step gesture, and every move is reversible from the target tab.
         if (typeof SLRApp[move.fn] === 'function') SLRApp[move.fn](idx);
@@ -2753,6 +3134,21 @@ window.SLRViews = (() => {
     });
     const sortSel = container.querySelector('#history-sort');
     if (sortSel) sortSel.addEventListener('change', e => SLRApp.setHistorySortDir(e.target.value));
+
+    // The file input stays hidden and is driven by the visible button: a bare
+    // <input type="file"> cannot be styled to match the rest of the toolbar,
+    // and its value has to be cleared afterwards or picking the same file
+    // twice in a row fires no change event at all.
+    const importBtn   = container.querySelector('#history-import-btn');
+    const importInput = container.querySelector('#history-import-input');
+    if (importBtn && importInput) {
+      importBtn.addEventListener('click', () => importInput.click());
+      importInput.addEventListener('change', () => {
+        const file = importInput.files && importInput.files[0];
+        importInput.value = '';
+        if (file) SLRApp.importQueryFile(file);
+      });
+    }
 
     if (filtered.length === 0) return;
 
@@ -2775,6 +3171,13 @@ window.SLRViews = (() => {
           card.style.transition = 'transform .2s ease';
           card.style.transform = '';
         }
+        return;
+      }
+
+      const showBtn = e.target.closest('[data-action="show-articles"]');
+      if (showBtn) {
+        e.stopPropagation();
+        SLRApp.showArticlesForQuery(parseInt(showBtn.dataset.index, 10));
         return;
       }
 
@@ -7599,6 +8002,8 @@ window.SLRViews = (() => {
     renderProjects,
     renderArticles,
     renderHistory,
+    parseImportFile,
+    toImportedArticle,
     renderLoading,
     renderError,
     renderCorpus,

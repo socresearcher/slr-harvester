@@ -395,6 +395,14 @@ window.SLRIcons = (() => {
        <line x1="12" y1="15" x2="12" y2="3"/>`
     ),
 
+    // Upload — deliberately the same tray with the arrow reversed, so import
+    // and export read as one pair rather than two unrelated buttons.
+    upload: base(
+      `<path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
+       <polyline points="7 8 12 3 17 8"/>
+       <line x1="12" y1="3" x2="12" y2="15"/>`
+    ),
+
     // Speaker — read aloud
     speaker: base(
       `<polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"/>

@@ -62,8 +62,13 @@ window.SLRData = (() => {
     const seen   = new Map();   // id → article
     const order  = [];          // insertion order of ids
 
-    for (const run of searchLog) {
-      if (!Array.isArray(run.results)) continue;
+    // Index-based rather than for-of: the position in the raw searchLog array
+    // is the same handle the History view and every backend mutation use, so
+    // recording it here means "show only this query's articles" needs no second
+    // lookup table and no id of its own.
+    for (let runIndex = 0; runIndex < searchLog.length; runIndex++) {
+      const run = searchLog[runIndex];
+      if (!run || !Array.isArray(run.results)) continue;
       for (const r of run.results) {
         const id = r.eid || r.doi || null;
         if (!id) continue;
@@ -89,11 +94,17 @@ window.SLRData = (() => {
             affiliations,
             openAlexFields,
             openAlexSubfields,
+            // Every run this article was returned by. An article found twice
+            // belongs to both queries, so this is a list and not a single
+            // value — filtering by one query must not hide it from the other.
+            _runs: [runIndex],
           }));
           order.push(id);
         } else {
           // Merge: prefer non-empty abstract; keep higher cited count
           const existing = seen.get(id);
+          if (!Array.isArray(existing._runs)) existing._runs = [];
+          if (!existing._runs.includes(runIndex)) existing._runs.push(runIndex);
           if (!existing.abstract && r.abstract) existing.abstract = r.abstract;
           const nc = parseInt(r.citedby, 10) || 0;
           if (nc > existing.citedby) existing.citedby = nc;
