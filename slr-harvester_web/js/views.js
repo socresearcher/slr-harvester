@@ -1152,6 +1152,42 @@ window.SLRViews = (() => {
     wireInfiniteScroll(container.querySelector('#article-list'), hasMore, () => SLRApp.bumpArticlesRenderLimit());
   }
 
+  // Author lists in bibliographic data routinely run to dozens of names —
+  // consortium papers reach into the hundreds. Printed in full they push the
+  // journal, year and citation count out of view and make the card unreadable,
+  // which is the opposite of what a screening list is for.
+  //
+  // The card therefore shows at most AUTHORS_SHOWN names and hides the rest
+  // behind a chip. Deliberately NOT tied to the card's own expand/collapse:
+  // opening an article to read its abstract should not suddenly unroll ninety
+  // names. The remaining authors appear only on clicking the chip, and the
+  // chip toggles both ways.
+  const AUTHORS_SHOWN = 3;
+
+  // Databases separate authors with a comma and give each name as
+  // "Surname, Initials" — so a naive split on commas tears every name in two.
+  // Scopus and Crossref both use "; " between authors when they use anything
+  // at all, so that separator wins when present; otherwise the comma is used
+  // and pairs are re-joined when the second half looks like initials.
+  function splitAuthors(raw) {
+    const s = String(raw || '').trim();
+    if (!s) return [];
+    if (s.includes(';')) return s.split(';').map(x => x.trim()).filter(Boolean);
+    const parts = s.split(',').map(x => x.trim()).filter(Boolean);
+    const out = [];
+    for (let i = 0; i < parts.length; i++) {
+      const next = parts[i + 1];
+      // "A.B." / "A. B." / "Anna" directly after a surname belongs to it.
+      if (next && /^(?:[A-Z]\.?\s*){1,4}$/.test(next)) {
+        out.push(parts[i] + ', ' + next);
+        i++;
+      } else {
+        out.push(parts[i]);
+      }
+    }
+    return out;
+  }
+
   function articleItemHTML(a, projectData, networkIndex) {
     const hex = tagColor(projectData, a.color);
     const styleAttr = hex ? `style="--tag-color:${esc(hex)}"` : '';
@@ -1243,6 +1279,22 @@ window.SLRViews = (() => {
          </div>`
       : '';
 
+    // Built here rather than inline in the template so the counting logic
+    // stays readable and the markup stays one expression.
+    const authorList = splitAuthors(a.authors);
+    const authorsHTML = (() => {
+      if (!authorList.length) return '';
+      const shown = authorList.slice(0, AUTHORS_SHOWN);
+      const rest  = authorList.slice(AUTHORS_SHOWN);
+      const head  = `<span class="article-authors-shown">${esc(shown.join('; '))}</span>`;
+      if (!rest.length) return head + '<span class="meta-sep">&middot;</span>';
+      return `<span class="article-authors">${head}<button type="button"
+                  class="article-authors-more" data-action="toggle-authors"
+                  aria-expanded="false"
+                  title="Show the remaining ${rest.length} author${rest.length !== 1 ? 's' : ''}"
+                >+${rest.length} more</button><span class="article-authors-rest" hidden>${esc(rest.join('; '))}</span></span><span class="meta-sep">&middot;</span>`;
+    })();
+
     const idRow = (doiLink || eidLink) ? `
       <div class="article-id-row">
         ${doiLink ? `
@@ -1325,7 +1377,7 @@ window.SLRViews = (() => {
             <div class="article-main">
               <div class="article-title">${esc(a.title)}</div>
               <div class="article-meta">
-                ${a.authors ? `<span>${esc(a.authors)}</span><span class="meta-sep">&middot;</span>` : ''}
+                ${authorsHTML}
                 ${a.publicationName ? `<span>${esc(a.publicationName)}</span><span class="meta-sep">&middot;</span>` : ''}
                 ${year ? `<span>${esc(year)}</span><span class="meta-sep">&middot;</span>` : ''}
                 <span>${a.citedby || 0} cited</span>
@@ -1626,6 +1678,24 @@ window.SLRViews = (() => {
 
       // Pure UI state, no article identity needed — handled before the eid
       // lookup below so it still works even on the rare article with none.
+      // Same reasoning as toggle-affiliations below: pure UI state, so it runs
+      // before the eid lookup and works on any card.
+      if (action === 'toggle-authors') {
+        const wrap = btn.closest('.article-authors');
+        const rest = wrap ? wrap.querySelector('.article-authors-rest') : null;
+        if (rest) {
+          const willShow = rest.hidden;
+          rest.hidden = !willShow;
+          btn.setAttribute('aria-expanded', String(willShow));
+          const n = rest.textContent.split(';').length;
+          btn.textContent = willShow ? 'fewer' : `+${n} more`;
+          btn.title = willShow
+            ? 'Hide the additional authors'
+            : `Show the remaining ${n} author${n !== 1 ? 's' : ''}`;
+        }
+        return;
+      }
+
       if (action === 'toggle-affiliations') {
         const head = btn.closest('.article-detail-head');
         const list = head ? head.nextElementSibling : null;
@@ -2577,16 +2647,11 @@ window.SLRViews = (() => {
           return `<div class="hist-tag-bar">${segs.join('')}</div>`;
         })();
 
-        // Desktop hover-reveal action buttons (touch has no hover \u2014 those
-        // users get the swipe gesture below instead).
-        const actionButtons = statusFilter === 'trashed'
-          ? `<button class="hist-action-btn" data-action="restore" data-index="${rawIndex}" title="Restore to active">${SLRIcons.restore}</button>
-             <button class="hist-action-btn hist-action-danger" data-action="delete-forever" data-index="${rawIndex}" title="Delete permanently">${SLRIcons.trash}</button>`
-          : statusFilter === 'archived'
-          ? `<button class="hist-action-btn" data-action="restore" data-index="${rawIndex}" title="Restore to active">${SLRIcons.restore}</button>
-             <button class="hist-action-btn hist-action-danger" data-action="trash" data-index="${rawIndex}" title="Move to trash">${SLRIcons.trash}</button>`
-          : `<button class="hist-action-btn" data-action="archive" data-index="${rawIndex}" title="Archive this query">${SLRIcons.archive}</button>
-             <button class="hist-action-btn hist-action-danger" data-action="trash" data-index="${rawIndex}" title="Move to trash">${SLRIcons.trash}</button>`;
+        // The hover-reveal action buttons are gone. They crowded the card's top
+        // right — exactly where the source and result badges belong — and they
+        // duplicated two gestures that already exist and work on every input
+        // device: swiping the card sideways, and dragging it onto one of the
+        // Active / Archived / Trash tabs.
 
         return `
           <div class="history-item-swipe">
@@ -2596,7 +2661,7 @@ window.SLRViews = (() => {
             <div class="hist-swipe-action hist-swipe-reveal-right hist-swipe-${rightAction.cls}" data-action="${rightAction.action}" data-index="${rawIndex}" title="${esc(rightAction.title)}">
               ${rightAction.icon}<span>${esc(rightAction.label)}</span>
             </div>
-            <div class="history-item" id="hist-${rawIndex}">
+            <div class="history-item" id="hist-${rawIndex}" draggable="true" data-index="${rawIndex}">
               <div class="history-item-header" data-hist="${rawIndex}">
                 <div class="history-item-top">
                   <span class="history-chevron">${SLRIcons.chevronRight}</span>
@@ -2608,15 +2673,13 @@ window.SLRViews = (() => {
                     ${dbBadge}
                     <span class="history-count">${count} result${count !== 1 ? 's' : ''}</span>
                   </div>
-                  <div class="history-actions">
-                    ${actionButtons}
-                    <button class="hist-copy-btn" data-query="${esc(run.query || '')}" title="Copy query to clipboard">${SLRIcons.copy}</button>
-                  </div>
                 </div>
                 ${tagBar}
               </div>
               <div class="history-query-full">
                 <pre>${esc(run.query)}</pre>
+                <button class="hist-copy-btn" data-query="${esc(run.query || '')}"
+                        title="Copy this query to the clipboard">${SLRIcons.copy}<span>Copy query</span></button>
               </div>
               <div class="history-results-list">
                 ${resultsHTML}
@@ -2636,6 +2699,57 @@ window.SLRViews = (() => {
 
     container.querySelectorAll('.hist-tab').forEach(btn => {
       btn.addEventListener('click', () => SLRApp.setHistoryStatusFilter(btn.dataset.tab));
+    });
+
+    // Dragging a query card onto a tab moves it there — the replacement for the
+    // hover buttons that used to sit on the card. All three moves are the same
+    // operation underneath (setHistoryQueryStatus), so no combination needs a
+    // special case; dropping a card on the tab it already lives in is the only
+    // no-op.
+    const MOVE_BY_TAB = {
+      active:   { fn: 'restoreHistoryQuery', label: 'Restore to Active' },
+      archived: { fn: 'archiveHistoryQuery', label: 'Archive' },
+      trashed:  { fn: 'trashHistoryQuery',   label: 'Move to Trash' },
+    };
+
+    let draggedIndex = null;
+
+    container.querySelectorAll('.history-item[draggable="true"]').forEach(card => {
+      card.addEventListener('dragstart', ev => {
+        draggedIndex = parseInt(card.dataset.index, 10);
+        card.classList.add('is-dragging');
+        // Some browsers refuse to start a drag without transfer data.
+        try { ev.dataTransfer.setData('text/plain', String(draggedIndex)); } catch (_) { /* noop */ }
+        if (ev.dataTransfer) ev.dataTransfer.effectAllowed = 'move';
+      });
+      card.addEventListener('dragend', () => {
+        draggedIndex = null;
+        card.classList.remove('is-dragging');
+        container.querySelectorAll('.hist-tab').forEach(t => t.classList.remove('drop-target'));
+      });
+    });
+
+    container.querySelectorAll('.hist-tab').forEach(tab => {
+      const move = MOVE_BY_TAB[tab.dataset.tab];
+      const usable = () => draggedIndex !== null && move && tab.dataset.tab !== statusFilter;
+
+      tab.addEventListener('dragover', ev => {
+        if (!usable()) return;
+        ev.preventDefault();                       // without this, no drop fires
+        ev.dataTransfer.dropEffect = 'move';
+        tab.classList.add('drop-target');
+      });
+      tab.addEventListener('dragleave', () => tab.classList.remove('drop-target'));
+      tab.addEventListener('drop', ev => {
+        if (!usable()) return;
+        ev.preventDefault();
+        tab.classList.remove('drop-target');
+        const idx = draggedIndex;
+        draggedIndex = null;
+        // No confirm() here on purpose: dropping is already a deliberate,
+        // two-step gesture, and every move is reversible from the target tab.
+        if (typeof SLRApp[move.fn] === 'function') SLRApp[move.fn](idx);
+      });
     });
     const sortSel = container.querySelector('#history-sort');
     if (sortSel) sortSel.addEventListener('change', e => SLRApp.setHistorySortDir(e.target.value));
@@ -2661,13 +2775,6 @@ window.SLRViews = (() => {
           card.style.transition = 'transform .2s ease';
           card.style.transform = '';
         }
-        return;
-      }
-
-      const actionBtn = e.target.closest('.hist-action-btn');
-      if (actionBtn) {
-        e.stopPropagation();
-        runHistoryAction(actionBtn.dataset.action, parseInt(actionBtn.dataset.index, 10));
         return;
       }
 

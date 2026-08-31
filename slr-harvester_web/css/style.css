@@ -2250,6 +2250,44 @@ a:hover {
    Anzahl der Affiliations. Ein gemeinsames Grundmass kann nicht mehr
    auseinanderlaufen. */
 .article-speak-btn,
+/* Author list in the card's meta row: three names, then a chip carrying the
+   count of the rest. The chip sits inline in the running meta text, so it is
+   sized off the surrounding line rather than given the 20px height of the
+   standalone toggles further down. */
+.article-authors {
+  display: inline;
+}
+
+.article-authors-more {
+  display: inline;
+  margin-left: 4px;
+  padding: 0 5px;
+  font: inherit;
+  font-size: 11px;
+  font-weight: 500;
+  line-height: 1.5;
+  white-space: nowrap;
+  cursor: pointer;
+  background: transparent;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  color: var(--text-muted);
+  vertical-align: baseline;
+}
+
+.article-authors-more:hover,
+.article-authors-more:focus-visible {
+  background: var(--surface-3);
+  color: var(--text);
+  outline: none;
+}
+
+/* Revealed names read as a continuation of the first three, so they carry no
+   separator of their own — the semicolon before them does that job. */
+.article-authors-rest::before {
+  content: '; ';
+}
+
 .article-affiliations-toggle {
   display: inline-flex;
   align-items: center;
@@ -2727,20 +2765,22 @@ a:hover {
    zweit in einer Zeile brauchten sie 131 der 310 Pixel einer Telefonkarte
    und liessen der Query 93 uebrig, von der dann noch 13 Prozent zu sehen
    waren. */
+/* Top right, like the article cards' badge stack. align-items:flex-end keeps
+   the two badges right-aligned to each other even at different widths; the
+   removal of the action buttons beside them is what actually puts the stack in
+   the corner. */
 .history-badges {
   display: flex;
   flex-direction: column;
   align-items: flex-end;
   gap: 5px;
   flex-shrink: 0;
+  margin-left: auto;
 }
 
-.history-actions {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  flex-shrink: 0;
-}
+/* .history-actions is gone from the markup — archiving and trashing happen by
+   swiping the card or dragging it onto a tab. The rule is kept out rather than
+   left behind as dead CSS. */
 
 .history-timestamp {
   font-size: 12px;
@@ -2798,10 +2838,10 @@ a:hover {
    die Karte mit 19 Treffern schmaler bepillt als die mit 1000, und die
    Spalte rechts franst ueber die Liste hinweg aus. 86px fasst auch
    "10000 results". */
-.history-badges .badge-source,
-.history-count {
-  min-width: 86px;
-}
+/* No forced common width. The badges used to share min-width:86px, which made
+   "Scopus" as wide as "OpenAlex" and left the shorter label swimming in empty
+   space. The article cards never did this — their source badge takes the room
+   its text needs and no more — and the query cards now match. */
 
 .history-count {
   display: inline-flex;
@@ -2822,20 +2862,28 @@ a:hover {
   box-sizing: border-box;
 }
 
+/* Sits inside .history-query-full, so it only exists once the card is open and
+   the query is actually on screen. Previously it hovered over the collapsed
+   card, offering to copy something the user could not see. Always visible here
+   — no opacity:0 — because within an opened panel there is nothing to hide it
+   from. */
 .hist-copy-btn {
   display: inline-flex;
   align-items: center;
   justify-content: center;
+  gap: 6px;
   flex-shrink: 0;
-  width: 28px;
-  height: 28px;
-  border: none;
+  height: 26px;
+  padding: 0 10px;
+  margin-top: 10px;
+  font-size: 11.5px;
+  font-weight: 500;
+  border: 1px solid var(--border);
   background: transparent;
-  border-radius: var(--radius);
+  border-radius: var(--radius-sm);
   color: var(--text-muted);
   cursor: pointer;
-  opacity: 0;
-  transition: opacity .15s, background .15s, color .15s;
+  transition: background .15s, color .15s, border-color .15s;
 }
 
 .hist-copy-btn svg {
@@ -2852,38 +2900,26 @@ a:hover {
   color: var(--accent);
 }
 
-.hist-action-btn {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  flex-shrink: 0;
-  width: 28px;
-  height: 28px;
-  border: none;
-  background: transparent;
-  border-radius: var(--radius);
-  color: var(--text-muted);
-  cursor: pointer;
-  opacity: 0;
-  transition: opacity .15s, background .15s, color .15s;
+/* Die .hist-action-btn-Regeln sind mit den Knoepfen selbst entfallen —
+   archiviert und geloescht wird jetzt per Wischgeste oder per Ziehen auf
+   einen Reiter. */
+
+/* Dragging a query card onto one of the tabs. The card fades while it travels
+   so the cursor stays readable over the tab row, and the tab under the pointer
+   lights up to say the drop will land. */
+.history-item[draggable="true"] {
+  cursor: grab;
 }
 
-.hist-action-btn svg {
-  width: 15px;
-  height: 15px;
+.history-item.is-dragging {
+  opacity: .45;
+  cursor: grabbing;
 }
 
-.history-item-header:hover .hist-action-btn {
-  opacity: 1;
-}
-
-.hist-action-btn:hover {
-  background: var(--surface-2);
+.hist-tab.drop-target {
+  background: color-mix(in srgb, var(--accent) 18%, transparent);
+  border-color: var(--accent);
   color: var(--accent);
-}
-
-.hist-action-btn.hist-action-danger:hover {
-  color: var(--danger);
 }
 
 .history-query-full {
