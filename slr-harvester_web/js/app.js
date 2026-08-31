@@ -1616,6 +1616,76 @@ window.SLRApp = (() => {
 		return results.map(mapOpenAlexResult);
 	}
 
+	// Autorenverteilung dessen, was eine Menge von Arbeiten zitiert.
+	//
+	// cited_by nimmt eine ODER-Liste, und group_by aggregiert serverseitig —
+	// deshalb kostet das eine Abfrage je Buendel und nicht eine je zitierter
+	// Arbeit. CITED_BY_LIMIT ist die Obergrenze der ODER-Liste.
+	const CITED_BY_LIMIT = 50;
+	async function fetchCitedAuthorGroups(openAlexIds, signal) {
+		if (!openAlexIds.length) return { groups: [], works: 0, truncated: false };
+		const config = await SLRData.loadConfig();
+		const openAlexKey = normalizeToken((config && config.OpenAlexKey) || state.settings.openAlexKey);
+		const openAlexEmail = normalizeEmail((config && (config.OpenAlexEmail || config.OpenAlexMailto)) || state.settings.openAlexEmail);
+		const url = new URL('https://api.openalex.org/works');
+		url.searchParams.set('filter', `cited_by:${openAlexIds.join('|')}`);
+		url.searchParams.set('group_by', 'authorships.author.id');
+		if (openAlexKey) url.searchParams.set('api_key', openAlexKey);
+		if (openAlexEmail) url.searchParams.set('mailto', openAlexEmail);
+		const res = await fetch(url.toString(), { signal });
+		if (!res.ok) throw new Error(`OpenAlex API error ${res.status}`);
+		const data = await res.json();
+		const groups = Array.isArray(data && data.group_by) ? data.group_by : [];
+		return {
+			groups,
+			works: (data && data.meta && data.meta.count) || 0,
+			// Genau 200 heisst: die Liste war laenger und wurde gekappt.
+			truncated: groups.length >= 200,
+		};
+	}
+
+	// Sammelt die Autorenverteilung ueber alle Buendel eines Bestandes.
+	// onProgress meldet den Stand, damit die Ansicht bei einem grossen Projekt
+	// nicht schweigend eine Minute lang arbeitet.
+	async function collectCitedAuthors(articles, onProgress, signal) {
+		const ids = articles
+			.map(a => String(a.eid || a._id || ''))
+			.filter(id => id.startsWith('openalex:'))
+			.map(id => id.slice(9));
+
+		const summe = new Map();   // Autor:innen-Id -> { name, count }
+		let werke = 0;
+		let gekappt = false;
+		const buendel = Math.ceil(ids.length / CITED_BY_LIMIT);
+
+		for (let i = 0; i < ids.length; i += CITED_BY_LIMIT) {
+			if (signal && signal.aborted) throw new DOMException('abgebrochen', 'AbortError');
+			const teil = ids.slice(i, i + CITED_BY_LIMIT);
+			const { groups, works, truncated } = await fetchCitedAuthorGroups(teil, signal);
+			werke += works;
+			if (truncated) gekappt = true;
+			for (const g of groups) {
+				const key = g.key || g.key_display_name;
+				if (!key) continue;
+				const bisher = summe.get(key);
+				if (bisher) bisher.count += g.count;
+				else summe.set(key, { name: g.key_display_name || key, count: g.count });
+			}
+			if (onProgress) onProgress(Math.floor(i / CITED_BY_LIMIT) + 1, buendel);
+		}
+
+		return {
+			// Ein Artikel ohne OpenAlex-Kennung kann hier nicht mitzaehlen —
+			// Scopus- und PubMed-Treffer bringen keine Referenzlisten mit.
+			// Die Zahl wird gebraucht, um genau das anzuzeigen.
+			basis: ids.length,
+			uebersprungen: articles.length - ids.length,
+			referenzierteWerke: werke,
+			gekappt,
+			autoren: [...summe.values()].sort((a, b) => b.count - a.count),
+		};
+	}
+
 	async function fetchExternalCitingWorks(openAlexId, page, signal) {
 		const config = await SLRData.loadConfig();
 		const openAlexKey = normalizeToken((config && config.OpenAlexKey) || state.settings.openAlexKey);
@@ -3368,6 +3438,7 @@ window.SLRApp = (() => {
 		cancelSearch,
 		trashHistoryQuery,
 		archiveHistoryQuery,
+		collectCitedAuthors,
 		importQueryFile,
 		showArticlesForQuery,
 		clearQueryFilter,

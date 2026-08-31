@@ -3672,6 +3672,41 @@ window.SLRViews = (() => {
     });
   }
 
+  // Wer im eigenen Bestand am haeufigsten zitiert wird.
+  //
+  // Braucht keine Abfrage: referencedWorks liegt in jedem OpenAlex-Treffer,
+  // und die Autor:innen der zitierten Arbeit stehen ebenfalls schon da.
+  // Gezaehlt wird je zitierender Arbeit einmal pro Autor:in — wer eine Arbeit
+  // zu fuenft geschrieben hat, bekommt fuenfmal eine Zitation gutgeschrieben,
+  // wie in der Bibliometrie ueblich (whole counting).
+  function buildInCorpusAuthorRanking(subset) {
+    const nachId = new Map();          // openalex:W… -> Artikel
+    for (const a of subset) {
+      const id = String(a.eid || a._id || '');
+      if (id.startsWith('openalex:')) nachId.set(id.slice(9), a);
+    }
+
+    const zaehler = new Map();         // Name -> { count, works:Set }
+    for (const zitierend of subset) {
+      const refs = Array.isArray(zitierend.referencedWorks) ? zitierend.referencedWorks : [];
+      for (const ref of refs) {
+        const zitiert = nachId.get(ref);
+        if (!zitiert) continue;                       // Referenz zeigt nach draussen
+        if (zitiert === zitierend) continue;          // Selbstverweis im Datensatz
+        for (const name of splitAuthors(zitiert.authors)) {
+          const e = zaehler.get(name) || { count: 0, works: new Set() };
+          e.count += 1;
+          e.works.add(zitiert.eid || zitiert._id);
+          zaehler.set(name, e);
+        }
+      }
+    }
+
+    return [...zaehler.entries()]
+      .map(([name, e]) => ({ name, count: e.count, works: e.works.size }))
+      .sort((a, b) => b.count - a.count || a.name.localeCompare(b.name));
+  }
+
   function renderVisualizations(container, articles, projectData) {
     if (!projectData) {
       container.innerHTML = `<div class="viz-view" style="padding:0">${renderNoProjectNotice()}</div>`;
@@ -4117,6 +4152,7 @@ window.SLRViews = (() => {
                   <option value="bars">Tag Distribution — Bars</option>
                   <option value="year">Year Distribution</option>
                   <option value="world">World Map</option>
+                  <option value="authors">Cited Authors</option>
                   <option value="prisma">Screening Flow (PRISMA)</option>
                 </select>
                 <select class="filter-select viz-groupby-select" id="viz-groupby-select" title="Group by">
@@ -4585,6 +4621,85 @@ window.SLRViews = (() => {
       year:    'Year Distribution',
       world:   'World Map',
       prisma:  'PRISMA 2020',
+      authors: 'Cited Authors',
+    };
+
+    // Rangliste als Balken. Eigener Bauer statt renderBars: dort ist eine
+    // "Kategorie" ein Artikelmerkmal mit fester Farbe, hier ist es eine Person
+    // mit einer Anzahl — und der Anteil an einer Gesamtmenge waere sinnlos,
+    // weil eine Arbeit mehrere Autor:innen hat und die Summe der Anteile
+    // ueber hundert Prozent laege.
+    const AUTOR_ZEILEN = 25;
+    const renderAuthorRanking = (liste, hinweis) => {
+      if (!liste.length) {
+        return `<div class="viz-empty-bars">${esc(hinweis || 'No citations between the articles in this selection.')}</div>`;
+      }
+      const max = liste[0].count;
+      const zeilen = liste.slice(0, AUTOR_ZEILEN).map((d, i) => `
+        <div class="viz-bar-row">
+          <div class="viz-bar-label" title="${esc(d.name)}"><span class="viz-rank">${i + 1}</span>${esc(d.name)}</div>
+          <div class="viz-bar-track">
+            <div class="viz-bar-fill" style="width:${Math.max(2, Math.round(d.count / max * 100))}%;background:var(--accent)"></div>
+          </div>
+          <div class="viz-bar-count"><strong>${d.count}</strong>${d.works !== undefined ? ` <span class="viz-bar-pct">${d.works}&nbsp;work${d.works !== 1 ? 's' : ''}</span>` : ''}</div>
+        </div>`).join('');
+      const rest = liste.length > AUTOR_ZEILEN
+        ? `<div class="viz-authors-more">and ${liste.length - AUTOR_ZEILEN} more author${liste.length - AUTOR_ZEILEN !== 1 ? 's' : ''} below the top ${AUTOR_ZEILEN}</div>`
+        : '';
+      return `${hinweis ? `<div class="viz-authors-note">${hinweis}</div>` : ''}
+        <div class="viz-resizable-chart-block">
+          <div class="viz-bars-scroll" id="viz-bars-area" style="--bar-label-w:28ch;--bar-track-h:18px">${zeilen}${rest}</div>
+          <div class="viz-col-resize-handle" id="viz-bars-resize-handle"
+               title="Drag to resize" role="separator" aria-orientation="horizontal">
+            <span class="viz-col-resize-grip"></span>
+          </div>
+        </div>`;
+    };
+
+    // Der weltweite Lauf haengt an einer Abfrage und wird deshalb gemerkt:
+    // ein Wechsel des Diagrammtyps und zurueck soll ihn nicht wiederholen.
+    const weltweitCache = {};
+    let autorenModus = 'corpus';
+
+    const renderAuthorsPanel = () => {
+      const subset = getSubset(currentMode);
+      const eigen = buildInCorpusAuthorRanking(subset);
+      const cacheKey = currentMode;
+      const welt = weltweitCache[cacheKey];
+
+      const kopf = `
+        <div class="viz-authors-tabs">
+          <button class="viz-mode-tab${autorenModus === 'corpus' ? ' active' : ''}" data-authors-mode="corpus">Within this project</button>
+          <button class="viz-mode-tab${autorenModus === 'world' ? ' active' : ''}" data-authors-mode="world">Everything cited</button>
+        </div>`;
+
+      if (autorenModus === 'corpus') {
+        return kopf + renderAuthorRanking(eigen,
+          eigen.length
+            ? 'Authors of articles <strong>in this selection</strong>, ranked by how often other articles in the same selection cite them. Computed from stored data \u2014 no requests, complete.'
+            : 'None of the articles in this selection cite one another \u2014 or their reference lists have not been fetched yet (only OpenAlex results carry them).');
+      }
+
+      if (welt && welt.status === 'ok') {
+        const teile = [
+          `Every author cited by the ${welt.basis} OpenAlex article${welt.basis !== 1 ? 's' : ''} in this selection, including authors who are not in the project. ${welt.referenzierteWerke.toLocaleString()} referenced works.`,
+        ];
+        if (welt.uebersprungen) teile.push(`${welt.uebersprungen} article${welt.uebersprungen !== 1 ? 's' : ''} skipped \u2014 only OpenAlex records carry reference data.`);
+        if (welt.gekappt) teile.push('<strong>Counts are a lower bound:</strong> OpenAlex returns at most 200 authors per batch, so authors cited only once may be missing.');
+        return kopf + renderAuthorRanking(welt.autoren, teile.join(' '));
+      }
+      if (welt && welt.status === 'laeuft') {
+        return kopf + `<div class="viz-authors-note">Asking OpenAlex \u2026 batch ${welt.schritt} of ${welt.gesamt}.</div>`;
+      }
+      if (welt && welt.status === 'fehler') {
+        return kopf + `<div class="viz-empty-bars">${esc(welt.meldung)}</div>`;
+      }
+      return kopf + `
+        <div class="viz-authors-note">
+          This asks OpenAlex which authors the articles in this selection cite \u2014 including
+          authors outside the project. One request per 50 articles, aggregated by OpenAlex itself.
+        </div>
+        <button class="btn btn-primary" id="viz-authors-run">Look up cited authors</button>`;
     };
 
     const updateChart = () => {
@@ -4631,13 +4746,46 @@ window.SLRViews = (() => {
               '<span class="viz-col-resize-grip"></span></div>'
           : currentChart === 'prisma'
             ? renderPrisma()
+          : currentChart === 'authors'
+            ? renderAuthorsPanel()
             : renderBars(currentMode, currentGroupBy, showNone);
       wireChartInteractivity(el, currentChart);
+      if (currentChart === 'authors') wireAuthorsPanel(el);
       if (currentChart === 'year') {
         const chartWrap = el.querySelector('.viz-col-chart-wrap');
         if (chartWrap) chartWrap.scrollLeft = chartWrap.scrollWidth;
       }
     };
+    function wireAuthorsPanel(el) {
+      el.querySelectorAll('[data-authors-mode]').forEach(btn => {
+        btn.addEventListener('click', () => {
+          autorenModus = btn.dataset.authorsMode;
+          updateChart();
+        });
+      });
+
+      const start = el.querySelector('#viz-authors-run');
+      if (!start) return;
+      start.addEventListener('click', async () => {
+        const key = currentMode;
+        weltweitCache[key] = { status: 'laeuft', schritt: 0, gesamt: 0 };
+        updateChart();
+        try {
+          const ergebnis = await SLRApp.collectCitedAuthors(getSubset(key), (schritt, gesamt) => {
+            // Nur den Fortschritt neu zeichnen, wenn die Ansicht noch auf
+            // diesem Diagramm steht — sonst reisst ein spaeter Rueckruf die
+            // Anzeige unter einem anderen Diagramm an sich.
+            weltweitCache[key] = { status: 'laeuft', schritt, gesamt };
+            if (currentChart === 'authors' && currentMode === key) updateChart();
+          });
+          weltweitCache[key] = Object.assign({ status: 'ok' }, ergebnis);
+        } catch (err) {
+          weltweitCache[key] = { status: 'fehler', meldung: `Lookup failed: ${err.message || err}` };
+        }
+        if (currentChart === 'authors') updateChart();
+      });
+    }
+
     updateChart();
 
     container.querySelector('#viz-chart-select')?.addEventListener('change', e => {
