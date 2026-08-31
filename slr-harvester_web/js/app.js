@@ -40,6 +40,12 @@ window.SLRApp = (() => {
 		filter: {
 			mode: 'all',
 			tags: [],
+			// Position of a single search-log run, or null for "all queries".
+			// Deliberately only on the Articles filter and not on the Selected
+			// and Corpus ones: those two answer "what did I keep", a question
+			// about the whole project, while restricting to one query answers
+			// "what did this search bring in".
+			runIndex: null,
 			yearFrom: '',
 			yearTo: '',
 			sort: 'newest',
@@ -145,7 +151,7 @@ window.SLRApp = (() => {
 		// Query History view: which status tab is showing, and date sort order.
 		// Not persisted — resets to the defaults each session.
 		history: {
-			statusFilter: 'active', // 'active' | 'archived' | 'trashed'
+			statusFilter: 'active', // 'active' | 'imported' | 'archived' | 'trashed'
 			sortDir: 'desc',        // 'desc' = newest first, 'asc' = oldest first
 		},
 	};
@@ -883,6 +889,32 @@ window.SLRApp = (() => {
 		// Any real filter change restarts pagination at the top — see
 		// bumpArticlesRenderLimit, the only place that's allowed to grow it.
 		state.filter = { ...state.filter, ...patch, renderLimit: ARTICLE_PAGE_SIZE };
+		renderCurrentView();
+	}
+
+	// Jumping from a History card into the article list, showing only what that
+	// one query returned. The History view already previews the first thirty
+	// results inline, but a preview is not the list: it cannot be tagged,
+	// screened, sorted or searched. This hands the same set to the real list.
+	function showArticlesForQuery(index) {
+		const idx = parseInt(index, 10);
+		if (!Number.isInteger(idx) || idx < 0) return;
+		// Any other filter still standing would silently narrow the result and
+		// make it look as though the query had returned less than it did.
+		state.filter = {
+			...state.filter,
+			runIndex: idx,
+			tags: [],
+			search: '',
+			yearFrom: '',
+			yearTo: '',
+			renderLimit: ARTICLE_PAGE_SIZE,
+		};
+		navigate('articles');
+	}
+
+	function clearQueryFilter() {
+		state.filter = { ...state.filter, runIndex: null, renderLimit: ARTICLE_PAGE_SIZE };
 		renderCurrentView();
 	}
 
@@ -1845,6 +1877,56 @@ window.SLRApp = (() => {
 		}
 	}
 
+	// An imported list becomes an ordinary search-log entry. That is the whole
+	// design decision: nothing downstream — deduplication, screening, the
+	// PRISMA counts, the visualisations — needs to learn about a second kind of
+	// article, because there isn't one. The entry carries status 'imported' so
+	// the History view can keep it in its own tab, and an `imported` block
+	// recording where it came from, which is the only thing a reader later
+	// needs that a search entry answers with its query text.
+	async function importQueryFile(file) {
+		if (!state.currentFolder) {
+			showToast('Open a project before importing.', true);
+			return;
+		}
+		if (!file) return;
+
+		try {
+			const text = await file.text();
+			const { format, records } = SLRViews.parseImportFile(text, file.name);
+			if (!records.length) {
+				showToast(`No records found in ${file.name}. Expected .bib, .ris or .csv.`, true);
+				return;
+			}
+
+			const results = records.map(SLRViews.toImportedArticle);
+			const runEntry = {
+				timestamp: new Date().toISOString().slice(0, 19).replace('T', ' '),
+				// The query field is what the History card shows and what the
+				// Abfrageprotokoll prints, so it has to say something true. An
+				// import has no query; it has a provenance.
+				query: `Imported from ${file.name} (.${format}, ${results.length} record${results.length !== 1 ? 's' : ''})`,
+				view: 'import',
+				count: results.length,
+				results,
+				status: 'imported',
+				imported: {
+					filename: file.name,
+					format,
+					at: new Date().toISOString(),
+				},
+			};
+
+			await SLRData.appendSearchResult(state.currentFolder, runEntry);
+			await hydrateProject(state.currentFolder);
+			state.history.statusFilter = 'imported';
+			showToast(`Imported ${results.length} record${results.length !== 1 ? 's' : ''} from ${file.name}.`, false);
+			renderCurrentView();
+		} catch (err) {
+			showToast(`Import failed: ${err.message || err}`, true);
+		}
+	}
+
 	// index is always the entry's position in the raw (unreversed, newest-first)
 	// searchLog array as persisted on disk/cloud — NOT its position in whatever
 	// sorted/filtered order the History view is currently displaying.
@@ -1871,8 +1953,13 @@ window.SLRApp = (() => {
 		return setHistoryQueryStatus(index, 'archived', 'Query archived.');
 	}
 
+	// An imported list restored out of Archive or Trash belongs back in
+	// Imported, not in Active — "active" would quietly relabel it as something
+	// the user had searched for.
 	function restoreHistoryQuery(index) {
-		return setHistoryQueryStatus(index, 'active', 'Query restored.');
+		const entry = ((state.projectData && state.projectData.searchLog) || [])[index];
+		const back  = entry && entry.imported ? 'imported' : 'active';
+		return setHistoryQueryStatus(index, back, back === 'imported' ? 'List restored to Imported.' : 'Query restored.');
 	}
 
 	async function permanentlyDeleteHistoryQuery(index) {
@@ -1891,7 +1978,7 @@ window.SLRApp = (() => {
 	}
 
 	function setHistoryStatusFilter(tab) {
-		const valid = ['active', 'archived', 'trashed'];
+		const valid = ['active', 'imported', 'archived', 'trashed'];
 		state.history.statusFilter = valid.includes(tab) ? tab : 'active';
 		renderCurrentView();
 	}
@@ -3281,6 +3368,9 @@ window.SLRApp = (() => {
 		cancelSearch,
 		trashHistoryQuery,
 		archiveHistoryQuery,
+		importQueryFile,
+		showArticlesForQuery,
+		clearQueryFilter,
 		restoreHistoryQuery,
 		permanentlyDeleteHistoryQuery,
 		setHistoryStatusFilter,
