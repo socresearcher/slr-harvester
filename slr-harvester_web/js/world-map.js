@@ -378,7 +378,16 @@ window.SLRWorldMap = (() => {
   function renderWorldMap(articles, showLegend) {
     const colors = getThemeColors();
     const { items, mappedArticles, missingArticles } = aggregateCountryCounts(articles);
-    const width = 1000;
+    // The path data is drawn on a 1000x520 canvas, but no country reaches
+    // its left or right edge: measured across all 175 paths, the content
+    // spans x = 22 to x = 978 exactly (Fiji, Russia and Antarctica all stop
+    // there). Since .viz-world-svg's aspect-ratio matches the viewBox, those
+    // 22 units rendered as a visible strip of empty ocean down each side.
+    // Starting the viewBox at the content edge makes the map span frame to
+    // frame. The vertical extent is left alone: y = 38.8 to 520 is genuine
+    // Arctic Ocean above Greenland, not padding.
+    const MAP_X = 22;
+    const width = 956;
     // Full height, uncropped — Antarctica's own polygon (world-map-paths-
     // data.js) is capped correctly down to this bottom edge; there's no
     // reason left to hide part of the viewBox to avoid a broken-looking
@@ -401,8 +410,13 @@ window.SLRWorldMap = (() => {
     return `
       <div class="viz-world-wrap${showLegend ? '' : ' legend-hidden'}">
         <div class="viz-world-stage">
-          <svg class="viz-world-svg" viewBox="0 0 ${width} ${height}" role="img" aria-label="World map showing article counts by affiliation country, shaded by count">
-            <rect class="viz-world-ocean" x="0" y="0" width="${width}" height="${height}" rx="18" fill="${colors.ocean}" stroke="${colors.oceanStroke}" stroke-width="1.2"/>
+          <!-- No ocean <rect> in here any more: everything inside an SVG
+               lives in the viewBox coordinate system, so the frame panned and
+               scaled away with the first zoom — exactly the reference a
+               reader needs while zoomed in. The ocean fill and the frame are
+               the stage's own background/border now (.viz-world-stage in
+               style.css), which zooming cannot move. -->
+          <svg class="viz-world-svg" viewBox="${MAP_X} 0 ${width} ${height}" role="img" aria-label="World map showing article counts by affiliation country, shaded by count">
             <g class="viz-world-country-layer">${countryLayer}</g>
           </svg>
           <div class="viz-world-zoom-controls" role="group" aria-label="Map zoom controls">

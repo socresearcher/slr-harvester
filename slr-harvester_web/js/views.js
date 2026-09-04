@@ -824,11 +824,27 @@ window.SLRViews = (() => {
           </div>`;
       }).join('');
 
+    // Beschriftete, sichtbar umrandete Felder statt zweier Zeilen, die erst
+    // beim Ueberfahren als Eingaben zu erkennen waren.
     return `
       <div class="project-meta-edit">
-        <input class="project-name-input" id="proj-name-input" type="text" value="${esc(project.name)}" maxlength="120" aria-label="Project name">
-        <textarea class="project-desc-input" id="proj-desc-input" rows="2" maxlength="500" aria-label="Project description">${esc(project.description || '')}</textarea>
-        <button class="btn-primary" id="save-meta-btn" style="align-self:flex-start;padding:6px 18px;font-size:13px">${SLRIcons.check} Save</button>
+        <div class="project-meta-field">
+          <label class="project-meta-label" for="proj-name-input">Project title</label>
+          <input class="project-name-input" id="proj-name-input" type="text" value="${esc(project.name)}"
+                 maxlength="120" placeholder="Untitled project" aria-label="Project title">
+        </div>
+        <div class="project-meta-field">
+          <label class="project-meta-label" for="proj-desc-input">Subtitle / description</label>
+          <textarea class="project-desc-input" id="proj-desc-input" rows="2" maxlength="500"
+                    placeholder="What this review is about — shown on the project card."
+                    aria-label="Project subtitle or description">${esc(project.description || '')}</textarea>
+        </div>
+        <div class="project-meta-actions">
+          <button class="btn-primary" id="save-meta-btn">${SLRIcons.check} Save</button>
+          <button class="btn-secondary" id="proj-prisma-btn" title="Open this project's PRISMA screening flow">
+            ${SLRIcons.chart} PRISMA flow
+          </button>
+        </div>
       </div>
 
       <div class="project-info-cols">
@@ -891,6 +907,22 @@ window.SLRViews = (() => {
         if (saveBtn) {
           saveBtn.addEventListener('click', () =>
             SLRApp.updateProjectMeta(detailFolder, nameInput.value, descInput.value));
+        }
+        // Kurzweg zum Screening-Fluss dieses Projekts. Nur sinnvoll fuer das
+        // GERADE geoeffnete Projekt: Die Visualisierungen zeichnen immer
+        // state.articles, nicht das Projekt der aufgeschlagenen Infokarte.
+        const prismaBtn = container.querySelector('#proj-prisma-btn');
+        if (prismaBtn) {
+          const istOffen = SLRApp.state.currentFolder === detailFolder;
+          if (!istOffen) {
+            prismaBtn.disabled = true;
+            prismaBtn.title = 'Open this project first to see its PRISMA flow';
+          }
+          prismaBtn.addEventListener('click', () => {
+            if (!istOffen) return;
+            SLRApp.state.vizChart = 'prisma';
+            SLRApp.navigate('visualizations');
+          });
         }
         return;
       }
@@ -1903,22 +1935,59 @@ window.SLRViews = (() => {
 
   // Hides the stats banner / toolbar / search row above an article list
   // while the user scrolls the list down, and brings it back on scroll-up
-  // or once back near the top — there's only enough vertical room on a
-  // phone/tablet to show the header stack OR a useful number of article
-  // cards, not both. The collapse itself is pure CSS (a grid-template-rows
-  // 1fr/0fr transition on .list-header-collapsible, scoped to the existing
-  // max-width:900px breakpoint in style.css) so this listener has no visual
-  // effect at desktop widths even though it still runs there.
+  // or once back near the top — a window is only so tall, and there's room
+  // to show the header stack OR a useful number of article cards, not both.
+  // That is as true of a desktop window as of a phone, so it now applies at
+  // every width; the listener always ran everywhere, only the CSS was scoped
+  // to max-width:900px. The animation is driven from here rather than left
+  // to CSS because the grid-template-rows 1fr/0fr transition it used to rely
+  // on is one Chrome declines to run when the grid's height is indefinite —
+  // measured, the computed value simply stayed at 262.75px. See the note on
+  // .list-header-collapsible in style.css.
   function wireListHeaderCollapse(container, listEl) {
     const wrap = container.querySelector('.list-header-collapsible');
     if (!wrap || !listEl) return;
+
+    // max-height braucht eine Zahl, um sich bewegen zu koennen — 'auto' laesst
+    // sich nicht animieren. Der Ausgangswert wird deshalb bei jedem Wechsel
+    // frisch gemessen (die Kopfhoehe schwankt: der Filterbereich klappt eigene
+    // Zeilen auf) und nach dem Ausklappen wieder abgenommen, damit die
+    // Deckelung nicht stehen bleibt und spaeteres Wachstum abschneidet.
+    let collapsed = wrap.classList.contains('is-collapsed');
+    const setCollapsed = (on) => {
+      if (on === collapsed) return;
+      collapsed = on;
+      const hoehe = wrap.scrollHeight;
+      wrap.style.maxHeight = hoehe + 'px';
+      void wrap.offsetHeight;                       // Zwischenstand festhalten
+      wrap.classList.toggle('is-collapsed', on);
+      wrap.style.maxHeight = on ? '0px' : hoehe + 'px';
+      clearTimeout(aufraeumer);
+      if (!on) aufraeumer = setTimeout(deckelAbnehmen, 400);
+    };
+    // Den Deckel nach dem Ausklappen wieder abnehmen. `transitionend` ist
+    // dafuer der genaue, aber nicht der verlaessliche Weg: bei
+    // `prefers-reduced-motion` laeuft gar kein Uebergang, und ein verdecktes
+    // Fenster fuehrt ihn nicht aus — dann bliebe die Deckelung auf der
+    // gemessenen Hoehe stehen und wuerde den Kopf abschneiden, sobald der
+    // Filterbereich eigene Zeilen aufklappt. Der Zeitgeber laeuft deshalb
+    // mit; wer zuerst kommt, raeumt auf.
+    let aufraeumer = 0;
+    const deckelAbnehmen = () => {
+      if (!wrap.classList.contains('is-collapsed')) wrap.style.maxHeight = '';
+    };
+    wrap.addEventListener('transitionend', ev => {
+      if (ev.propertyName !== 'max-height') return;
+      deckelAbnehmen();
+    });
+
     let lastTop = listEl.scrollTop;
     listEl.addEventListener('scroll', () => {
       const top = listEl.scrollTop;
       const delta = top - lastTop;
-      if (top <= 8) wrap.classList.remove('is-collapsed');
-      else if (delta > 6) wrap.classList.add('is-collapsed');
-      else if (delta < -6) wrap.classList.remove('is-collapsed');
+      if (top <= 8) setCollapsed(false);
+      else if (delta > 6) setCollapsed(true);
+      else if (delta < -6) setCollapsed(false);
       lastTop = top;
     }, { passive: true });
   }
@@ -3529,6 +3598,15 @@ window.SLRViews = (() => {
           img.onerror = () => rej(new Error('SVG render failed'));
           img.src = uri;
         });
+        // The frame moved out of the SVG and onto .viz-world-stage (so that
+        // zooming cannot carry it away), which means the serialised SVG no
+        // longer brings one along. Draw it here instead, same radius and
+        // colour, so the exported map keeps the edge the screen shows.
+        ctx.save();
+        ctx.strokeStyle = bdC;
+        ctx.lineWidth = 1.2;
+        ctx.beginPath(); ctx.roundRect(ox, oy, sw, sh, 18); ctx.stroke();
+        ctx.restore();
         let ly = oy + 8;
         const lx = ox + sw + 24;
         chartEl.querySelectorAll('.viz-world-legend-item').forEach(item => {
@@ -3780,10 +3858,21 @@ window.SLRViews = (() => {
     // of each having grown its own default (320/440 before, which pushed the
     // legend below the fold on smaller screens). Portrait still gets more,
     // because there is more vertical room there.
-    const getDefaultChartHeight = () => {
+    // Wo der Ziehgriff eines Diagramms per Voreinstellung steht, ausgedrueckt
+    // als Anteil seines eigenen Ziehbereichs. EIN Wert fuer alle Diagramme
+    // ausser PRISMA: Die Bereiche sind verschieden (Hoehen 160-700 Pixel,
+    // Balkenstaerke 14-44 Pixel), die Stellung des Griffs darin ist es nicht
+    // mehr. Vorher hatten die Hoehendiagramme im Hochformat 340 (33 %),
+    // waehrend die Balken bei 20 (20 %) blieben — derselbe Griff stand je
+    // nach Diagramm woanders.
+    const VIZ_HANDLE_FRACTION = 0.20;
+    const VIZ_HANDLE_FRACTION_PORTRAIT = 0.33;
+    const vizHandleFraction = () => {
       const portrait = typeof window.matchMedia === 'function' && window.matchMedia('(orientation: portrait)').matches;
-      return portrait ? 340 : 260;
+      return portrait ? VIZ_HANDLE_FRACTION_PORTRAIT : VIZ_HANDLE_FRACTION;
     };
+    const vizDefaultFor = (min, max) => Math.round(min + (max - min) * vizHandleFraction());
+    const getDefaultChartHeight = () => vizDefaultFor(CHART_HEIGHT_MIN, CHART_HEIGHT_MAX);
     const getChartHeight = (storageKey) => {
       const saved = parseInt(localStorage.getItem(storageKey), 10);
       return (Number.isFinite(saved) && saved >= CHART_HEIGHT_MIN && saved <= CHART_HEIGHT_MAX) ? saved : getDefaultChartHeight();
@@ -3798,7 +3887,9 @@ window.SLRViews = (() => {
     const BAR_TRACK_MIN = 14, BAR_TRACK_MAX = 44;
     const getBarTrackHeight = () => {
       const saved = parseInt(localStorage.getItem('slr-bars-row-height'), 10);
-      return (Number.isFinite(saved) && saved >= BAR_TRACK_MIN && saved <= BAR_TRACK_MAX) ? saved : 20;
+      return (Number.isFinite(saved) && saved >= BAR_TRACK_MIN && saved <= BAR_TRACK_MAX)
+        ? saved
+        : vizDefaultFor(BAR_TRACK_MIN, BAR_TRACK_MAX);
     };
 
       const renderBars = (mode, groupBy, includeNone) => {
@@ -4181,7 +4272,14 @@ window.SLRViews = (() => {
 
     // State
       let currentMode    = 'all';
+      // Ein Kurzweg von ausserhalb (derzeit „PRISMA flow" in Projects/Info)
+      // darf ein Diagramm vorwaehlen. Der Wunsch gilt genau einmal — sonst
+      // saesse die Ansicht dauerhaft auf dem vorgewaehlten Diagramm fest.
       let currentChart   = 'doughnut';
+      if (SLRApp.state && SLRApp.state.vizChart) {
+        currentChart = SLRApp.state.vizChart;
+        SLRApp.state.vizChart = null;
+      }
       let currentGroupBy = 'tag';
       let showLegend     = true;
       let showNone       = true;
@@ -4705,6 +4803,13 @@ window.SLRViews = (() => {
     const updateChart = () => {
       const el          = container.querySelector('#viz-chart');
       const titleEl     = container.querySelector('#viz-chart-title');
+      // Die Auswahlliste an currentChart angleichen. Sie traegt statische
+      // <option>-Eintraege ohne selected; solange nur der Nutzer sie bedient,
+      // faellt das nicht auf, aber eine Vorwahl von aussen (Kurzweg aus
+      // Projects/Info) haette sonst das Diagramm gewechselt und die Liste auf
+      // dem alten Eintrag stehen lassen.
+      const chartSel    = container.querySelector('#viz-chart-select');
+      if (chartSel && chartSel.value !== currentChart) chartSel.value = currentChart;
         const modeTabs    = container.querySelector('.viz-mode-tabs');
         const legendBtn   = container.querySelector('#viz-legend-toggle');
         const noneBtn     = container.querySelector('#viz-none-toggle');
@@ -5210,6 +5315,15 @@ window.SLRViews = (() => {
     { key: 'openalex',  label: 'OpenAlex',  abbr: 'OA', color: '#3ab09e', note: 'Free  No key required' },
   ];
 
+  // Welche Abfragesprache gerade gilt — steht klein neben der Ueberschrift
+  // des Textfelds, damit beim Wechsel der Quelle sofort sichtbar ist, dass
+  // sich auch die Syntax aendert.
+  const DB_SYNTAX_NAMES = {
+    scopus:   'Scopus Boolean syntax',
+    pubmed:   'PubMed query syntax',
+    openalex: 'OpenAlex keyword / filter syntax',
+  };
+
   // Hints per database (shown below the query textarea)
   const DB_HINTS = {
     scopus:   'Use Scopus Boolean syntax: TITLE-ABS-KEY("machine learning") AND PUBYEAR > 2019',
@@ -5302,86 +5416,96 @@ window.SLRViews = (() => {
     }
 
     const placeholder = DB_PLACEHOLDERS[db] || '';
-    const isMobile = window.matchMedia('(max-width: 900px)').matches;
-    if (search && !search.mobilePanelsInitialized) {
-      search.mobilePanelsInitialized = true;
-      search.showFieldCodes = !isMobile;
-      search.showPastTerms = !isMobile;
-    }
 
-    const mobileTogglesHTML = isMobile
-      ? `<div class="search-mobile-toggles">
-          <button class="search-mobile-toggle${search.showFieldCodes ? ' active' : ''}" data-toggle-panel="field-codes">
-            ${SLRIcons.filter}<span>Field Codes</span>
-          </button>
-          <button class="search-mobile-toggle${search.showPastTerms ? ' active' : ''}" data-toggle-panel="past-terms">
-            ${SLRIcons.history}<span>Past Terms</span>
-          </button>
-        </div>`
-      : '';
+    // Die beiden Schubladen merken sich ihre Stellung selbst. Vorgabe haengt
+    // an der Bildschirmbreite — am Telefon zu, am Desktop offen —, aber nur
+    // beim ersten Mal; danach entscheidet der Nutzer.
+    const isNarrow = window.matchMedia('(max-width: 900px)').matches;
+    const drawerOpen = (key, fallback) => {
+      let saved = null;
+      try { saved = localStorage.getItem('slr-search-drawer-' + key); } catch (_) { /* privates Fenster */ }
+      return saved === null ? fallback : saved === '1';
+    };
+    const fcOpen    = drawerOpen('field-codes', !isNarrow);
+    const termsOpen = drawerOpen('past-terms', !isNarrow);
+    const fcCount   = fcCodes.reduce((n, g) => n + g.fields.length, 0);
 
+    // Eine Spalte, auf jeder Breite dieselbe: Quelle -> Abfrage -> Suchen,
+    // darunter die Helfer. Kein `order`-Umsortieren, keine eigene
+    // Mobilfassung — der Unterschied zwischen Telefon und Desktop ist die
+    // Breite der Spalte, nicht ihr Aufbau.
     container.innerHTML = `
-      <div class="search-view${isMobile ? ' search-view-mobile' : ''}">
+      <div class="search-view">
+        <div class="search-page">
 
-        <!-- Query editor — first in DOM (and, on mobile, visually first via
-             CSS order too) so it — and everything above it, i.e. nothing —
-             never moves when Field Codes/Past Terms expand below it. On
-             desktop, CSS order puts field-codes back on the left and
-             past-terms on the right, same 3-column layout as before. -->
-        <div class="search-editor-panel">
-          <div class="search-editor-toolbar">
-            ${mobileTogglesHTML}
+          <div class="search-step">
+            <div class="search-step-label">Source</div>
             <div class="search-db-tabs" id="search-db-tabs">${tabsHTML}</div>
           </div>
 
-          ${hintHTML}
-          ${keyWarnHTML}
-
-          <textarea class="search-textarea" id="search-query" rows="8"
-            placeholder="${esc(placeholder)}"
-            ${isSearch ? 'disabled' : ''}>${esc(query)}</textarea>
-
-          <div class="search-actions">
-            ${isSearch
-              ? `<button class="btn-primary" id="search-cancel-btn">Cancel</button>`
-              : `<button class="btn-primary" id="search-run-btn" ${noKey ? 'disabled' : ''}>
-                   ${SLRIcons.search} Search
-                 </button>`
-            }
-            <div class="search-max-wrap">
-              <label for="search-max">Max results:</label>
-              <input class="form-input" id="search-max" type="number"
-                min="1" max="10000" style="width:80px"
-                value="${esc(String(maxRes))}"
-                ${isSearch ? 'disabled' : ''}>
+          <div class="search-composer">
+            <div class="search-composer-head">
+              <label class="search-step-label" for="search-query">Query</label>
+              <span class="search-composer-syntax">${esc(DB_SYNTAX_NAMES[db] || '')}</span>
             </div>
+
+            <textarea class="search-textarea" id="search-query" rows="8"
+              placeholder="${esc(placeholder)}"
+              ${isSearch ? 'disabled' : ''}>${esc(query)}</textarea>
+
+            <!-- Der Syntaxhinweis steht jetzt UNTER dem Feld: Er beantwortet
+                 „wie schreibe ich das hier", und die Frage stellt sich erst,
+                 wenn das Feld da ist. -->
+            ${hintHTML}
+            ${keyWarnHTML}
+
+            <div class="search-actions">
+              ${isSearch
+                ? `<button class="btn-primary search-run-btn" id="search-cancel-btn">Cancel</button>`
+                : `<button class="btn-primary search-run-btn" id="search-run-btn" ${noKey ? 'disabled' : ''}>
+                     ${SLRIcons.search} Search
+                   </button>`
+              }
+              <label class="search-max-wrap" for="search-max">
+                <span>Max results</span>
+                <input class="form-input" id="search-max" type="number"
+                  min="1" max="10000"
+                  value="${esc(String(maxRes))}"
+                  ${isSearch ? 'disabled' : ''}>
+              </label>
+            </div>
+
+            ${statusHTML}
           </div>
 
-          ${statusHTML}
+          <details class="search-drawer" data-drawer="field-codes"${fcOpen ? ' open' : ''}>
+            <summary class="search-drawer-summary">
+              ${SLRIcons.filter}
+              <span class="search-drawer-title">Field codes</span>
+              <span class="search-drawer-count">${fcCount}</span>
+              <span class="search-drawer-hint">click to insert at the cursor</span>
+            </summary>
+            <div class="search-drawer-body">
+              <input class="form-input search-fc-filter" id="search-fc-filter" type="search"
+                     placeholder="Filter field codes…" aria-label="Filter field codes">
+              <div class="fc-list" id="search-fc-list">${fcPanelHTML}</div>
+              <p class="search-fc-empty" id="search-fc-empty" hidden>No field code matches that filter.</p>
+            </div>
+          </details>
+
+          <details class="search-drawer" data-drawer="past-terms"${termsOpen ? ' open' : ''}>
+            <summary class="search-drawer-summary">
+              ${SLRIcons.history}
+              <span class="search-drawer-title">Saved terms</span>
+              <span class="search-drawer-count">${sortedTerms.length}</span>
+              <span class="search-drawer-hint">from this project</span>
+            </summary>
+            <div class="search-drawer-body">
+              <div class="search-terms-list">${termsHTML}</div>
+            </div>
+          </details>
+
         </div>
-
-        <!-- Field codes -->
-        <div class="search-panel${isMobile && !search.showFieldCodes ? ' is-collapsed' : ''}" data-panel="field-codes">
-          <div class="search-panel-header">
-            ${SLRIcons.filter}
-            <span class="search-panel-title">Field Codes</span>
-          </div>
-          <div class="search-panel-body">
-            <div class="fc-list">${fcPanelHTML}</div>
-          </div>
-        </div>
-
-        <!-- Past terms -->
-        <div class="search-panel search-terms-panel${isMobile && !search.showPastTerms ? ' is-collapsed' : ''}" data-panel="past-terms">
-          <div class="search-panel-header">
-            ${SLRIcons.history}
-            <span class="search-panel-title">Past Terms</span>
-          </div>
-          <div class="search-panel-body">
-            <div class="search-terms-list">${termsHTML}</div>
-          </div>
-        </div>
-
       </div>`;
 
     // Wire: DB tabs
@@ -5395,17 +5519,44 @@ window.SLRViews = (() => {
       });
     });
 
-    container.querySelectorAll('[data-toggle-panel]').forEach(btn => {
-      btn.addEventListener('click', () => {
-        const target = btn.dataset.togglePanel;
-        if (target === 'field-codes') {
-          SLRApp.state.search.showFieldCodes = !SLRApp.state.search.showFieldCodes;
-        } else if (target === 'past-terms') {
-          SLRApp.state.search.showPastTerms = !SLRApp.state.search.showPastTerms;
-        }
-        renderSearch(container, SLRApp.state.projectData, SLRApp.state.settings, SLRApp.state.search);
+    // Schubladenstellung merken. Kein Neuzeichnen noetig — <details> klappt
+    // von selbst auf und zu; hier wird nur festgehalten, was der Nutzer
+    // entschieden hat.
+    container.querySelectorAll('.search-drawer[data-drawer]').forEach(det => {
+      det.addEventListener('toggle', () => {
+        try { localStorage.setItem('slr-search-drawer-' + det.dataset.drawer, det.open ? '1' : '0'); }
+        catch (_) { /* privates Fenster: dann eben nur fuer diese Sitzung */ }
       });
     });
+
+    // Filter ueber den Feldcodes. Bei Scopus sind es 166 Stueck in 26
+    // Gruppen — ohne Filter findet man darin nichts, mit Filter ist die
+    // Liste in zwei Anschlaegen auf das Gesuchte herunter. Eine Gruppe
+    // verschwindet mit ihrer letzten sichtbaren Karte.
+    const fcFilter = container.querySelector('#search-fc-filter');
+    if (fcFilter) {
+      const gruppen = [...container.querySelectorAll('#search-fc-list .fc-group')];
+      const leerHinweis = container.querySelector('#search-fc-empty');
+      fcFilter.addEventListener('input', () => {
+        const q = fcFilter.value.trim().toLowerCase();
+        let sichtbar = 0;
+        gruppen.forEach(g => {
+          const kopf = (g.querySelector('.fc-group-header')?.textContent || '').toLowerCase();
+          let trefferInGruppe = 0;
+          g.querySelectorAll('.fc-chip').forEach(chip => {
+            const passt = !q
+              || kopf.includes(q)
+              || (chip.textContent || '').toLowerCase().includes(q)
+              || (chip.getAttribute('title') || '').toLowerCase().includes(q);
+            chip.hidden = !passt;
+            if (passt) trefferInGruppe++;
+          });
+          g.hidden = trefferInGruppe === 0;
+          sichtbar += trefferInGruppe;
+        });
+        if (leerHinweis) leerHinweis.hidden = sichtbar > 0;
+      });
+    }
 
     // Wire: Field code chips  mode-aware insertion
     container.querySelectorAll('.fc-chip').forEach(chip => {

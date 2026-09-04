@@ -5,8 +5,8 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
   <meta name="theme-color" id="theme-color-meta" content="#0d1117">
   <title>SLR Harvester Web</title>
-  <link rel="icon" type="image/svg+xml" href="favicon.svg?v=20260831c">
-  <link rel="stylesheet" href="css/style.css?v=20260831c">
+  <link rel="icon" type="image/svg+xml" href="favicon.svg?v=20260904c">
+  <link rel="stylesheet" href="css/style.css?v=20260904c">
   <!-- Read-aloud: the neural voice engine (Piper) imports "onnxruntime-web/wasm"
        as a bare module specifier, which a browser cannot resolve without a
        bundler. This map supplies it. Nothing is fetched until the neural
@@ -79,13 +79,18 @@
           <span class="nav-icon" data-icon="corpus"></span>
           <span class="nav-label sidebar-label">Corpus</span>
         </button>
-
-        <div class="nav-separator" role="separator"></div>
-
+        <!-- Visualisations belongs with the three screening stages, not with
+             Tags: it reads whatever Articles/Selected/Corpus currently hold
+             (its All/Selected/Corpus tabs are exactly those three subsets),
+             so it is the last step of that group rather than the first of
+             the next one. -->
         <button class="nav-item" data-view="visualizations" title="Visualisations" aria-label="Visualisations">
           <span class="nav-icon" data-icon="chart"></span>
           <span class="nav-label sidebar-label">Visualisations</span>
         </button>
+
+        <div class="nav-separator" role="separator"></div>
+
         <button class="nav-item" data-view="tags" title="Tags" aria-label="Tags">
           <span class="nav-icon" data-icon="tags"></span>
           <span class="nav-label sidebar-label">Tags</span>
@@ -150,7 +155,7 @@
   <!-- Modal overlay (rendered dynamically) -->
   <div id="modal-overlay" class="modal-overlay hidden" role="dialog" aria-modal="true"></div>
 
-  <script src="js/icons.js?v=20260831c"></script>
+  <script src="js/icons.js?v=20260904c"></script>
   <!-- Cloud sync (optional): Supabase JS SDK v2.112.3, vendored locally
        (js/vendor/supabase.js) rather than loaded from a CDN. This used to
        be cdn.jsdelivr.net, which browser tracking-prevention features
@@ -161,18 +166,18 @@
        Same-origin now, so that entire class of blocking can't happen.
        To update: download a newer dist/umd/supabase.js build and replace
        the vendored file; nothing else needs to change. -->
-  <script src="js/vendor/supabase.js?v=20260831c"></script>
-  <script src="js/data-local.js?v=20260831c"></script>
-  <script src="js/data-supabase.js?v=20260831c"></script>
-  <script src="js/data.js?v=20260831c"></script>
-  <script src="js/world-map-data.js?v=20260831c"></script>
-  <script src="js/world-map-outline-data.js?v=20260831c"></script>
-  <script src="js/world-map-paths-data.js?v=20260831c"></script>
-  <script src="js/world-map.js?v=20260831c"></script>
-  <script src="js/tts.js?v=20260831c"></script>
-  <script src="js/views.js?v=20260831c"></script>
-  <script src="js/app-ui.js?v=20260831c"></script>
-  <script src="js/app.js?v=20260831c"></script>
+  <script src="js/vendor/supabase.js?v=20260904c"></script>
+  <script src="js/data-local.js?v=20260904c"></script>
+  <script src="js/data-supabase.js?v=20260904c"></script>
+  <script src="js/data.js?v=20260904c"></script>
+  <script src="js/world-map-data.js?v=20260904c"></script>
+  <script src="js/world-map-outline-data.js?v=20260904c"></script>
+  <script src="js/world-map-paths-data.js?v=20260904c"></script>
+  <script src="js/world-map.js?v=20260904c"></script>
+  <script src="js/tts.js?v=20260904c"></script>
+  <script src="js/views.js?v=20260904c"></script>
+  <script src="js/app-ui.js?v=20260904c"></script>
+  <script src="js/app.js?v=20260904c"></script>
 
 </body>
 </html>
