@@ -947,8 +947,19 @@ a:hover {
   border: 1px solid transparent;
 }
 
-.btn-primary:hover {
+.btn-primary:hover:not(:disabled) {
   background: var(--accent-hover);
+}
+
+/* Ein gesperrter Knopf muss gesperrt aussehen. Ohne diese Regel trug der
+   Suchknopf ohne Scopus-Schluessel die volle Akzentfarbe und einen
+   Zeigefinger — er sah aus wie der naechste Schritt und tat nichts. */
+.btn-primary:disabled,
+.btn-secondary:disabled,
+.btn-danger:disabled {
+  opacity: .45;
+  cursor: not-allowed;
+  box-shadow: none;
 }
 
 .btn-primary svg {
@@ -1571,8 +1582,51 @@ a:hover {
    .collapsible-inner children just stack normally); on mobile/tablet
    (see the max-width:900px rule below) it becomes the collapse/reveal
    target for wireListHeaderCollapse's scroll listener in views.js. */
+/* Scroll-to-collapse list header (Articles / Selected / Corpus).
+   wireListHeaderCollapse (views.js) toggles .is-collapsed on scroll
+   direction and drives max-height from the measured height.
+
+   Two things changed here at once, and the second is why the first was
+   needed. The rules used to sit inside @media (max-width: 900px) on the
+   assumption that only a phone lacks room for the stats banner + toolbar +
+   search row AND a useful number of cards; they apply at every width now,
+   because a desktop window is wider but not meaningfully taller, and while
+   reading down a list the header is just as much in the way there.
+
+   And the mechanism had to change to make that worth doing. It was a
+   grid-template-rows 1fr -> 0fr transition, which Chrome silently declines
+   to run when the grid's height is indefinite — measured on a fresh
+   element: with the transition the computed value stays at 262.75px, with
+   the transition removed it goes to 0px. So the collapse never worked,
+   mobile included; switching it on at desktop width would only have made
+   that visible. max-height animates reliably, and views.js sets the value
+   from the element's own scrollHeight so the motion lasts exactly as long
+   as the content is tall — the reason grid rows were reached for
+   originally. */
 .list-header-collapsible {
   flex-shrink: 0;
+  overflow: hidden;
+  /* Der Kopf ist ein Flex-Element in einer Spalte, und dort gilt von Haus aus
+     min-height:auto — die inhaltsbasierte Mindesthoehe. Die schlaegt jede
+     max-height, weshalb der Kasten trotz max-height:0 auf voller Hoehe stehen
+     blieb (nachgemessen: Klasse gesetzt, max-height:0px inline, Hoehe 265px).
+     Ohne diese Zeile klappt hier gar nichts ein. */
+  min-height: 0;
+}
+
+.list-header-collapsible-inner {
+  overflow: hidden;
+  min-height: 0;
+}
+
+.list-header-collapsible.is-collapsed {
+  max-height: 0;
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  .list-header-collapsible {
+    transition: max-height .22s ease;
+  }
 }
 
 /* List toolbar — shared by Articles / Selected / Corpus.
@@ -3182,59 +3236,92 @@ a:hover {
   }
 }
 
+/* Title and subtitle are editable, and they now look it. Both fields used
+   to sit on a transparent background behind a transparent border and only
+   revealed themselves on :hover — which on a touch screen means never. */
 .project-meta-edit {
   display: flex;
   flex-direction: column;
-  gap: 10px;
+  gap: 14px;
   margin-bottom: 28px;
+}
+
+.project-meta-field {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+}
+
+.project-meta-label {
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: .3px;
+  text-transform: uppercase;
+  color: var(--text-faint);
+}
+
+.project-meta-actions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.project-meta-actions .btn-primary,
+.project-meta-actions .btn-secondary {
+  padding: 7px 16px;
+  font-size: 13px;
 }
 
 .project-name-input {
   font-size: 20px;
   font-weight: 700;
-  background: transparent;
-  border: 1px solid transparent;
+  background: var(--surface);
+  border: 1px solid var(--border);
   border-radius: var(--radius);
   color: var(--text);
-  padding: 4px 8px;
+  padding: 8px 10px;
   width: 100%;
-  transition: border-color .15s, background .15s;
+  transition: border-color .15s, box-shadow .15s;
 }
 
-.project-name-input:hover,
+.project-name-input:hover {
+  border-color: var(--text-faint);
+}
+
 .project-name-input:focus {
-  background: var(--surface);
-  border-color: var(--border);
   outline: none;
-}
-
-.project-name-input:focus {
   border-color: var(--accent);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 18%, transparent);
 }
 
 .project-desc-input {
   font-size: 14px;
-  color: var(--text-muted);
-  background: transparent;
-  border: 1px solid transparent;
+  color: var(--text);
+  background: var(--surface);
+  border: 1px solid var(--border);
   border-radius: var(--radius);
-  padding: 4px 8px;
+  padding: 8px 10px;
   width: 100%;
   resize: vertical;
   font-family: inherit;
-  transition: border-color .15s, background .15s, color .15s;
+  transition: border-color .15s, box-shadow .15s;
 }
 
-.project-desc-input:hover,
+.project-desc-input:hover {
+  border-color: var(--text-faint);
+}
+
 .project-desc-input:focus {
-  background: var(--surface);
-  border-color: var(--border);
-  color: var(--text);
   outline: none;
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 18%, transparent);
 }
 
-.project-desc-input:focus {
-  border-color: var(--accent);
+.project-name-input::placeholder,
+.project-desc-input::placeholder {
+  color: var(--text-faint);
+  font-weight: 400;
 }
 
 .info-section {
@@ -5699,77 +5786,160 @@ a.db-link:visited {
    19. Search / Scopus Query view
    ---------------------------------------------------------- */
 
+/* One column at every width: source, query, run — then the two helpers
+   below it. The old layout was a 3-column grid on desktop that re-sorted
+   itself with `order` and stacked on mobile, plus a second, separate
+   toggle mechanism only for mobile. Two systems for the same job, each
+   valid at one screen width. The column is capped in width instead, so a
+   wide window gives the query a readable measure rather than three
+   cramped columns. */
 .search-view {
-  display: flex;
-  height: 100%;
-  overflow: hidden;
+  display: block;
 }
 
-/* The editor is first in the DOM (see renderSearch in views.js) so that on
-   mobile — where .search-view stacks into a column further down — it and
-   everything in/above it (the query box, Search button, Max results) never
-   move when Field Codes/Past Terms expand below it. Desktop uses `order`
-   to put field-codes back on the left and past-terms on the right, the
-   same 3-column layout DOM order alone used to give it for free. */
-.search-editor-panel {
-  order: 0;
-}
-
-/* ── Side panels ── */
-.search-panel {
-  width: 260px;
-  min-width: 200px;
-  max-width: 320px;
-  background: var(--surface);
-  border-right: 1px solid var(--border);
+.search-page {
+  max-width: 980px;
+  margin: 0 auto;
+  padding: 18px 24px 40px;
   display: flex;
   flex-direction: column;
-  overflow: hidden;
-  flex-shrink: 0;
-  order: -1;
+  gap: 18px;
 }
 
-.search-panel.is-collapsed {
-  display: none;
-}
-
-.search-terms-panel {
-  border-right: none;
-  border-left: 1px solid var(--border);
-  order: 1;
-}
-
-.search-panel-header {
+.search-step {
   display: flex;
-  align-items: center;
-  gap: 6px;
-  padding: 11px 12px 10px;
-  border-bottom: 1px solid var(--border);
-  flex-shrink: 0;
+  flex-direction: column;
+  gap: 8px;
 }
 
-.search-panel-header svg {
-  width: 14px;
-  height: 14px;
-  flex-shrink: 0;
-}
-
-.search-panel-title {
-  flex: 1;
+.search-step-label {
   font-size: 11px;
   font-weight: 700;
   text-transform: uppercase;
   letter-spacing: .07em;
+  color: var(--text-faint);
+}
+
+/* ── Composer: the one thing this view is actually for ── */
+.search-composer {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 16px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+}
+
+.search-composer-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.search-composer-syntax {
+  font-size: 11.5px;
   color: var(--text-muted);
 }
 
-.search-panel-body {
-  flex: 1;
-  overflow-y: auto;
-  padding: 10px;
+/* ── Drawers: field codes and saved terms ──
+   Plain <details>. One mechanism, no state variable, keyboard-operable out
+   of the box, identical on phone and desktop; only the default open/closed
+   state differs by width (see drawerOpen in views.js). */
+.search-drawer {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  overflow: hidden;
+}
+
+.search-drawer-summary {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 11px 14px;
+  cursor: pointer;
+  list-style: none;
+  user-select: none;
+}
+
+.search-drawer-summary::-webkit-details-marker { display: none; }
+
+.search-drawer-summary::after {
+  content: '';
+  margin-left: auto;
+  width: 7px;
+  height: 7px;
+  border-right: 1.6px solid var(--text-faint);
+  border-bottom: 1.6px solid var(--text-faint);
+  transform: rotate(45deg);
+  transform-origin: center;
+  flex-shrink: 0;
+}
+
+.search-drawer[open] > .search-drawer-summary::after {
+  transform: rotate(-135deg);
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  .search-drawer-summary::after { transition: transform .18s ease; }
+}
+
+.search-drawer-summary:hover { background: var(--surface-2); }
+
+.search-drawer-summary svg {
+  width: 14px;
+  height: 14px;
+  flex-shrink: 0;
+  color: var(--text-muted);
+}
+
+.search-drawer-title {
+  font-size: 12.5px;
+  font-weight: 600;
+  color: var(--text);
+}
+
+.search-drawer-count {
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--text-muted);
+  background: var(--surface-2);
+  border-radius: 999px;
+  padding: 1px 8px;
+}
+
+.search-drawer-hint {
+  font-size: 11.5px;
+  color: var(--text-faint);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.search-drawer-body {
+  border-top: 1px solid var(--border);
+  padding: 12px 14px 14px;
   display: flex;
   flex-direction: column;
-  gap: 8px;
+  gap: 10px;
+  /* Open, the Scopus code list is 166 chips long. Capping it here keeps the
+     Search button one flick away instead of a full page up. */
+  max-height: 340px;
+  overflow-y: auto;
+}
+
+.search-fc-filter {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+}
+
+.search-fc-empty {
+  font-size: 12px;
+  color: var(--text-muted);
+  margin: 0;
 }
 
 /* ── Field codes ── */
@@ -5892,60 +6062,6 @@ a.db-link:visited {
   padding: 4px 2px;
 }
 
-/* ── Center editor panel ── */
-.search-editor-panel {
-  flex: 1;
-  overflow-y: auto;
-  padding: 20px 24px 32px;
-  display: flex;
-  flex-direction: column;
-  gap: 14px;
-  min-width: 0;
-}
-
-.search-editor-toolbar {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-}
-
-.search-mobile-toggles {
-  display: none;
-}
-
-.search-mobile-toggle {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  gap: 6px;
-  padding: 6px 12px;
-  font-size: 12px;
-  border-radius: 999px;
-  border: 1px solid var(--border);
-  background: var(--surface-2);
-  color: var(--text-muted);
-  white-space: nowrap;
-  transition: background var(--transition), border-color var(--transition), color var(--transition);
-}
-
-.search-mobile-toggle.active {
-  color: var(--accent);
-  border-color: var(--accent);
-  background: var(--accent-subtle);
-}
-
-.search-mobile-toggle svg {
-  width: 13px;
-  height: 13px;
-}
-
-/* Drop the icon (keep the label) on these two buttons specifically when the
-   main sidebar is collapsed to its icon-only rail — more room is freed up,
-   so the icon starts to feel redundant there; expanded sidebar keeps it. */
-#sidebar.collapsed ~ #main .search-mobile-toggle svg {
-  display: none;
-}
-
 /* Database selector tabs in search view */
 .search-db-tabs {
   display: flex;
@@ -6002,73 +6118,62 @@ a.db-link:visited {
 }
 
 @media (max-width: 900px) {
-  .search-view,
-  .search-view.search-view-mobile {
-    flex-direction: column;
-    height: auto;
-    overflow: visible;
+  .search-page {
+    padding: 12px 12px 28px;
+    gap: 14px;
   }
 
-  /* Reset the desktop order override — stacked, the editor must come
-     first (order:-1) with both panels after it (0/1), never before it,
-     so expanding either one only ever pushes content that's already
-     below, not the query box/Search button/Max results above. */
-  .search-editor-panel {
-    order: -1;
-  }
-
-  .search-panel {
-    order: 0;
-  }
-
-  .search-terms-panel {
-    order: 1;
-  }
-
-  .search-panel,
-  .search-terms-panel {
-    width: 100%;
-    min-width: 0;
-    max-width: none;
-    border-left: none;
-    border-right: none;
-    border-bottom: 1px solid var(--border);
-  }
-
-  .search-panel-body {
-    max-height: 260px;
-  }
-
-  .search-editor-panel {
-    padding: 14px 12px 20px;
-  }
-
-  .search-editor-toolbar {
-    flex-wrap: wrap;
-    align-items: stretch;
-  }
-
-  .search-mobile-toggles {
-    display: flex;
-    gap: 8px;
-    width: 100%;
-  }
-
-  .search-mobile-toggle {
-    flex: 1;
-    min-height: 38px;
-  }
-
+  /* Waagrecht scrollen statt in drei Zeilen umbrechen: eine Quellenzeile
+     bleibt eine Zeile, und die aktive Karte ist immer zu sehen. */
   .search-db-tabs {
-    width: 100%;
-    flex: 0 0 100%;
     flex-wrap: nowrap;
     overflow-x: auto;
     padding-bottom: 2px;
+    scroll-snap-type: x proximity;
+  }
+
+  .search-db-card {
+    scroll-snap-align: start;
   }
 
   .search-db-tabs::-webkit-scrollbar {
     height: 4px;
+  }
+
+  .search-composer {
+    padding: 12px;
+  }
+
+  /* Auf dem Telefon zaehlt die Antwortflaeche: der Suchknopf ueber die
+     volle Breite, die Obergrenze darunter. */
+  .search-actions {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .search-run-btn {
+    width: 100%;
+    min-height: 44px;
+    justify-content: center;
+  }
+
+  .search-max-wrap {
+    margin-left: 0;
+    justify-content: space-between;
+  }
+
+  .search-drawer-summary {
+    min-height: 44px;
+  }
+
+  /* Der Hinweistext neben dem Schubladentitel ist auf schmalen Schirmen
+     das Erste, was weichen darf. */
+  .search-drawer-hint {
+    display: none;
+  }
+
+  .search-drawer-body {
+    max-height: 300px;
   }
 }
 
@@ -6140,13 +6245,24 @@ a.db-link:visited {
   flex-wrap: wrap;
 }
 
+.search-run-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+}
+
 .search-max-wrap {
   display: flex;
   align-items: center;
-  gap: 6px;
+  gap: 8px;
   margin-left: auto;
   font-size: 13px;
   color: var(--text-muted);
+  cursor: pointer;
+}
+
+.search-max-wrap input {
+  width: 92px;
 }
 
 /* ── Progress ── */
@@ -6868,18 +6984,21 @@ a.db-link:visited {
   flex: none;
 }
 
-/* --viz-map-h is set from JS (the resize handle) and defaults to the same
-   standard size as the other charts. With aspect-ratio and height:auto the
-   browser reduces the used WIDTH to honour max-height, so the map shrinks
-   proportionally instead of being clipped — and the status note and legend
-   below it stay visible either way. */
+/* Das Seitenverhaeltnis sitzt an der BUEHNE, nicht an der SVG.
+   Vorher trug die SVG aspect-ratio + max-height. Beides zusammen geht nicht
+   auf: Sobald max-height greift, verletzt der Browser das Verhaeltnis, die
+   Box wird flach und breit — und preserveAspectRatio zentriert den Inhalt
+   dann mit Leerraum links und rechts darin. Solange der Rahmen ein <rect>
+   INNERHALB der SVG war, fiel das nicht auf, weil er mit dem Inhalt
+   zentriert wurde. Als Rahmen der Buehne haette er den Leerraum sichtbar
+   gemacht.
+   Jetzt haelt die Buehne das Verhaeltnis und wird ueber max-width auf
+   --viz-map-h Hoehe begrenzt (Breite = Hoehe x 956/520); die SVG fuellt sie
+   vollstaendig aus. Damit liegt der Rahmen wieder exakt am Inhalt. */
 .viz-world-svg {
   width: 100%;
-  height: auto;
-  max-height: var(--viz-map-h, 260px);
-  aspect-ratio: 1000 / 520;
+  height: 100%;
   display: block;
-  margin: 0 auto;
 }
 
 .viz-world-wrap.legend-hidden .viz-world-svg {
@@ -6937,11 +7056,20 @@ a.db-link:visited {
   position: relative;
   touch-action: none;
   cursor: grab;
-  /* No background/border/overflow-clip of its own — the SVG's own ocean
-     rect (rx=18, themed fill) already provides the map's sea backdrop and
-     rounded edge; a second box wrapping it here would just be a redundant
-     frame around the map for no visual gain (in light theme --surface-2
-     equals --bg exactly, so it was invisible there anyway). */
+  /* Ocean fill and frame live here, not in the SVG. They used to be an
+     <rect x=0 y=0 width=1000 height=520 rx=18> inside the map — which meant
+     zooming panned and scaled them out of view together with the countries,
+     losing the one fixed edge a reader can orient by while zoomed in. On the
+     stage they are outside the zoom coordinate system: the frame stays, the
+     content moves behind it. overflow:hidden with the same radius clips the
+     panned country layer to that frame instead of letting it spill. */
+  background: var(--bg);
+  border: 1.2px solid var(--border);
+  border-radius: 18px;
+  overflow: hidden;
+  aspect-ratio: 956 / 520;
+  max-width: calc(var(--viz-map-h, 260px) * 956 / 520);
+  margin: 0 auto;
 }
 
 .viz-world-stage.is-panning {
@@ -7841,8 +7969,7 @@ a.db-link:visited {
   .list-toolbar,
   .corpus-banner,
   .corpus-tag-breakdown,
-  .articles-stats,
-  .search-editor-panel {
+  .articles-stats {
     padding-left: 12px;
     padding-right: 12px;
   }
@@ -7860,28 +7987,5 @@ a.db-link:visited {
     font-size: 14px;
   }
 
-  /* Scroll-to-collapse list header (Articles / Selected / Corpus): a phone
-     or tablet screen doesn't have room for the stats banner + toolbar +
-     search row AND a useful number of article cards at once, so
-     wireListHeaderCollapse (views.js) toggles .is-collapsed on scroll
-     direction and this grid-row trick animates the whole stack to zero
-     height without needing to know its actual (variable — the filter panel
-     can add rows) content height, the way a max-height transition would.
-     Desktop never gets this rule at all, so the header there is always
-     static/visible regardless of the class. */
-  .list-header-collapsible {
-    display: grid;
-    grid-template-rows: 1fr;
-    transition: grid-template-rows .25s ease;
-  }
-
-  .list-header-collapsible-inner {
-    overflow: hidden;
-    min-height: 0;
-  }
-
-  .list-header-collapsible.is-collapsed {
-    grid-template-rows: 0fr;
-  }
 }
 

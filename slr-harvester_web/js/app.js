@@ -33,6 +33,11 @@ window.SLRApp = (() => {
 		// "Project Info" nav item/view.
 		projectsDetailFolder: null,
 
+		// Einmalige Diagrammvorwahl fuer die Visualisierungen, gesetzt von
+		// Kurzwegen ausserhalb der Ansicht (Projects/Info -> PRISMA). Wird
+		// beim Aufbau der Ansicht gelesen und sofort zurueckgesetzt.
+		vizChart: null,
+
 		// searchFields mirrors views.js's DEFAULT_SEARCH_FIELDS (the "Fields"
 		// multi-select next to each list's search box) — duplicated as a plain
 		// literal like ARTICLE_PAGE_SIZE above since this app has no shared

@@ -57,6 +57,17 @@ slr-harvester_web/SUGGESTIONS.md
 # Dev-only AI-agent instructions, not part of the public repo
 CLAUDE.md
 
+# Arbeitsunterlagen aus der Workspace-Neuordnung: SKILL.md beschreibt den
+# projektlokalen Arbeitsablauf, AGENTS.md die Anweisungen fuer Assistenten,
+# TODO.md den offenen Bestand samt bewusst nicht behobener Punkte. Alles drei
+# ist internes Handwerkszeug und gehoert nicht in ein oeffentliches Repo.
+# Mit fuehrendem Schraegstrich verankert, damit die Muster nur die Dateien im
+# Wurzelverzeichnis treffen - AGENTS.md und TODO.md sind gelaeufige Namen, die
+# spaeter auch in einem Unterordner auftauchen koennen.
+/SKILL.md
+/AGENTS.md
+/TODO.md
+
 # Internal security planning notes — never publish a roadmap of unfixed gaps
 SECURITY_PLAN.md
 
