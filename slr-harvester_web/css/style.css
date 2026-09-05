@@ -91,6 +91,36 @@
   --shadow-lg:    0 4px 16px rgba(0,0,0,.15);
 }
 
+/* ══ Farbstellungen der Visualisierungen ═════════════════════════════════
+   Nur fuer die Diagramme, die ihre Farbe NICHT aus den Tags beziehen: die
+   Weltkarte (Verlauf) und die Autorenrangliste (einfarbige Balken). Die
+   Tag-Diagramme — Doughnut, Balken, Jahresverteilung — holen ihre Farben aus
+   der Tag-Konfiguration; dafuer gibt es die Farbschemata in der Tags-Ansicht
+   und seit diesem Durchgang den Kurzweg dorthin aus der Werkzeugleiste.
+
+   --viz-accent traegt bewusst einen eigenen Namen statt --accent zu
+   ueberschreiben: --accent faerbt Knoepfe, Verweise und Fokusringe der
+   ganzen Anwendung. Eine rote Karte soll nicht die halbe Oberflaeche rot
+   faerben. */
+
+/* Dunkles Thema (Vorgabe): dunkel und gedeckt -> hell und leuchtend. */
+:root[data-viz-palette="blue"]   { --heat-low: #10243f; --heat-high: #6cb6ff; --viz-accent: #6cb6ff; }
+:root[data-viz-palette="red"]    { --heat-low: #3d1517; --heat-high: #ff8f8f; --viz-accent: #ff8f8f; }
+:root[data-viz-palette="amber"]  { --heat-low: #3a2a0d; --heat-high: #ffc457; --viz-accent: #ffc457; }
+:root[data-viz-palette="violet"] { --heat-low: #2a1b45; --heat-high: #c39bff; --viz-accent: #c39bff; }
+/* Grau ist nicht die farblose Notloesung, sondern der Fall fuer den Druck:
+   eine Abbildung, die in einer schwarz-weiss gedruckten Arbeit noch
+   dieselben Abstufungen zeigt wie am Schirm. */
+:root[data-viz-palette="grey"]   { --heat-low: #24282d; --heat-high: #d8dee5; --viz-accent: #adb7c0; }
+
+/* Helles Thema: blasse Toenung -> tiefe, gesaettigte Farbe. */
+:root[data-theme="light"][data-viz-palette="blue"]   { --heat-low: #dbeafe; --heat-high: #0b3d91; --viz-accent: #0b5ed7; }
+:root[data-theme="light"][data-viz-palette="red"]    { --heat-low: #fee2e2; --heat-high: #8b1a1a; --viz-accent: #c02626; }
+:root[data-theme="light"][data-viz-palette="amber"]  { --heat-low: #fef3c7; --heat-high: #7a4a04; --viz-accent: #a86a06; }
+:root[data-theme="light"][data-viz-palette="violet"] { --heat-low: #ede9fe; --heat-high: #4c1d95; --viz-accent: #6d28d9; }
+:root[data-theme="light"][data-viz-palette="grey"]   { --heat-low: #e8ebee; --heat-high: #24292f; --viz-accent: #57606a; }
+
+
 /* ----------------------------------------------------------
    2. Reset & base
    ---------------------------------------------------------- */

@@ -3511,9 +3511,158 @@ window.SLRViews = (() => {
 
   //  Visualizations view 
 
-  // ── PNG export (foreignObject → Canvas → download) ─────────────────────────
-  // ── PNG export: native Canvas 2D — no foreignObject, no tainted-canvas ──────
-  async function exportVizAsPNG(chartEl, title, chartType) {
+  // ── Chart export: one drawing pass, two output formats ─────────────────────
+  //
+  // Native Canvas 2D — no foreignObject, so no tainted canvas. The SVG variant
+  // reuses the exact same drawing code through a recording surface (see
+  // svgZeichenflaeche below) rather than re-implementing every chart a second
+  // time.
+
+  // Canvas-Flaeche: reicht den echten Kontext durch und kann als Einziges
+  // wirklich rastern.
+  function canvasZeichenflaeche(W, H, SCALE) {
+    const canvas = document.createElement('canvas');
+    canvas.width  = Math.ceil(W * SCALE);
+    canvas.height = Math.ceil(H * SCALE);
+    const ctx = canvas.getContext('2d');
+    ctx.scale(SCALE, SCALE);
+    if (!ctx.roundRect) ctx.roundRect = function (x, y, w, h) { this.rect(x, y, w, h); };
+    return {
+      ctx,
+      endung: 'png',
+      // Die Vorlage wird gerastert: Ein Bild ist alles, was eine Canvas von
+      // einer SVG aufnehmen kann.
+      zeichneSvgQuelle(xml, x, y, w, h) {
+        const uri = 'data:image/svg+xml;base64,' + btoa(unescape(encodeURIComponent(xml)));
+        return new Promise((res, rej) => {
+          const img = new Image();
+          img.onload  = () => { ctx.drawImage(img, x, y, w, h); res(); };
+          img.onerror = () => rej(new Error('SVG render failed'));
+          img.src = uri;
+        });
+      },
+      blob() {
+        return new Promise((resolve, reject) => {
+          canvas.toBlob(b => b ? resolve(b) : reject(new Error('Canvas export failed')), 'image/png');
+        });
+      },
+    };
+  }
+
+  // SVG-Flaeche: nimmt dieselben Aufrufe entgegen und schreibt Knoten.
+  //
+  // Zwei Stellen verdienen eine Erklaerung. Erstens die Textbreite: SVG kennt
+  // kein maxWidth, und der Export uebergibt eines (die Beschriftungsspalte der
+  // Balken). Gemessen wird deshalb auf einer echten, unsichtbaren Canvas mit
+  // derselben Schrift; nur wenn der Text wirklich zu breit ist, wird er ueber
+  // textLength gestaucht — sonst stuende jede kurze Beschriftung unnoetig
+  // verzerrt da. Zweitens der Pfad: Besteht er aus genau einem Rechteck, wird
+  // ein <rect> geschrieben statt eines <path>, weil das die Datei lesbar haelt
+  // und abgerundete Ecken ohne Bogenrechnung erlaubt.
+  function svgZeichenflaeche(W, H, hintergrund) {
+    const teile = [];
+    const messer = document.createElement('canvas').getContext('2d');
+    const stapel = [];
+    let pfad = [];
+
+    const z = n => Math.round((Number(n) || 0) * 100) / 100;
+    const esc = t => String(t)
+      .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;');
+
+    const schriftTeile = (f) => {
+      const m = /^\s*(?:(\d{3})\s+)?(\d+(?:\.\d+)?)px\s+(.+)$/.exec(String(f || ''));
+      return m ? { gewicht: m[1] || '400', groesse: m[2], familie: m[3] }
+               : { gewicht: '400', groesse: '12', familie: 'sans-serif' };
+    };
+
+    const strichAttr = (o) => {
+      let a = ` stroke="${esc(o.strokeStyle)}" stroke-width="${z(o.lineWidth)}"`;
+      if (o.dash && o.dash.length) a += ` stroke-dasharray="${o.dash.map(z).join(' ')}"`;
+      return a;
+    };
+
+    const pfadSchreiben = (o, gefuellt) => {
+      if (!pfad.length) return;
+      const farbe = gefuellt ? ` fill="${esc(o.fillStyle)}"` : ' fill="none"';
+      const strich = gefuellt ? '' : strichAttr(o);
+      if (pfad.length === 1 && pfad[0].k === 'rect') {
+        const r = pfad[0];
+        teile.push(`<rect x="${z(r.x)}" y="${z(r.y)}" width="${z(r.w)}" height="${z(r.h)}"`
+          + (r.r ? ` rx="${z(r.r)}"` : '') + farbe + strich + '/>');
+        return;
+      }
+      const d = pfad.map(p => p.k === 'rect'
+        ? `M${z(p.x)} ${z(p.y)}H${z(p.x + p.w)}V${z(p.y + p.h)}H${z(p.x)}Z`
+        : (p.k === 'm' ? `M${z(p.x)} ${z(p.y)}` : `L${z(p.x)} ${z(p.y)}`)).join(' ');
+      teile.push(`<path d="${d}"${farbe}${strich}/>`);
+    };
+
+    const flaeche = {
+      endung: 'svg',
+      ctx: null,
+      zeichneSvgQuelle(xml, x, y, w, h) {
+        // Verschachtelte SVG statt Rasterbild: Die Laendergrenzen und die
+        // Ringsegmente bleiben Vektor, und genau darum geht es hier.
+        teile.push(`<g transform="translate(${z(x)},${z(y)})">${xml}</g>`);
+        return Promise.resolve();
+      },
+      blob() {
+        const kopf = `<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink"`
+          + ` width="${z(W)}" height="${z(H)}" viewBox="0 0 ${z(W)} ${z(H)}">`;
+        const text = kopf + teile.join('') + '</svg>';
+        return Promise.resolve(new Blob([text], { type: 'image/svg+xml;charset=utf-8' }));
+      },
+    };
+
+    flaeche.ctx = {
+      fillStyle: hintergrund || '#000', strokeStyle: '#000', lineWidth: 1,
+      font: '400 12px sans-serif', textAlign: 'left', dash: null,
+
+      scale() { /* Die SVG traegt ihre Groesse im viewBox, nicht in der Matrix. */ },
+      save() { stapel.push({ fillStyle: this.fillStyle, strokeStyle: this.strokeStyle,
+                             lineWidth: this.lineWidth, font: this.font,
+                             textAlign: this.textAlign, dash: this.dash }); },
+      restore() { const o = stapel.pop(); if (o) Object.assign(this, o); },
+      setLineDash(a) { this.dash = a && a.length ? a : null; },
+
+      beginPath() { pfad = []; },
+      moveTo(x, y) { pfad.push({ k: 'm', x, y }); },
+      lineTo(x, y) { pfad.push({ k: 'l', x, y }); },
+      rect(x, y, w, h) { pfad.push({ k: 'rect', x, y, w, h, r: 0 }); },
+      roundRect(x, y, w, h, r) { pfad.push({ k: 'rect', x, y, w, h, r: Array.isArray(r) ? r[0] : (r || 0) }); },
+      fill() { pfadSchreiben(this, true); },
+      stroke() { pfadSchreiben(this, false); },
+
+      fillRect(x, y, w, h) {
+        teile.push(`<rect x="${z(x)}" y="${z(y)}" width="${z(w)}" height="${z(h)}" fill="${esc(this.fillStyle)}"/>`);
+      },
+
+      measureText(t) { messer.font = this.font; return messer.measureText(String(t)); },
+
+      fillText(t, x, y, maxWidth) {
+        const txt = String(t == null ? '' : t);
+        if (!txt.trim()) return;
+        const f = schriftTeile(this.font);
+        const anker = this.textAlign === 'center' ? 'middle'
+                    : this.textAlign === 'right'  ? 'end' : 'start';
+        let laenge = '';
+        if (maxWidth) {
+          messer.font = this.font;
+          if (messer.measureText(txt).width > maxWidth) {
+            laenge = ` textLength="${z(maxWidth)}" lengthAdjust="spacingAndGlyphs"`;
+          }
+        }
+        teile.push(`<text x="${z(x)}" y="${z(y)}" font-family="${esc(f.familie)}"`
+          + ` font-size="${f.groesse}" font-weight="${f.gewicht}" fill="${esc(this.fillStyle)}"`
+          + ` text-anchor="${anker}"${laenge}>${esc(txt)}</text>`);
+      },
+    };
+
+    return flaeche;
+  }
+
+  async function exportViz(chartEl, title, chartType, format) {
     const gv  = v => getComputedStyle(document.documentElement).getPropertyValue(v).trim();
     const bgC = gv('--bg') || '#0d1117', txtC = gv('--text') || '#e6edf3',
           mutC = gv('--text-muted') || '#8b949e', sfC = gv('--surface-2') || '#21262d',
@@ -3523,12 +3672,8 @@ window.SLRViews = (() => {
     const cr = chartEl.getBoundingClientRect();
     const cW = Math.max(cr.width, 820), cH = Math.max(cr.height, 420);
     const W = cW + PAD * 2, H = cH + HDR + PAD * 2;
-    const canvas = document.createElement('canvas');
-    canvas.width  = Math.ceil(W * SCALE);
-    canvas.height = Math.ceil(H * SCALE);
-    const ctx = canvas.getContext('2d');
-    ctx.scale(SCALE, SCALE);
-    if (!ctx.roundRect) ctx.roundRect = function(x, y, w, h) { this.rect(x, y, w, h); };
+    const flaeche = format === 'svg' ? svgZeichenflaeche(W, H, bgC) : canvasZeichenflaeche(W, H, SCALE);
+    const ctx = flaeche.ctx;
     ctx.fillStyle = bgC; ctx.fillRect(0, 0, W, H);
     ctx.font = `600 15px ${FONT}`; ctx.fillStyle = txtC;
     ctx.fillText(title, PAD, PAD);
@@ -3560,14 +3705,7 @@ window.SLRViews = (() => {
             cl.setAttribute('fill', (cf && cf !== 'rgb(0, 0, 0)') ? cf : txtC);
           }
         });
-        const xml = new XMLSerializer().serializeToString(clone);
-        const uri = 'data:image/svg+xml;base64,' + btoa(unescape(encodeURIComponent(xml)));
-        await new Promise((res, rej) => {
-          const img = new Image();
-          img.onload  = () => { ctx.drawImage(img, ox, oy, sw, sh); res(); };
-          img.onerror = () => rej(new Error('SVG render failed'));
-          img.src = uri;
-        });
+        await flaeche.zeichneSvgQuelle(new XMLSerializer().serializeToString(clone), ox, oy, sw, sh);
         let ly = oy + 8; const lx = ox + sw + 24;
         chartEl.querySelectorAll('.viz-legend-item').forEach(item => {
           const dot = item.querySelector('.viz-legend-dot');
@@ -3590,14 +3728,7 @@ window.SLRViews = (() => {
         const clone = svgEl.cloneNode(true);
         clone.setAttribute('width', sw);
         clone.setAttribute('height', sh);
-        const xml = new XMLSerializer().serializeToString(clone);
-        const uri = 'data:image/svg+xml;base64,' + btoa(unescape(encodeURIComponent(xml)));
-        await new Promise((res, rej) => {
-          const img = new Image();
-          img.onload = () => { ctx.drawImage(img, ox, oy, sw, sh); res(); };
-          img.onerror = () => rej(new Error('SVG render failed'));
-          img.src = uri;
-        });
+        await flaeche.zeichneSvgQuelle(new XMLSerializer().serializeToString(clone), ox, oy, sw, sh);
         // The frame moved out of the SVG and onto .viz-world-stage (so that
         // zooming cannot carry it away), which means the serialised SVG no
         // longer brings one along. Draw it here instead, same radius and
@@ -3737,17 +3868,13 @@ window.SLRViews = (() => {
       }
     }
 
-    return new Promise((resolve, reject) => {
-      canvas.toBlob(blob => {
-        if (!blob) { reject(new Error('Canvas export failed')); return; }
-        const a = document.createElement('a'), u = URL.createObjectURL(blob);
-        a.href = u;
-        a.download = `slr-viz-${title.toLowerCase().replace(/[^a-z0-9]+/g, '-')}-${new Date().toISOString().slice(0, 10)}.png`;
-        document.body.appendChild(a); a.click();
-        setTimeout(() => { document.body.removeChild(a); URL.revokeObjectURL(u); }, 1000);
-        resolve();
-      }, 'image/png');
-    });
+    const blob = await flaeche.blob();
+    const a = document.createElement('a'), u = URL.createObjectURL(blob);
+    a.href = u;
+    a.download = `slr-viz-${title.toLowerCase().replace(/[^a-z0-9]+/g, '-')}`
+      + `-${new Date().toISOString().slice(0, 10)}.${flaeche.endung}`;
+    document.body.appendChild(a); a.click();
+    setTimeout(() => { document.body.removeChild(a); URL.revokeObjectURL(u); }, 1000);
   }
 
   // Wer im eigenen Bestand am haeufigsten zitiert wird.
@@ -4251,6 +4378,14 @@ window.SLRViews = (() => {
                   <option value="doctype">Group by Document Type</option>
                   <option value="country">Group by Country</option>
                 </select>
+                <select class="filter-select viz-palette-select" id="viz-palette-select" title="Chart colours">
+                  <option value="default">Colours &mdash; Theme</option>
+                  <option value="blue">Colours &mdash; Blue</option>
+                  <option value="red">Colours &mdash; Red</option>
+                  <option value="amber">Colours &mdash; Amber</option>
+                  <option value="violet">Colours &mdash; Violet</option>
+                  <option value="grey">Colours &mdash; Grey (print)</option>
+                </select>
               </div>
               <div class="viz-controls-right">
                 <div class="viz-mode-tabs">
@@ -4260,7 +4395,8 @@ window.SLRViews = (() => {
                 </div>
                 <button class="viz-legend-toggle" id="viz-none-toggle">Hide None</button>
                 <button class="viz-legend-toggle" id="viz-legend-toggle">Hide Legend</button>
-                <button class="viz-legend-toggle viz-export-btn" id="viz-export-btn" title="Export current chart as PNG">${SLRIcons.download}&nbsp;Export&nbsp;PNG</button>
+                <button class="viz-legend-toggle" id="viz-tags-btn" title="Open Tags \u2014 rename categories and change the colours the tag charts use">${SLRIcons.tag || ''}&nbsp;Tags</button>
+                <button class="viz-legend-toggle viz-export-btn" id="viz-export-btn" title="Export the current chart as PNG or SVG">${SLRIcons.download}&nbsp;Export</button>
               </div>
             </div>
           </div>
@@ -4283,6 +4419,24 @@ window.SLRViews = (() => {
       let currentGroupBy = 'tag';
       let showLegend     = true;
       let showNone       = true;
+
+      // Die Farbstellung haengt am Wurzelelement, nicht an dieser Ansicht:
+      // world-map.js liest --heat-low/--heat-high ueber
+      // getComputedStyle(document.documentElement), und der Export tut
+      // dasselbe. Ein Attribut dort oben wirkt deshalb ohne weiteres Zutun
+      // auf Schirm UND Ausgabe. Gemerkt wird sie, weil eine einmal gewaehlte
+      // Farbe fuer eine Arbeit gilt und nicht fuer einen Seitenaufruf.
+      const PALETTE_KEY = 'slr-viz-palette';
+      let currentPalette = 'default';
+      try { currentPalette = localStorage.getItem(PALETTE_KEY) || 'default'; } catch (_) { /* Speicher gesperrt */ }
+      const applyPalette = (name) => {
+        currentPalette = name || 'default';
+        const wurzel = document.documentElement;
+        if (currentPalette === 'default') wurzel.removeAttribute('data-viz-palette');
+        else wurzel.setAttribute('data-viz-palette', currentPalette);
+        try { localStorage.setItem(PALETTE_KEY, currentPalette); } catch (_) { /* Speicher gesperrt */ }
+      };
+      applyPalette(currentPalette);
 
     // Lets a chart's height be dragged instead of being locked to a fixed or
     // viewport-derived value (the old source of portrait being towering and
@@ -4737,7 +4891,7 @@ window.SLRViews = (() => {
         <div class="viz-bar-row">
           <div class="viz-bar-label" title="${esc(d.name)}"><span class="viz-rank">${i + 1}</span>${esc(d.name)}</div>
           <div class="viz-bar-track">
-            <div class="viz-bar-fill" style="width:${Math.max(2, Math.round(d.count / max * 100))}%;background:var(--accent)"></div>
+            <div class="viz-bar-fill" style="width:${Math.max(2, Math.round(d.count / max * 100))}%;background:var(--viz-accent, var(--accent))"></div>
           </div>
           <div class="viz-bar-count"><strong>${d.count}</strong>${d.works !== undefined ? ` <span class="viz-bar-pct">${d.works}&nbsp;work${d.works !== 1 ? 's' : ''}</span>` : ''}</div>
         </div>`).join('');
@@ -4839,6 +4993,23 @@ window.SLRViews = (() => {
           groupBySel.style.opacity = groupBySupported ? '1' : '0.45';
           groupBySel.title = groupBySupported ? 'Group by' : 'Not applicable to this chart';
         }
+        // Nur Karte und Autorenrangliste faerben sich hierueber. Doughnut,
+        // Balken und Jahresverteilung nehmen die Farbe des jeweiligen Tags —
+        // wer die aendern will, geht in die Tags-Ansicht, und genau dorthin
+        // fuehrt der Knopf daneben. Das steht auch im Titel, damit die
+        // ausgegraute Liste nicht als Fehler gelesen wird.
+        const paletteSel = container.querySelector('#viz-palette-select');
+        if (paletteSel) {
+          const paletteSupported = currentChart === 'world' || currentChart === 'authors';
+          if (paletteSel.value !== currentPalette) paletteSel.value = currentPalette;
+          paletteSel.disabled = !paletteSupported;
+          paletteSel.style.opacity = paletteSupported ? '1' : '0.45';
+          paletteSel.title = paletteSupported
+            ? 'Colour scheme for the map and the author bars'
+            : currentChart === 'prisma'
+              ? 'The screening flow uses fixed stage colours'
+              : 'This chart takes its colours from the tags \u2014 change them under Tags';
+        }
       el.className = currentChart === 'bars' ? 'viz-bars' : currentChart === 'world' ? 'viz-world' : '';
         el.innerHTML = currentChart === 'doughnut'
           ? renderDoughnut(currentMode, currentGroupBy, showLegend, showNone)
@@ -4915,20 +5086,35 @@ window.SLRViews = (() => {
       updateChart();
     });
 
-    container.querySelector('#viz-export-btn')?.addEventListener('click', async () => {
-      const el  = container.querySelector('#viz-chart');
-      if (!el) return;
+    container.querySelector('#viz-palette-select')?.addEventListener('change', e => {
+      applyPalette(e.target.value);
+      updateChart();          // Die Karte backt ihre Farben beim Zeichnen ein.
+    });
+
+    container.querySelector('#viz-tags-btn')?.addEventListener('click', () => {
+      SLRApp.navigate('tags');
+    });
+
+    container.querySelector('#viz-export-btn')?.addEventListener('click', () => {
       const btn = container.querySelector('#viz-export-btn');
-      if (btn) btn.disabled = true;
-      try {
-        await exportVizAsPNG(el, CHART_TITLES[currentChart] || 'visualisation', currentChart);
-      } catch (err) {
-        if (typeof SLRApp !== 'undefined' && SLRApp.showToast) {
-          SLRApp.showToast('Export failed: ' + (err.message || String(err)), true);
+      const lauf = async (format) => {
+        const el = container.querySelector('#viz-chart');
+        if (!el) return;
+        if (btn) btn.disabled = true;
+        try {
+          await exportViz(el, CHART_TITLES[currentChart] || 'visualisation', currentChart, format);
+        } catch (err) {
+          if (typeof SLRApp !== 'undefined' && SLRApp.showToast) {
+            SLRApp.showToast('Export failed: ' + (err.message || String(err)), true);
+          }
+        } finally {
+          if (btn) btn.disabled = false;
         }
-      } finally {
-        if (btn) btn.disabled = false;
-      }
+      };
+      openToolbarPopupMenu(btn, [
+        { icon: SLRIcons.download, label: 'Export as SVG (vector)', onClick: () => void lauf('svg') },
+        { icon: SLRIcons.download, label: 'Export as PNG (image)',  onClick: () => void lauf('png') },
+      ]);
     });
 
     container.querySelectorAll('[data-mode]').forEach(btn => {
@@ -7499,23 +7685,21 @@ window.SLRViews = (() => {
   }
 
 
-  // ── Network PNG export — same clone+resolve-CSS-vars+canvas approach as
-  // exportVizAsPNG above. Exports the FULL diagram (worldBBox, computed from
-  // every node's current position including drags) regardless of the
-  // current pan/zoom — "download" should always capture everything, not
-  // just whatever's presently scrolled into view.
-  async function exportNetworkAsPNG(svgEl, worldBBox, title) {
+  // ── Network export — same clone+resolve-CSS-vars approach as exportViz
+  // above, and the same two output formats through the same surfaces.
+  // Exports the FULL diagram (worldBBox, computed from every node's current
+  // position including drags) regardless of the current pan/zoom —
+  // "download" should always capture everything, not just whatever's
+  // presently scrolled into view.
+  async function exportNetwork(svgEl, worldBBox, title, format) {
     const gv = v => getComputedStyle(document.documentElement).getPropertyValue(v).trim();
     const bgC = gv('--bg') || '#0d1117', txtC = gv('--text') || '#e6edf3', mutC = gv('--text-muted') || '#8b949e';
     const FONT = 'system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif';
     const SCALE = 2, PAD = 30, HDR = 44;
     const sw = worldBBox.width, sh = worldBBox.height;
     const W = sw + PAD * 2, H = sh + HDR + PAD * 2;
-    const canvas = document.createElement('canvas');
-    canvas.width = Math.ceil(W * SCALE);
-    canvas.height = Math.ceil(H * SCALE);
-    const ctx = canvas.getContext('2d');
-    ctx.scale(SCALE, SCALE);
+    const flaeche = format === 'svg' ? svgZeichenflaeche(W, H, bgC) : canvasZeichenflaeche(W, H, SCALE);
+    const ctx = flaeche.ctx;
     ctx.fillStyle = bgC; ctx.fillRect(0, 0, W, H);
     ctx.font = `600 15px ${FONT}`; ctx.fillStyle = txtC;
     ctx.fillText(title, PAD, PAD + 6);
@@ -7545,25 +7729,14 @@ window.SLRViews = (() => {
         }
       });
     });
-    const xml = new XMLSerializer().serializeToString(clone);
-    const uri = 'data:image/svg+xml;base64,' + btoa(unescape(encodeURIComponent(xml)));
-    await new Promise((res, rej) => {
-      const img = new Image();
-      img.onload  = () => { ctx.drawImage(img, PAD, PAD + HDR, sw, sh); res(); };
-      img.onerror = () => rej(new Error('SVG render failed'));
-      img.src = uri;
-    });
-    return new Promise((resolve, reject) => {
-      canvas.toBlob(blob => {
-        if (!blob) { reject(new Error('Canvas export failed')); return; }
-        const a = document.createElement('a'), u = URL.createObjectURL(blob);
-        a.href = u;
-        a.download = `slr-network-${title.toLowerCase().replace(/[^a-z0-9]+/g, '-').slice(0, 60)}-${new Date().toISOString().slice(0, 10)}.png`;
-        document.body.appendChild(a); a.click();
-        setTimeout(() => { document.body.removeChild(a); URL.revokeObjectURL(u); }, 1000);
-        resolve();
-      }, 'image/png');
-    });
+    await flaeche.zeichneSvgQuelle(new XMLSerializer().serializeToString(clone), PAD, PAD + HDR, sw, sh);
+    const blob = await flaeche.blob();
+    const a = document.createElement('a'), u = URL.createObjectURL(blob);
+    a.href = u;
+    a.download = `slr-network-${title.toLowerCase().replace(/[^a-z0-9]+/g, '-').slice(0, 60)}`
+      + `-${new Date().toISOString().slice(0, 10)}.${flaeche.endung}`;
+    document.body.appendChild(a); a.click();
+    setTimeout(() => { document.body.removeChild(a); URL.revokeObjectURL(u); }, 1000);
   }
 
   //  Citation network modal — one article's direct citation neighbours,
@@ -7846,8 +8019,16 @@ window.SLRViews = (() => {
             minY = Math.min(minY, y - PAD); maxY = Math.max(maxY, y + PAD);
           });
           const worldBBox = { x: minX, y: minY, width: Math.max(1, maxX - minX), height: Math.max(1, maxY - minY) };
-          await exportNetworkAsPNG(svgEl, worldBBox, article.title || 'citation-network');
-        } catch (_) { SLRApp.showToast('Could not export network as PNG.', true); }
+          const name = article.title || 'citation-network';
+          openToolbarPopupMenu(overlay.querySelector('#network-download-btn'), [
+            { icon: SLRIcons.download, label: 'Export as SVG (vector)',
+              onClick: () => void exportNetwork(svgEl, worldBBox, name, 'svg')
+                .catch(() => SLRApp.showToast('Could not export the network.', true)) },
+            { icon: SLRIcons.download, label: 'Export as PNG (image)',
+              onClick: () => void exportNetwork(svgEl, worldBBox, name, 'png')
+                .catch(() => SLRApp.showToast('Could not export the network.', true)) },
+          ]);
+        } catch (_) { SLRApp.showToast('Could not export the network.', true); }
       });
 
       // ── Pan / zoom / node-drag — a single unified pointer-event pipeline.
