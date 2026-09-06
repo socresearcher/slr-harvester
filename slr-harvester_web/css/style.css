@@ -6358,9 +6358,9 @@ a.db-link:visited {
   width: 36px;
   border-radius: 50%;
   margin-left: 4px;
-  border: 1px solid var(--border);
+  border: 1px solid var(--accent);
   background: var(--surface-2);
-  color: var(--text-muted);
+  color: var(--accent);
   font-style: italic;
   font-weight: 700;
   font-size: 13px;
@@ -6774,6 +6774,16 @@ a.db-link:visited {
 }
 
 /* ── Notice boxes ── */
+/* Ohne diese Zeile bleibt ein Kasten mit hidden-Attribut sichtbar: Die
+   Klassenregel darunter schlaegt die Browservorgabe [hidden]{display:none},
+   weil eine Klasse gegen ein Attribut gewinnt. Genau daran hing, dass der
+   i-Knopf „keine Funktion" hatte — er schaltete das Attribut korrekt um, nur
+   sah man nichts davon. */
+.search-notice[hidden],
+.search-db-hint[hidden] {
+  display: none;
+}
+
 .search-notice {
   display: flex;
   align-items: flex-start;
@@ -6825,7 +6835,35 @@ a.db-link:visited {
 
 .search-notice-info svg {
   margin-top: 2px;
-  color: var(--text-faint);
+  color: var(--accent);
+}
+
+/* Die beiden Erlaeuterungen stehen untereinander unter der Bedienzeile. */
+.search-hints {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.search-hints:empty {
+  display: none;
+}
+
+/* Der Syntaxkasten bekommt dieselbe Anordnung wie der andere, damit sein x
+   rechts sitzt und das Symbol dieselbe Farbe traegt. */
+.search-db-hint {
+  align-items: flex-start;
+}
+
+.search-db-hint > svg {
+  color: var(--accent);
+  flex-shrink: 0;
+}
+
+/* Ein Knopf, der anzeigt, ob gerade etwas offen ist. */
+.search-hint-btn.is-active {
+  background: var(--accent-subtle, var(--surface-2));
+  color: var(--accent);
 }
 
 .search-notice-info strong {

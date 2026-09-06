@@ -5615,8 +5615,18 @@ window.SLRViews = (() => {
 
     // Hint box
     const hint = DB_HINTS[db] || '';
+    // Beide Hinweise haengen am selben i-Knopf und merken sich getrennt, ob
+    // sie weggeklickt wurden.
+    const versteckt = (schluessel) => {
+      try { return localStorage.getItem(schluessel) === '1'; } catch (_) { return false; }
+    };
+    const syntaxWeg = versteckt('slr-search-hint-syntax');
     const hintHTML = hint
-      ? `<div class="search-db-hint">${SLRIcons.info}<span>${esc(hint)}</span></div>`
+      ? `<div class="search-db-hint" id="search-hint-syntax"${syntaxWeg ? ' hidden' : ''}>
+           ${SLRIcons.info}<span>${esc(hint)}</span>
+           <button type="button" class="search-hint-close" data-hint-close="slr-search-hint-syntax"
+                   aria-label="Hide this note" title="Hide — the i button brings it back">${SLRIcons.close}</button>
+         </div>`
       : '';
 
     // Scopus key warning
@@ -5647,12 +5657,9 @@ window.SLRViews = (() => {
     // Steht bewusst in der Suchansicht und nicht in der Hilfe: Die Versuchung,
     // eine zu grosse Trefferliste ueber „Max results" zu kuerzen, entsteht
     // genau hier, und was dabei wegfaellt, ist nicht begruendbar.
-    // Beim ersten Mal wichtig, danach im Weg — also wegklickbar. Der Infoknopf
-    // neben „Max results" holt ihn zurueck.
-    let hinweisWeg = false;
-    try { hinweisWeg = localStorage.getItem('slr-search-hint-hidden') === '1'; } catch (_) { /* privates Fenster */ }
+    const rechercheWeg = versteckt('slr-search-hint-hidden');
     const rechercheHinweis = `
-      <div class="search-notice search-notice-info" id="search-hint"${hinweisWeg ? ' hidden' : ''}>
+      <div class="search-notice search-notice-info" id="search-hint"${rechercheWeg ? ' hidden' : ''}>
         ${SLRIcons.info}
         <span><strong>Narrow the question, not the list.</strong> For a systematic review,
         capping results is not a selection criterion — the records that fall away are
@@ -5660,9 +5667,12 @@ window.SLRViews = (() => {
         Use criteria you can state instead: publication years, document type (article,
         review, book chapter), a narrower search field, language, or the topic itself.
         Keep <em>Max results</em> above the total your query reports.</span>
-        <button type="button" class="search-hint-close" id="search-hint-close"
+        <button type="button" class="search-hint-close" data-hint-close="slr-search-hint-hidden"
                 aria-label="Hide this note" title="Hide — the i button brings it back">${SLRIcons.close}</button>
       </div>`;
+    // Der i-Knopf zeigt sich als „an", solange wenigstens einer der beiden
+    // Kaesten offen ist.
+    const hinweisWeg = syntaxWeg && rechercheWeg;
 
     // Die beiden Schubladen merken sich ihre Stellung selbst. Vorgabe haengt
     // an der Bildschirmbreite — am Telefon zu, am Desktop offen —, aber nur
@@ -5701,10 +5711,10 @@ window.SLRViews = (() => {
               placeholder="${esc(placeholder)}"
               ${isSearch ? 'disabled' : ''}>${esc(query)}</textarea>
 
-            <!-- Der Syntaxhinweis steht jetzt UNTER dem Feld: Er beantwortet
-                 „wie schreibe ich das hier", und die Frage stellt sich erst,
-                 wenn das Feld da ist. -->
-            ${hintHTML}
+            <!-- Warnungen bleiben direkt am Feld: Ohne Schluessel laeuft die
+                 Suche gar nicht, das ist keine Erlaeuterung, sondern ein
+                 Hindernis. Die beiden Erlaeuterungen stehen unter der
+                 Bedienzeile, siehe unten. -->
             ${keyWarnHTML}
 
             <div class="search-actions">
@@ -5758,7 +5768,10 @@ window.SLRViews = (() => {
               </div>
             </div>
 
-            ${rechercheHinweis}
+            <div class="search-hints" id="search-hints">
+              ${hintHTML}
+              ${rechercheHinweis}
+            </div>
             ${statusHTML}
           </div>
           </div>
@@ -5917,7 +5930,30 @@ window.SLRViews = (() => {
     // gesetzte Wert; steht dort etwas anderes, war es die Hand des Nutzers.
     const queryFeld = container.querySelector('#search-query');
     if (queryFeld) {
+      // Eine von Hand eingestellte Hoehe ueberlebt das naechste Neuzeichnen der
+      // Ansicht. Ohne das schnappt das Feld bei jedem Ansichtswechsel auf zwei
+      // Zeilen zurueck, was sich anfuehlt, als liesse es sich gar nicht ziehen.
+      const HOEHE_KEY = 'slr-search-query-height';
       let selbstGesetzt = '';
+      try {
+        const gemerkt = localStorage.getItem(HOEHE_KEY);
+        if (gemerkt && /^\d+px$/.test(gemerkt)) queryFeld.style.height = gemerkt;
+      } catch (_) { /* privates Fenster */ }
+
+      // Ein Zug am Griff aendert die Hoehe, ohne dass ein Ereignis dafuer
+      // ausgeloest wuerde — deshalb der Beobachter. Was wir selbst gesetzt
+      // haben, wird dabei uebergangen.
+      if (typeof ResizeObserver === 'function') {
+        let letzte = queryFeld.getBoundingClientRect().height;
+        new ResizeObserver(() => {
+          const jetzt = queryFeld.getBoundingClientRect().height;
+          if (Math.abs(jetzt - letzte) < 1) return;
+          letzte = jetzt;
+          if (queryFeld.style.height && queryFeld.style.height !== selbstGesetzt) {
+            try { localStorage.setItem(HOEHE_KEY, queryFeld.style.height); } catch (_) { /* egal */ }
+          }
+        }).observe(queryFeld);
+      }
       // Das Mitwachsen hoert bei knapp der halben Fensterhoehe auf, sonst
       // schoebe eine sehr lange Abfrage den Suchknopf aus dem Bild. Von Hand
       // gilt diese Grenze NICHT — deshalb steht sie hier und nicht als
@@ -5965,23 +6001,45 @@ window.SLRViews = (() => {
       }, { passive: false });
     }
 
-    // Recherchehinweis: wegklickbar, der Infoknopf holt ihn zurueck.
-    const hinweis = container.querySelector('#search-hint');
-    const hinweisKnopf = container.querySelector('#search-hint-btn');
-    const hinweisZu = container.querySelector('#search-hint-close');
-    const merkeHinweis = (versteckt) => {
-      try { localStorage.setItem('slr-search-hint-hidden', versteckt ? '1' : '0'); }
+    // Beide Erlaeuterungen: jedes x schliesst seinen eigenen Kasten, der
+    // i-Knopf schaltet beide zugleich.
+    const merke = (schluessel, weg) => {
+      try { localStorage.setItem(schluessel, weg ? '1' : '0'); }
       catch (_) { /* privates Fenster — dann gilt es nur fuer diese Sitzung */ }
     };
-    if (hinweisZu && hinweis) {
-      hinweisZu.addEventListener('click', () => { hinweis.hidden = true; merkeHinweis(true); });
-    }
-    if (hinweisKnopf && hinweis) {
-      hinweisKnopf.addEventListener('click', () => {
-        hinweis.hidden = !hinweis.hidden;
-        merkeHinweis(hinweis.hidden);
-        if (!hinweis.hidden) hinweis.scrollIntoView({ block: 'nearest' });
+    const hinweisKaesten = () => [
+      { el: container.querySelector('#search-hint-syntax'), key: 'slr-search-hint-syntax' },
+      { el: container.querySelector('#search-hint'),        key: 'slr-search-hint-hidden' },
+    ].filter(k => k.el);
+
+    container.querySelectorAll('[data-hint-close]').forEach(btn => {
+      btn.addEventListener('click', () => {
+        const kasten = btn.closest('.search-notice, .search-db-hint');
+        if (!kasten) return;
+        kasten.hidden = true;
+        merke(btn.dataset.hintClose, true);
+        aktualisiereHinweisKnopf();
       });
+    });
+
+    const hinweisKnopf = container.querySelector('#search-hint-btn');
+    function aktualisiereHinweisKnopf() {
+      if (!hinweisKnopf) return;
+      const offen = hinweisKaesten().some(k => !k.el.hidden);
+      hinweisKnopf.setAttribute('aria-expanded', offen ? 'true' : 'false');
+      hinweisKnopf.classList.toggle('is-active', offen);
+    }
+    if (hinweisKnopf) {
+      hinweisKnopf.addEventListener('click', () => {
+        const kaesten = hinweisKaesten();
+        if (!kaesten.length) return;
+        // Ist noch irgendetwas offen, wird zugemacht; sonst alles auf.
+        const zumachen = kaesten.some(k => !k.el.hidden);
+        kaesten.forEach(k => { k.el.hidden = zumachen; merke(k.key, zumachen); });
+        aktualisiereHinweisKnopf();
+        if (!zumachen) kaesten[0].el.scrollIntoView({ block: 'nearest' });
+      });
+      aktualisiereHinweisKnopf();
     }
 
     // Wire: Run
