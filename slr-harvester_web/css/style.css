@@ -2130,6 +2130,13 @@ a:hover {
 
 /* The one part that has to give way, so it is the one that gets the ellipsis;
    the full name stays available through the title attribute. */
+/* Zeitschriftentitel kursiv, wie es in jedem Zitierstil ueblich ist. Nur
+   dort, wo es wirklich eine Zeitschrift ist — siehe istZeitschrift() in
+   views.js; ein Repositoriumsname wie „arXiv" bleibt aufrecht. */
+.article-meta-journal.is-journal {
+  font-style: italic;
+}
+
 .article-meta-journal {
   overflow: hidden;
   text-overflow: ellipsis;
@@ -5226,6 +5233,17 @@ a.db-link:visited {
   padding: 20px 24px;
 }
 
+/* Eingebettet in die Einstellungen: Der Aussenabstand kommt dort von der
+   Settings-Ansicht selbst, und der Seitenkopf entfaellt (siehe renderTags in
+   views.js). Ohne das saesse die Gruppe doppelt eingerueckt in der Spalte. */
+.tags-view.is-embedded {
+  padding: 0;
+}
+
+.tags-view.is-embedded .tags-header {
+  margin-top: 0;
+}
+
 .tags-header {
   display: flex;
   align-items: center;
@@ -6092,6 +6110,68 @@ a.db-link:visited {
   padding: 4px 2px;
 }
 
+/* Die Sortierliste stand zwei Pixel niedriger als „Import list" daneben —
+   .filter-select und .articles-action-btn bringen unterschiedliche
+   Innenabstaende mit. Statt an den Abstaenden zu drehen, richtet die Zeile
+   ihre Kinder auf gleiche Hoehe aus und gibt beiden dieselbe Mindesthoehe. */
+.history-toolbar-right {
+  display: flex;
+  align-items: stretch;
+  gap: 8px;
+}
+
+.history-toolbar-right > .articles-action-btn,
+.history-toolbar-right > .filter-select {
+  min-height: 34px;
+  height: 34px;
+  align-self: stretch;
+}
+
+/* ── Suchmaske: Feldbereich und Zeitraum ──
+   Eine eigene Zeile unter den Aktionen, weil beides die Abfrage veraendert
+   und nicht ihre Ausfuehrung. */
+.search-scope-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 14px;
+  align-items: flex-end;
+}
+
+.search-scope-field {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: 12px;
+  color: var(--text-muted);
+}
+
+.search-year-pair {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.search-year-pair input {
+  width: 78px;
+}
+
+.search-year-dash {
+  color: var(--text-faint);
+}
+
+@media (max-width: 900px) {
+  .search-scope-row {
+    gap: 10px;
+  }
+  .search-scope-field {
+    flex: 1 1 100%;
+  }
+  .search-year-pair input {
+    flex: 1;
+    width: auto;
+  }
+}
+
 /* Database selector tabs in search view */
 .search-db-tabs {
   display: flex;
@@ -6454,6 +6534,27 @@ a.db-link:visited {
 .search-notice-success {
   border-color: var(--green, #3fb950);
   background: rgba(63, 185, 80, .08);
+  color: var(--text);
+}
+
+/* Der Recherchehinweis steht dauerhaft da und ist kein Ergebnis eines Laufs.
+   Deshalb zurueckhaltender als die drei Meldungsarten darueber: Randfarbe der
+   Oberflaeche statt einer Signalfarbe, kleinerer Satz. */
+.search-notice-info {
+  border-color: var(--border);
+  background: var(--surface-2);
+  color: var(--text-muted);
+  font-size: 12.5px;
+  line-height: 1.55;
+  align-items: flex-start;
+}
+
+.search-notice-info svg {
+  margin-top: 2px;
+  color: var(--text-faint);
+}
+
+.search-notice-info strong {
   color: var(--text);
 }
 

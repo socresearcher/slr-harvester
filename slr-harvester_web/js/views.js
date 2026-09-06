@@ -109,6 +109,38 @@ window.SLRViews = (() => {
     return raw;
   }
 
+  // Der Titel einer Zeitschrift wird kursiv gesetzt, der Name eines Repositoriums
+  // oder einer Konferenz nicht. Entschieden wird nach der Dokumentart, nicht nach
+  // dem Namen: „arXiv" ist kein Journal, „Nature" schon, und beides sieht als
+  // Zeichenkette gleich aus.
+  const ZEITSCHRIFTENARTEN = new Set(['article', 'review', 'journal-issue']);
+
+  function istZeitschrift(a) {
+    if (!a || !a.publicationName) return false;
+    // normalizeDocTypeKey fasst 'proceedings-article' mit 'journal-article' zu
+    // 'article' zusammen — fuer die Auswertung richtig, hier nicht: Der Name
+    // einer Konferenzreihe ist kein Zeitschriftentitel. Deshalb wird zusaetzlich
+    // die Rohangabe befragt.
+    const roh = String(a.docType || '').toLowerCase();
+    if (roh.includes('proceeding') || roh.includes('conference')) return false;
+    return ZEITSCHRIFTENARTEN.has(normalizeDocTypeKey(a.docType, a.source));
+  }
+
+  // Die Suchraeume, die OpenAlex tatsaechlich kennt — am 06.09.2026 gegen die
+  // API geprueft; ein erfundenes Feld beantwortet sie mit HTTP 400, diese
+  // sechs mit einer Trefferzahl. `filter` reicht die Eingabe unveraendert als
+  // Filterausdruck durch, damit auch alles erreichbar bleibt, was hier nicht
+  // als eigener Eintrag steht (etwa `keywords.id:` oder `authorships.author.id:`).
+  const OPENALEX_SCOPES = [
+    { wert: 'all',         label: 'Everything (title, abstract, full text)' },
+    { wert: 'titleabs',    label: 'Title & abstract' },
+    { wert: 'title',       label: 'Title only' },
+    { wert: 'abstract',    label: 'Abstract only' },
+    { wert: 'fulltext',    label: 'Full text' },
+    { wert: 'affiliation', label: 'Affiliations' },
+    { wert: 'filter',      label: 'Raw OpenAlex filter' },
+  ];
+
   function formatDocTypeLabel(docTypeKey) {
     const labels = {
       article: 'Article',
@@ -1373,7 +1405,7 @@ window.SLRViews = (() => {
     // noise to a row whose whole point is to be scanned quickly.
     const MISSING = '<span class="article-meta-missing">&mdash;</span>';
     const factsHTML = `
-                <span class="article-meta-journal" ${a.publicationName ? `title="${esc(a.publicationName)}"` : ''}>${a.publicationName ? esc(a.publicationName) : MISSING}</span>
+                <span class="article-meta-journal${istZeitschrift(a) ? ' is-journal' : ''}" ${a.publicationName ? `title="${esc(a.publicationName)}"` : ''}>${a.publicationName ? esc(a.publicationName) : MISSING}</span>
                 <span class="article-meta-year">${year ? esc(year) : MISSING}</span>
                 <span class="article-meta-cited">${a.citedby || 0} cited</span>`;
 
@@ -5528,6 +5560,9 @@ window.SLRViews = (() => {
     const db       = (search && search.db) || 'scopus';
     const query    = (search && search.query) || '';
     const maxRes   = (search && search.maxResults) || 500;
+    const scopeVal    = (search && search.scope) || 'all';
+    const yearFromVal = (search && search.yearFrom) || '';
+    const yearToVal   = (search && search.yearTo)   || '';
     const isSearch = !!(search && search.isSearching);
     const progress = (search && search.progress) || 0;
     const progMsg  = (search && search.progressMsg) || '';
@@ -5603,6 +5638,20 @@ window.SLRViews = (() => {
 
     const placeholder = DB_PLACEHOLDERS[db] || '';
 
+    // Steht bewusst in der Suchansicht und nicht in der Hilfe: Die Versuchung,
+    // eine zu grosse Trefferliste ueber „Max results" zu kuerzen, entsteht
+    // genau hier, und was dabei wegfaellt, ist nicht begruendbar.
+    const rechercheHinweis = `
+      <div class="search-notice search-notice-info">
+        ${SLRIcons.info}
+        <span><strong>Narrow the question, not the list.</strong> For a systematic review,
+        capping results is not a selection criterion — the records that fall away are
+        whichever the database happened to rank lowest, which you cannot report or defend.
+        Use criteria you can state instead: publication years, document type (article,
+        review, book chapter), a narrower search field, language, or the topic itself.
+        Keep <em>Max results</em> above the total your query reports.</span>
+      </div>`;
+
     // Die beiden Schubladen merken sich ihre Stellung selbst. Vorgabe haengt
     // an der Bildschirmbreite — am Telefon zu, am Desktop offen —, aber nur
     // beim ersten Mal; danach entscheidet der Nutzer.
@@ -5661,7 +5710,32 @@ window.SLRViews = (() => {
               </label>
             </div>
 
+            <div class="search-scope-row">
+              <label class="search-scope-field" for="search-scope">
+                <span>Search in</span>
+                <select class="filter-select" id="search-scope" ${isSearch ? 'disabled' : ''}
+                        title="OpenAlex only. Narrower fields return fewer but far more precise hits.">
+                  ${OPENALEX_SCOPES.map(o =>
+                    `<option value="${o.wert}"${scopeVal === o.wert ? ' selected' : ''}>${o.label}</option>`
+                  ).join('')}
+                </select>
+              </label>
+              <label class="search-scope-field" for="search-year-from">
+                <span>Years</span>
+                <span class="search-year-pair">
+                  <input class="form-input" id="search-year-from" type="number" inputmode="numeric"
+                    min="1800" max="2100" placeholder="from" value="${esc(String(yearFromVal))}"
+                    ${isSearch ? 'disabled' : ''}>
+                  <span class="search-year-dash">&ndash;</span>
+                  <input class="form-input" id="search-year-to" type="number" inputmode="numeric"
+                    min="1800" max="2100" placeholder="to" value="${esc(String(yearToVal))}"
+                    ${isSearch ? 'disabled' : ''}>
+                </span>
+              </label>
+            </div>
+
             ${statusHTML}
+            ${rechercheHinweis}
           </div>
 
           <details class="search-drawer" data-drawer="field-codes"${fcOpen ? ' open' : ''}>
@@ -5687,7 +5761,10 @@ window.SLRViews = (() => {
               <span class="search-drawer-hint">from this project</span>
             </summary>
             <div class="search-drawer-body">
-              <div class="search-terms-list">${termsHTML}</div>
+              <input class="form-input search-fc-filter" id="search-term-filter" type="search"
+                     placeholder="Filter saved terms&hellip;" aria-label="Filter saved terms">
+              <div class="search-terms-list" id="search-terms-list">${termsHTML}</div>
+              <p class="search-fc-empty" id="search-term-empty" hidden>No saved term matches that filter.</p>
             </div>
           </details>
 
@@ -5719,6 +5796,26 @@ window.SLRViews = (() => {
     // Gruppen — ohne Filter findet man darin nichts, mit Filter ist die
     // Liste in zwei Anschlaegen auf das Gesuchte herunter. Eine Gruppe
     // verschwindet mit ihrer letzten sichtbaren Karte.
+    // Dieselbe Bedienung wie bei den Feldcodes: tippen, und die Liste bleibt
+    // auf dem, was passt. Bei ueber hundert gespeicherten Begriffen ist das
+    // Suchen von Hand sonst laestiger als das Neutippen des Begriffs.
+    const termFilter = container.querySelector('#search-term-filter');
+    if (termFilter) {
+      const zeilen = [...container.querySelectorAll('#search-terms-list .search-term-row')];
+      const leerHinweisT = container.querySelector('#search-term-empty');
+      termFilter.addEventListener('input', () => {
+        const q = termFilter.value.trim().toLowerCase();
+        let sichtbar = 0;
+        zeilen.forEach(z => {
+          const text = (z.querySelector('.search-term-item')?.textContent || '').toLowerCase();
+          const passt = !q || text.includes(q);
+          z.hidden = !passt;
+          if (passt) sichtbar++;
+        });
+        if (leerHinweisT) leerHinweisT.hidden = sichtbar !== 0;
+      });
+    }
+
     const fcFilter = container.querySelector('#search-fc-filter');
     if (fcFilter) {
       const gruppen = [...container.querySelectorAll('#search-fc-list .fc-group')];
@@ -5795,6 +5892,19 @@ window.SLRViews = (() => {
         const max = container.querySelector('#search-max');
         const q   = ta ? ta.value.trim() : '';
         if (!q) return;
+        // Feldbereich und Zeitraum stehen im Zustand, nicht in den Argumenten
+        // von executeSearch: Sie gelten nur fuer OpenAlex, und die Signatur
+        // waere sonst um zwei Werte laenger, die zwei von drei Quellen gar
+        // nicht kennen.
+        const jahr = (id) => {
+          const el = container.querySelector(id);
+          const v = el ? String(el.value).trim() : '';
+          return /^\d{4}$/.test(v) ? v : '';
+        };
+        const scopeSel = container.querySelector('#search-scope');
+        SLRApp.state.search.scope    = scopeSel ? scopeSel.value : 'all';
+        SLRApp.state.search.yearFrom = jahr('#search-year-from');
+        SLRApp.state.search.yearTo   = jahr('#search-year-to');
         SLRApp.executeSearch(q, max ? parseInt(max.value) || 500 : 500, SLRApp.state.search.db);
       });
     }
@@ -6494,9 +6604,12 @@ window.SLRViews = (() => {
       <div class="scopus-api-notice">
         <span class="scopus-api-notice-icon">${SLRIcons.info}</span>
         <div>
-          The <strong>Scopus Search API</strong> requires an institutional API key.
-          Free API keys for academic institutions are available at
-          <a href="https://dev.elsevier.com/" target="_blank" rel="noopener">dev.elsevier.com</a>.
+          <strong>Without a key there is no Scopus search</strong> — unlike OpenAlex, Scopus has
+          no anonymous access at all. Keys are free for academic institutions:
+          <a href="https://dev.elsevier.com/apikey/manage" target="_blank" rel="noopener">register one</a>
+          with your institutional account, and add the
+          <a href="https://dev.elsevier.com/support.html" target="_blank" rel="noopener">institutional token</a>
+          for full-text or off-campus access.
           Your key is stored only in your browser's <code>localStorage</code> — never sent to any server.
         </div>
       </div>
@@ -6540,8 +6653,11 @@ window.SLRViews = (() => {
       <div class="scopus-api-notice">
         <span class="scopus-api-notice-icon">${SLRIcons.info}</span>
         <div>
-          OpenAlex currently rate-limits anonymous search under heavy load. Adding a free
-          API key or contact email moves requests out of the anonymous path when available.
+          <strong>OpenAlex rate-limits anonymous search.</strong> Once the limit is reached you
+          get shortened result lists; an API key removes that. A key is free: sign in at
+          <a href="https://openalex.org/" target="_blank" rel="noopener">openalex.org</a>
+          with a magic link (no password) and copy it from your account. A contact email alone
+          already moves requests into the polite pool.
         </div>
       </div>
 
@@ -6583,6 +6699,10 @@ window.SLRViews = (() => {
           <option value="on" ${autoFetchEnabled ? 'selected' : ''}>Enabled</option>
         </select>
         <p class="field-hint">When enabled, abstracts/authors/types/affiliation fetching starts automatically after each successful search run.</p>
+        <p class="field-hint"><strong>Worth switching off for large result sets.</strong> Enrichment queries Crossref once per
+          record, so a few hundred articles take a while and a few thousand can run for several minutes — during which the
+          search you just started is still busy. With big lists it is usually better to leave this off and run
+          <em>Fetch metadata</em> from the Articles view later, once you have screened out what you do not need.</p>
       </div>
 
       <div class="form-field">
@@ -6660,7 +6780,7 @@ window.SLRViews = (() => {
         })}
         ${collapseSection({
           id: 'settings-openalex',
-          title: 'OpenAlex',
+          title: 'OpenAlex API',
           meta: openAlexMeta,
           metaSet: openAlexParts.length > 0,
           open: false,
@@ -6679,6 +6799,9 @@ window.SLRViews = (() => {
 
         <p class="settings-group-label">Reading</p>
         ${renderReadAloudSection()}
+
+        <p class="settings-group-label">Tags</p>
+        <div id="settings-tags-mount"></div>
 
       </div>`;
 
@@ -7199,9 +7322,13 @@ window.SLRViews = (() => {
     { key: 'meadow',    name: 'Meadow',     desc: 'Yellow-green to deep green' },
   ];
 
-  function renderTags(container, articles, projectData, autoTagRules, isAutoTagCustomized, folderName) {
+  // `optionen.eingebettet` zeichnet dieselbe Ansicht ohne eigenen Seitenkopf
+  // und ohne Aussenabstand — fuer den Einbau in die Einstellungen, wo der Kopf
+  // schon steht und die Gruppenueberschrift die Einordnung uebernimmt.
+  function renderTags(container, articles, projectData, autoTagRules, isAutoTagCustomized, folderName, optionen) {
+    const eingebettet = !!(optionen && optionen.eingebettet);
     if (!projectData) {
-      container.innerHTML = `<div class="tags-view" style="padding:0">${renderNoProjectNotice()}</div>`;
+      container.innerHTML = `<div class="tags-view${eingebettet ? ' is-embedded' : ''}" style="padding:0">${renderNoProjectNotice()}</div>`;
       return;
     }
 
@@ -7313,10 +7440,10 @@ window.SLRViews = (() => {
       <div class="scheme-grid">${schemeBtnsHTML}</div>`;
 
     container.innerHTML = `
-      <div class="tags-view">
-        <div class="view-head">
+      <div class="tags-view${eingebettet ? ' is-embedded' : ''}">
+        ${eingebettet ? '' : `<div class="view-head">
           <p class="view-subtitle">Colour schemes, tag names and the rules that assign them automatically.</p>
-        </div>
+        </div>`}
         <div class="tags-header">
           <div class="tags-summary">
             ${SLRIcons.tag}
@@ -8498,6 +8625,7 @@ window.SLRViews = (() => {
     renderPrivacy,
     renderTags,
     renderAutoTagRules,
+    rememberSectionOpen,
     renderNewProjectModal,
     renderSupabaseAuthModal,
     renderArticleNetworkModal,
