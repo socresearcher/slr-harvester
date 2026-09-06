@@ -1523,16 +1523,28 @@ window.SLRApp = (() => {
 		if (/^\d{4}$/.test(vonJahr)) zusatz.push(`from_publication_date:${vonJahr}-01-01`);
 		if (/^\d{4}$/.test(bisJahr)) zusatz.push(`to_publication_date:${bisJahr}-12-31`);
 
-		if (query.includes(':') && query.includes(',')) {
+		// Welches Feld durchsucht wird. Die Namen sind die von OpenAlex; alle
+		// sechs sind gegen die API geprueft (ein erfundenes Feld beantwortet sie
+		// mit HTTP 400, nicht mit einer stillen Vollausgabe).
+		const SUCHFELD = {
+			titleabs:    'title_and_abstract.search',
+			title:       'title.search',
+			abstract:    'abstract.search',
+			fulltext:    'fulltext.search',
+			affiliation: 'raw_affiliation_strings.search',
+		};
+		const feld = SUCHFELD[state.search.scope];
+
+		if (state.search.scope === 'filter' || (query.includes(':') && query.includes(','))) {
+			// Die Eingabe IST ein Filterausdruck. So bleibt alles erreichbar, was
+			// OpenAlex sonst noch kann und wofuer es hier keinen eigenen Eintrag
+			// gibt — etwa `keywords.id:` oder `authorships.author.id:`.
 			url.searchParams.set('filter', [query].concat(zusatz).join(','));
-		} else if (state.search.scope === 'titleabs') {
-			// Titel und Abstract statt allem: Fuer eine systematische Recherche
-			// ist das der gemeinte Suchraum. Gemessen an einer Beispielabfrage
-			// stehen 2.418 Treffer gegen 88.702, weil `search=` auch Volltexte
-			// durchsucht. Kommata im Suchtext wuerden den Filter zersaegen und
-			// werden deshalb zu Leerzeichen.
+		} else if (feld) {
+			// Ein Komma im Suchtext wuerde den Filter zersaegen, weil es dort
+			// Klauseln trennt; deshalb wird es zum Leerzeichen.
 			const sicher = query.replace(/,/g, ' ');
-			url.searchParams.set('filter', [`title_and_abstract.search:${sicher}`].concat(zusatz).join(','));
+			url.searchParams.set('filter', [`${feld}:${sicher}`].concat(zusatz).join(','));
 		} else {
 			url.searchParams.set('search', query);
 			if (zusatz.length) url.searchParams.set('filter', zusatz.join(','));

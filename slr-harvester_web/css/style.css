@@ -2130,6 +2130,13 @@ a:hover {
 
 /* The one part that has to give way, so it is the one that gets the ellipsis;
    the full name stays available through the title attribute. */
+/* Zeitschriftentitel kursiv, wie es in jedem Zitierstil ueblich ist. Nur
+   dort, wo es wirklich eine Zeitschrift ist — siehe istZeitschrift() in
+   views.js; ein Repositoriumsname wie „arXiv" bleibt aufrecht. */
+.article-meta-journal.is-journal {
+  font-style: italic;
+}
+
 .article-meta-journal {
   overflow: hidden;
   text-overflow: ellipsis;
@@ -6527,6 +6534,27 @@ a.db-link:visited {
 .search-notice-success {
   border-color: var(--green, #3fb950);
   background: rgba(63, 185, 80, .08);
+  color: var(--text);
+}
+
+/* Der Recherchehinweis steht dauerhaft da und ist kein Ergebnis eines Laufs.
+   Deshalb zurueckhaltender als die drei Meldungsarten darueber: Randfarbe der
+   Oberflaeche statt einer Signalfarbe, kleinerer Satz. */
+.search-notice-info {
+  border-color: var(--border);
+  background: var(--surface-2);
+  color: var(--text-muted);
+  font-size: 12.5px;
+  line-height: 1.55;
+  align-items: flex-start;
+}
+
+.search-notice-info svg {
+  margin-top: 2px;
+  color: var(--text-faint);
+}
+
+.search-notice-info strong {
   color: var(--text);
 }
 
