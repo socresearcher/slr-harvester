@@ -310,12 +310,37 @@ window.SLRApp = (() => {
 		}, isError ? 3600 : 2200);
 	}
 
+	// Der Suchlauf meldet sich in derselben Fussleiste wie das Nachladen von
+	// Metadaten — Ladekreis mit Prozentzahl, Fortschrittsbalken und "x von y".
+	// Vorher stand dafür ein eigener Balken in der Suchansicht, unterhalb der
+	// Erläuterungen; der war nur zu sehen, solange man auf der Suchseite blieb,
+	// und kannte keine Stückzahlen, sondern nur fünf feste Abschnittsmarken.
+	let _suchlauf = { label: '', done: 0, total: 0 };
+
+	function suchlaufAnzeigen(label, done, total) {
+		if (label !== null && label !== undefined) _suchlauf.label = label;
+		if (done  !== null && done  !== undefined) _suchlauf.done  = done;
+		if (total !== null && total !== undefined) _suchlauf.total = total;
+		showFetchProgress(_suchlauf.label, _suchlauf.done, _suchlauf.total);
+	}
+
+	function suchlaufZuruecksetzen() {
+		_suchlauf = { label: '', done: 0, total: 0 };
+	}
+
 	function setSearchProgress(percent, message) {
 		state.search.progress = Math.max(0, Math.min(100, percent || 0));
 		state.search.progressMsg = message || '';
-		if (state.view === 'search') renderCurrentView();
+		// Kein renderCurrentView() mehr: Der Fortschritt steht in der
+		// Fussleiste, die Ansicht selbst ändert sich dabei nicht. Ein
+		// Neuzeichnen bei jedem Zwischenstand kostete nur Arbeit und liess das
+		// Eingabefeld flackern.
+		if (state.search.isSearching) suchlaufAnzeigen(message || '', null, null);
 	}
 
+	// total <= 0 bedeutet: Es ist noch nicht bekannt, wie viel kommt. Dann
+	// laeuft der Balken als Band durch und der Kreis dreht sich, statt eine
+	// erfundene Prozentzahl zu zeigen.
 	function showFetchProgress(label, done, total) {
 		let overlay = document.querySelector('.fetch-progress-overlay');
 		if (!overlay) {
@@ -340,25 +365,42 @@ window.SLRApp = (() => {
 				</div>`;
 			document.body.appendChild(overlay);
 		}
-		const pct = total > 0 ? Math.round((done / total) * 100) : 0;
+		const unbestimmt = !(total > 0);
+		const pct = unbestimmt ? 0 : Math.round((done / total) * 100);
 		const circle = overlay.querySelector('.fpo-ring-progress');
 		const circleText = overlay.querySelector('.fpo-circle-text');
 		const radius = 16;
 		const circumference = 2 * Math.PI * radius;
+		overlay.classList.toggle('is-indeterminate', unbestimmt);
 		if (circle) {
-			circle.style.strokeDasharray = `${circumference}`;
-			circle.style.strokeDashoffset = `${circumference * (1 - pct / 100)}`;
+			circle.style.strokeDasharray = unbestimmt
+				? `${circumference * 0.25} ${circumference}`
+				: `${circumference}`;
+			circle.style.strokeDashoffset = unbestimmt
+				? '0'
+				: `${circumference * (1 - pct / 100)}`;
 		}
-		if (circleText) circleText.textContent = `${pct}%`;
+		if (circleText) circleText.textContent = unbestimmt ? '' : `${pct}%`;
 		overlay.querySelector('.fpo-label').textContent = label;
-		overlay.querySelector('.fpo-count').textContent = `${done}/${total} (${pct}%)`;
+		overlay.querySelector('.fpo-count').textContent = unbestimmt
+			// Feste englische Zifferngruppierung: Die Oberflaeche ist englisch, und
+			// toLocaleString() ohne Angabe folgt der Spracheinstellung des
+			// Browsers — auf einem deutschen Rechner wurde daraus "88.702", was
+			// in einem englischen Satz wie 88,702 Hundertstel aussieht.
+			? (done > 0 ? `${done.toLocaleString('en')} so far` : '')
+			: `${done.toLocaleString('en')}/${total.toLocaleString('en')} (${pct}%)`;
 		const bar = overlay.querySelector('.fpo-bar');
-		if (bar) bar.style.width = `${pct}%`;
+		if (bar) bar.style.width = unbestimmt ? '' : `${pct}%`;
 		overlay.classList.add('visible');
+		// Die Fussleiste liegt fest am unteren Rand und deckt sonst zu, was dort
+		// steht — beim Suchlauf ausgerechnet den Abbruchknopf. Die Klasse laesst
+		// den Inhalt darueber enden.
+		document.body.classList.add('has-progress-footer');
 	}
 
 	function hideFetchProgress() {
 		document.querySelector('.fetch-progress-overlay')?.remove();
+		document.body.classList.remove('has-progress-footer');
 	}
 
 	// ── First-run onboarding hints ──────────────────────────────────────────
@@ -1370,7 +1412,7 @@ window.SLRApp = (() => {
 		return { hasKey: true, keyPreview: apiKey.slice(0, 6) + '…', std, complete };
 	}
 
-	async function runScopusSearch(query, maxResults, signal) {
+	async function runScopusSearch(query, maxResults, signal, melde) {
 		const config = await SLRData.loadConfig();
 		const apiKey = normalizePrimaryCredential((config && config.APIKey) || state.settings.apiKey);
 		const instToken = normalizeToken((config && config.InstToken) || state.settings.instToken);
@@ -1461,6 +1503,15 @@ window.SLRApp = (() => {
 			}
 			if (!entries.length) break;
 			allResults.push(...entries.map(mapScopusResult).filter(x => x.eid || x.doi));
+			// Wie weit es insgesamt geht: die Obergrenze, oder — wenn die
+			// Datenbank weniger kennt oder gar keine Grenze gesetzt ist — die
+			// Zahl der Treffer, die sie meldet.
+			if (typeof melde === 'function') {
+				const ziel = Number.isFinite(maxResults)
+					? Math.min(maxResults, totalResults || maxResults)
+					: (totalResults || 0);
+				melde(allResults.length, ziel);
+			}
 			start += batchSize;
 			if (totalResults != null && start >= totalResults) break;
 		}
@@ -1468,7 +1519,7 @@ window.SLRApp = (() => {
 		return allResults.slice(0, maxResults);
 	}
 
-	async function runPubmedSearch(query, maxResults, signal) {
+	async function runPubmedSearch(query, maxResults, signal, melde) {
 		// NCBI accepts large retmax values in a single eSearch call (verified up to
 		// 9999); no artificial cap needed below the UI's own 10,000 max-results limit.
 		const esearch = new URL('https://eutils.ncbi.nlm.nih.gov/entrez/eutils/esearch.fcgi');
@@ -1502,6 +1553,7 @@ window.SLRApp = (() => {
 				const row = d2.result && d2.result[id];
 				if (row) out.push(mapPubmedResult(row));
 			}
+			if (typeof melde === 'function') melde(out.length, ids.length);
 		}
 		return out;
 	}
@@ -1781,6 +1833,10 @@ window.SLRApp = (() => {
 	}
 
 	async function runOpenAlexFallbackSearch(query, maxResults, signal) {
+		// Ohne Obergrenze steht hier Infinity. Das ist fuer die Schleifen kein
+		// Problem, wohl aber fuer die Zahl, die als `rows=` an Crossref geht —
+		// deshalb hat der Ersatzweg eine eigene, endliche Obergrenze.
+		if (!Number.isFinite(maxResults)) maxResults = 10000;
 		const terms = extractOpenAlexFallbackTerms(query);
 		let rows = [];
 		for (const term of terms) {
@@ -1817,7 +1873,7 @@ window.SLRApp = (() => {
 		return dedupeByIdentity(rows).slice(0, maxResults);
 	}
 
-	async function runOpenAlexSearch(query, maxResults, signal) {
+	async function runOpenAlexSearch(query, maxResults, signal, melde) {
 		const allResults = [];
 		let cursor = '*';
 		let page = 1;
@@ -1868,6 +1924,13 @@ window.SLRApp = (() => {
 			}
 			if (!rows.length) break;
 			allResults.push(...rows.map(mapOpenAlexResult).filter(x => x.eid || x.doi));
+			if (typeof melde === 'function') {
+				const gesamt = state.search.lastTotal;
+				const ziel = Number.isFinite(maxResults)
+					? Math.min(maxResults, gesamt || maxResults)
+					: (gesamt || 0);
+				melde(allResults.length, ziel);
+			}
 			if (allResults.length >= maxResults) break;
 			if (usedPageFallback) {
 				page += 1;
@@ -1987,30 +2050,39 @@ window.SLRApp = (() => {
 		}
 
 		state.search.query = query;
-		state.search.maxResults = Math.max(1, maxResults || 500);
+		// null heisst: keine Obergrenze. Das Feld darf leer bleiben; dann wird
+		// geholt, was die Datenbank hergibt.
+		state.search.maxResults = (maxResults === null || maxResults === undefined || maxResults === '')
+			? null
+			: Math.max(1, maxResults);
+		const grenze = state.search.maxResults === null ? Infinity : state.search.maxResults;
 		state.search.db = db || state.search.db || 'scopus';
 		state.search.error = null;
 		state.search.lastCount = null;
 		state.search.lastTotal = null;
 		state.search.isSearching = true;
 		state.search.abortController = new AbortController();
-		setSearchProgress(2, 'Preparing query...');
+		suchlaufZuruecksetzen();
+		setSearchProgress(2, 'Preparing query\u2026');
 		renderCurrentView();
 
 		try {
 			let results = [];
+			const melde = (fertig, ziel) => suchlaufAnzeigen(null, fertig, ziel);
+			const signal = state.search.abortController.signal;
 			if (state.search.db === 'scopus') {
-				setSearchProgress(15, 'Querying Scopus...');
-				results = await runScopusSearch(query, state.search.maxResults, state.search.abortController.signal);
+				setSearchProgress(15, 'Retrieving from Scopus\u2026');
+				results = await runScopusSearch(query, grenze, signal, melde);
 			} else if (state.search.db === 'pubmed') {
-				setSearchProgress(15, 'Querying PubMed...');
-				results = await runPubmedSearch(query, state.search.maxResults, state.search.abortController.signal);
+				setSearchProgress(15, 'Retrieving from PubMed\u2026');
+				results = await runPubmedSearch(query, grenze, signal, melde);
 			} else {
-				setSearchProgress(15, 'Querying OpenAlex...');
-				results = await runOpenAlexSearch(query, state.search.maxResults, state.search.abortController.signal);
+				setSearchProgress(15, 'Retrieving from OpenAlex\u2026');
+				results = await runOpenAlexSearch(query, grenze, signal, melde);
 			}
 
-			setSearchProgress(75, 'Saving results...');
+			setSearchProgress(75, 'Saving results\u2026');
+			suchlaufAnzeigen(null, results.length, results.length || 1);
 			const runEntry = {
 				timestamp: new Date().toISOString().slice(0, 19).replace('T', ' '),
 				query,
@@ -2046,7 +2118,7 @@ window.SLRApp = (() => {
 			const gesamt = state.search.lastTotal;
 			const gekappt = typeof gesamt === 'number' && gesamt > results.length;
 			showToast(gekappt
-				? `Search saved: ${results.length} of ${gesamt.toLocaleString()} matches retrieved (Max results = ${state.search.maxResults}).`
+				? `Search saved: ${results.length} of ${gesamt.toLocaleString('en')} matches retrieved${state.search.maxResults === null ? '' : ` (Max results = ${state.search.maxResults})`}.`
 				: `Search saved: ${results.length} result${results.length !== 1 ? 's' : ''}.`, false);
 			markOnboardingStep('search');
 		} catch (err) {
@@ -2061,6 +2133,8 @@ window.SLRApp = (() => {
 			state.search.abortController = null;
 			state.search.progress = 0;
 			state.search.progressMsg = '';
+			hideFetchProgress();
+			suchlaufZuruecksetzen();
 			renderCurrentView();
 		}
 	}
