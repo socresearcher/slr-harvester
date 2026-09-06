@@ -415,7 +415,7 @@ window.SLRViews = (() => {
             </button>
             <div class="welcome-account-menu" id="welcome-account-menu" hidden role="menu">
               <div class="account-menu-email">${esc(cloudUser.email)}</div>
-              <button class="account-menu-item" id="welcome-account-settings-btn" role="menuitem">Settings</button>
+              <button class="account-menu-item" id="welcome-account-account-btn" role="menuitem">Account</button>
               <button class="account-menu-item account-menu-item--danger" id="welcome-account-signout-btn" role="menuitem">Sign Out</button>
             </div>
           </div>
@@ -516,9 +516,11 @@ window.SLRViews = (() => {
         acctMenu.hidden = !willOpen;
         acctBtn.setAttribute('aria-expanded', String(willOpen));
       });
-      container.querySelector('#welcome-account-settings-btn').addEventListener('click', () => {
+      // Hinter dem Personensymbol erwartet man das eigene Konto, nicht die
+      // Einstellungen der Anwendung: E-Mail-Adresse, Passwort, Kontoloeschung.
+      container.querySelector('#welcome-account-account-btn').addEventListener('click', () => {
         closeWelcomeAccountMenu();
-        SLRApp.navigate('settings');
+        SLRApp.navigate('account');
       });
       container.querySelector('#welcome-account-signout-btn').addEventListener('click', () => {
         closeWelcomeAccountMenu();
@@ -945,14 +947,27 @@ window.SLRViews = (() => {
         // state.articles, nicht das Projekt der aufgeschlagenen Infokarte.
         const prismaBtn = container.querySelector('#proj-prisma-btn');
         if (prismaBtn) {
-          const istOffen = SLRApp.state.currentFolder === detailFolder;
-          if (!istOffen) {
-            prismaBtn.disabled = true;
-            prismaBtn.title = 'Open this project first to see its PRISMA flow';
-          }
-          prismaBtn.addEventListener('click', () => {
-            if (!istOffen) return;
+          prismaBtn.title = SLRApp.state.currentFolder === detailFolder
+            ? "Open this project's PRISMA screening flow"
+            : 'Opens this project and shows its PRISMA screening flow';
+          prismaBtn.addEventListener('click', async () => {
+            // Der Knopf war gesperrt, sobald die aufgeschlagene Infokarte nicht
+            // zum gerade geoeffneten Projekt gehoerte — und das ist der
+            // Regelfall, denn man schlaegt die Karte ja auf, um sich ein
+            // anderes Projekt anzusehen. Ein Knopf, den man fast nie druecken
+            // kann, ist keine Hilfe. Statt zu sperren, oeffnet er das Projekt
+            // jetzt selbst; die Visualisierungen zeichnen state.articles, also
+            // muss es geoeffnet sein, bevor sie etwas Richtiges zeigen koennen.
             SLRApp.state.vizChart = 'prisma';
+            if (SLRApp.state.currentFolder !== detailFolder) {
+              prismaBtn.disabled = true;
+              await SLRApp.openProject(detailFolder);
+              // openProject faengt Fehler selbst ab und zeichnet eine Meldung.
+              // Dann bleibt es beim bisherigen Projekt, und ein Wechsel in die
+              // Visualisierungen zeigte Zahlen eines anderen Projekts.
+              if (SLRApp.state.currentFolder !== detailFolder) return;
+            }
+            SLRApp.state.projectsDetailFolder = null;
             SLRApp.navigate('visualizations');
           });
         }
@@ -1181,7 +1196,7 @@ window.SLRViews = (() => {
     container.innerHTML = `
       <div class="articles-view">
 
-        <div class="list-header-collapsible"><div class="list-header-collapsible-inner">
+        
         ${buildQueryFilterBannerHTML(filter, projectData)}
         <div class="corpus-banner">
           <span class="corpus-banner-stat">
@@ -1201,6 +1216,8 @@ window.SLRViews = (() => {
             <span><strong>${totalTagged}</strong> tag${totalTagged !== 1 ? 's' : ''} used</span>
           </span>
         </div>
+
+        <div class="list-header-collapsible"><div class="list-header-collapsible-inner">
 
         ${buildListToolbarHTML({
           list: articles, projectData, activeTags: filter.tags,
@@ -1400,14 +1417,34 @@ window.SLRViews = (() => {
                 >+${rest.length} more</button><span class="article-authors-rest" hidden>${esc(rest.join('; '))}</span></span>`;
     })();
 
-    // No separators between the three: they sit in fixed grid tracks, so the
-    // columns themselves do the separating, and a middle dot would only add
-    // noise to a row whose whole point is to be scanned quickly.
+    // Quelle, Jahr und Zitationen stehen als ein Zug nebeneinander, durch
+    // Punkte getrennt und je von einem Symbol angefuehrt.
+    //
+    // Vorher waren es drei feste Rasterspalten. Die Absicht dahinter war, dass
+    // sich Jahr und Zitationszahl ueber die Karten hinweg untereinander lesen
+    // lassen — nur hielt das nicht: Ein langer Zeitschriftentitel wurde zwar
+    // beschnitten, die Marken davor (Dokumentart, Open Access) schoben die
+    // beiden hinteren Spalten aber trotzdem hin und her, sodass sie eben NICHT
+    // untereinander standen. Damit kostete das Raster Platz, ohne den
+    // versprochenen Nutzen zu liefern.
     const MISSING = '<span class="article-meta-missing">&mdash;</span>';
+    const punkt = '<span class="article-meta-sep" aria-hidden="true">&middot;</span>';
     const factsHTML = `
-                <span class="article-meta-journal${istZeitschrift(a) ? ' is-journal' : ''}" ${a.publicationName ? `title="${esc(a.publicationName)}"` : ''}>${a.publicationName ? esc(a.publicationName) : MISSING}</span>
-                <span class="article-meta-year">${year ? esc(year) : MISSING}</span>
-                <span class="article-meta-cited">${a.citedby || 0} cited</span>`;
+                <span class="article-meta-fact article-meta-journal${istZeitschrift(a) ? ' is-journal' : ''}"
+                      ${a.publicationName ? `title="${esc(a.publicationName)}"` : ''}>
+                  <span class="article-meta-icon" aria-hidden="true">${SLRIcons.articles}</span>
+                  <span class="article-meta-value">${a.publicationName ? esc(a.publicationName) : MISSING}</span>
+                </span>
+                ${punkt}
+                <span class="article-meta-fact article-meta-year" title="Publication year">
+                  <span class="article-meta-icon" aria-hidden="true">${SLRIcons.calendar}</span>
+                  <span class="article-meta-value">${year ? esc(year) : MISSING}</span>
+                </span>
+                ${punkt}
+                <span class="article-meta-fact article-meta-cited" title="Times cited">
+                  <span class="article-meta-icon" aria-hidden="true">${SLRIcons.quote}</span>
+                  <span class="article-meta-value">${a.citedby || 0} cited</span>
+                </span>`;
 
     const idRow = (doiLink || eidLink) ? `
       <div class="article-id-row">
@@ -1491,7 +1528,10 @@ window.SLRViews = (() => {
             <div class="article-main">
               <div class="article-title">${esc(a.title)}</div>
               <div class="article-meta">
-                <div class="article-meta-line article-meta-authors">${authorsHTML}</div>
+                <div class="article-meta-line article-meta-authors">
+                  <span class="article-meta-icon" aria-hidden="true">${SLRIcons.user}</span>
+                  ${authorsHTML}
+                </div>
                 <div class="article-meta-line article-meta-facts">${factsHTML}
                 </div>
               </div>
@@ -2852,10 +2892,10 @@ window.SLRViews = (() => {
         <div class="list-toolbar-row">
           <div class="filter-year-wrap">
             <input class="year-input" id="${yearFromId}" type="number"
-                   placeholder="From" min="1900" max="2100" value="${esc(yearFromValue)}">
+                   placeholder="1900" min="1900" max="2100" value="${esc(yearFromValue)}">
                  <span>-</span>
             <input class="year-input" id="${yearToId}" type="number"
-                   placeholder="To" min="1900" max="2100" value="${esc(yearToValue)}">
+                   placeholder="${new Date().getFullYear()}" min="1900" max="2100" value="${esc(yearToValue)}">
           </div>
           <select class="filter-select" id="${sortId}" title="Sort order">
             <option value="newest" ${sortValue==='newest'?'selected':''}>Newest first</option>
@@ -3403,7 +3443,7 @@ window.SLRViews = (() => {
     container.innerHTML = `
       <div class="articles-view">
 
-        <div class="list-header-collapsible"><div class="list-header-collapsible-inner">
+        
         <div class="corpus-banner">
           <span class="corpus-banner-stat">
             ${SLRIcons.corpus}
@@ -3418,6 +3458,8 @@ window.SLRViews = (() => {
             <span><strong>${Object.keys(stats.byTag).filter(t => t !== 'None').length}</strong> tag${Object.keys(stats.byTag).filter(t => t !== 'None').length !== 1 ? 's' : ''} used</span>
           </span>
         </div>
+
+        <div class="list-header-collapsible"><div class="list-header-collapsible-inner">
 
         ${buildListToolbarHTML({
           list: corpusArticles, projectData, activeTags: filter.tags,
@@ -3480,7 +3522,7 @@ window.SLRViews = (() => {
 
     container.innerHTML = `
       <div class="articles-view">
-        <div class="list-header-collapsible"><div class="list-header-collapsible-inner">
+        
         <div class="corpus-banner" style="border-left-color:var(--accent)">
           <span class="corpus-banner-stat">
             ${SLRIcons.selected}
@@ -3499,6 +3541,8 @@ window.SLRViews = (() => {
             <span><strong>${Object.keys(stats.byTag).filter(t => t !== 'None').length}</strong> tag${Object.keys(stats.byTag).filter(t => t !== 'None').length !== 1 ? 's' : ''} used</span>
           </span>
         </div>
+
+        <div class="list-header-collapsible"><div class="list-header-collapsible-inner">
 
         ${buildListToolbarHTML({
           list: selectedArticles, projectData, activeTags: filter.tags,
@@ -4425,10 +4469,10 @@ window.SLRViews = (() => {
                   <button class="viz-mode-tab" data-mode="selected">Selected&nbsp;(${stats.selected})</button>
                   <button class="viz-mode-tab" data-mode="corpus">Corpus&nbsp;(${stats.corpus})</button>
                 </div>
-                <button class="viz-legend-toggle" id="viz-none-toggle">Hide None</button>
-                <button class="viz-legend-toggle" id="viz-legend-toggle">Hide Legend</button>
-                <button class="viz-legend-toggle" id="viz-tags-btn" title="Open Tags \u2014 rename categories and change the colours the tag charts use">${SLRIcons.tag || ''}&nbsp;Tags</button>
-                <button class="viz-legend-toggle viz-export-btn" id="viz-export-btn" title="Export the current chart as PNG or SVG">${SLRIcons.download}&nbsp;Export</button>
+                <button class="viz-legend-toggle" id="viz-none-toggle"><span class="viz-toggle-icon"></span><span>Hide None</span></button>
+                <button class="viz-legend-toggle" id="viz-legend-toggle"><span class="viz-toggle-icon"></span><span>Hide Legend</span></button>
+                <button class="viz-legend-toggle" id="viz-tags-btn" title="Open Tags \u2014 rename categories and change the colours the tag charts use">${SLRIcons.tag || ''}<span>Tags</span></button>
+                <button class="viz-legend-toggle viz-export-btn" id="viz-export-btn" title="Export the current chart as PNG or SVG">${SLRIcons.download}<span>Export</span></button>
               </div>
             </div>
           </div>
@@ -4659,13 +4703,24 @@ window.SLRViews = (() => {
       } else if (chartType === 'world') {
         const wrap = el.querySelector('.viz-world-wrap');
         if (wrap) {
-          const h = getChartHeight('slr-world-chart-height');
+          // Die Karte startet ausgefuellt, nicht auf dem gemeinsamen
+          // Vorgabewert der Hoehendiagramme. Bei ihr bestimmt die Hoehe ueber
+          // das Seitenverhaeltnis auch die Breite — mit den rund 268px der
+          // uebrigen Diagramme waere sie nur 492px breit und stuende als
+          // Briefmarke in einer weiten Spalte. Wer sie kleiner will, zieht
+          // sie kleiner; der Wert wird dann gemerkt.
+          const gemerkt = parseInt(localStorage.getItem('slr-world-chart-height'), 10);
+          const h = (Number.isFinite(gemerkt) && gemerkt >= CHART_HEIGHT_MIN && gemerkt <= CHART_HEIGHT_MAX)
+            ? gemerkt : CHART_HEIGHT_MAX;
           wrap.style.setProperty('--viz-map-h', h + 'px');
           wireChartResize(el, {
             handleId: 'viz-world-resize-handle',
             storageKey: 'slr-world-chart-height',
             areaEl: wrap,
-            startFrom: () => getChartHeight('slr-world-chart-height'),
+            startFrom: () => {
+              const g = parseInt(localStorage.getItem('slr-world-chart-height'), 10);
+              return (Number.isFinite(g) && g >= CHART_HEIGHT_MIN && g <= CHART_HEIGHT_MAX) ? g : CHART_HEIGHT_MAX;
+            },
             applyHeight: (target, newH) => target.style.setProperty('--viz-map-h', newH + 'px'),
           });
         }
@@ -5008,18 +5063,22 @@ window.SLRViews = (() => {
       // Mode tabs are always visible; dim them when irrelevant (PRISMA doesn't use mode)
       if (modeTabs) modeTabs.style.opacity = currentChart === 'prisma' ? '0.35' : '';
       if (modeTabs) modeTabs.style.pointerEvents = currentChart === 'prisma' ? 'none' : '';
-        if (legendBtn) {
-          legendBtn.textContent = showLegend ? 'Hide Legend' : 'Show Legend';
-          legendBtn.classList.toggle('is-active', !showLegend);
-          legendBtn.disabled = !legendSupported;
-          legendBtn.style.opacity = legendSupported ? '1' : '0.45';
-        }
-        if (noneBtn) {
-          noneBtn.textContent = showNone ? 'Hide None' : 'Show None';
-          noneBtn.classList.toggle('is-active', !showNone);
-          noneBtn.disabled = !noneSupported;
-          noneBtn.style.opacity = noneSupported ? '1' : '0.45';
-        }
+        // Das Auge zeigt den ZUSTAND, nicht die Handlung: offen heisst
+        // sichtbar, durchgestrichen heisst ausgeblendet. Die Beschriftung
+        // nennt weiterhin die Handlung, sonst muesste man beim Lesen raten,
+        // ob „Legend" gerade eine Feststellung oder ein Knopf ist.
+        const setzeSchalter = (btn, sichtbar, wortSichtbar, wortWeg, moeglich) => {
+          if (!btn) return;
+          const symbol = btn.querySelector('.viz-toggle-icon');
+          const text   = btn.querySelector('span:last-child');
+          if (symbol) symbol.innerHTML = sichtbar ? SLRIcons.eye : SLRIcons.eyeOff;
+          if (text) text.textContent = sichtbar ? wortSichtbar : wortWeg;
+          btn.classList.toggle('is-active', !sichtbar);
+          btn.disabled = !moeglich;
+          btn.style.opacity = moeglich ? '1' : '0.45';
+        };
+        setzeSchalter(legendBtn, showLegend, 'Hide Legend', 'Show Legend', legendSupported);
+        setzeSchalter(noneBtn,   showNone,   'Hide None',   'Show None',   noneSupported);
         if (groupBySel) {
           groupBySel.disabled = !groupBySupported;
           groupBySel.style.opacity = groupBySupported ? '1' : '0.45';
@@ -5124,7 +5183,29 @@ window.SLRViews = (() => {
     });
 
     container.querySelector('#viz-tags-btn')?.addEventListener('click', () => {
+      // navigate('tags') klappt den Tags-Abschnitt in den Einstellungen auf.
+      // Danach noch hinscrollen — die Einstellungen beginnen mit Scopus und
+      // OpenAlex, Tags steht weit unten und waere sonst nicht im Bild.
       SLRApp.navigate('tags');
+      // Nicht ueber scrollIntoView mit behavior:'smooth' — das haengt an einer
+      // Bildfolge, und wenn das Fenster gerade nicht gezeichnet wird, laeuft
+      // die Bewegung nie an; gemessen blieb scrollTop dann auf 0, waehrend das
+      // Ziel 1998px tiefer stand. Der Rollbalken wird deshalb direkt gesetzt.
+      const hinrollen = (versuch = 0) => {
+        const behaelter = document.getElementById('view-container');
+        const ziel = document.querySelector('#tags-tags');
+        if (!behaelter || !ziel) {
+          if (versuch < 10) setTimeout(() => hinrollen(versuch + 1), 40);
+          return;
+        }
+        const abstand = ziel.getBoundingClientRect().top - behaelter.getBoundingClientRect().top;
+        behaelter.scrollTop += abstand - 12;   // ein wenig Luft ueber der Ueberschrift
+      };
+      // Zweimal: Der Tags-Bereich wird nach dem Zeichnen der Einstellungen
+      // nachtraeglich befuellt und waechst dabei, sodass die erste Messung um
+      // einige hundert Pixel danebenliegt. Der zweite Lauf raeumt das auf.
+      setTimeout(hinrollen, 0);
+      setTimeout(hinrollen, 180);
     });
 
     container.querySelector('#viz-export-btn')?.addEventListener('click', () => {
@@ -5609,8 +5690,18 @@ window.SLRViews = (() => {
 
     // Hint box
     const hint = DB_HINTS[db] || '';
+    // Beide Hinweise haengen am selben i-Knopf und merken sich getrennt, ob
+    // sie weggeklickt wurden.
+    const versteckt = (schluessel) => {
+      try { return localStorage.getItem(schluessel) === '1'; } catch (_) { return false; }
+    };
+    const syntaxWeg = versteckt('slr-search-hint-syntax');
     const hintHTML = hint
-      ? `<div class="search-db-hint">${SLRIcons.info}<span>${esc(hint)}</span></div>`
+      ? `<div class="search-db-hint" id="search-hint-syntax"${syntaxWeg ? ' hidden' : ''}>
+           ${SLRIcons.info}<span>${esc(hint)}</span>
+           <button type="button" class="search-hint-close" data-hint-close="slr-search-hint-syntax"
+                   aria-label="Hide this note" title="Hide — the i button brings it back">${SLRIcons.close}</button>
+         </div>`
       : '';
 
     // Scopus key warning
@@ -5641,8 +5732,9 @@ window.SLRViews = (() => {
     // Steht bewusst in der Suchansicht und nicht in der Hilfe: Die Versuchung,
     // eine zu grosse Trefferliste ueber „Max results" zu kuerzen, entsteht
     // genau hier, und was dabei wegfaellt, ist nicht begruendbar.
+    const rechercheWeg = versteckt('slr-search-hint-hidden');
     const rechercheHinweis = `
-      <div class="search-notice search-notice-info">
+      <div class="search-notice search-notice-info" id="search-hint"${rechercheWeg ? ' hidden' : ''}>
         ${SLRIcons.info}
         <span><strong>Narrow the question, not the list.</strong> For a systematic review,
         capping results is not a selection criterion — the records that fall away are
@@ -5650,7 +5742,12 @@ window.SLRViews = (() => {
         Use criteria you can state instead: publication years, document type (article,
         review, book chapter), a narrower search field, language, or the topic itself.
         Keep <em>Max results</em> above the total your query reports.</span>
+        <button type="button" class="search-hint-close" data-hint-close="slr-search-hint-hidden"
+                aria-label="Hide this note" title="Hide — the i button brings it back">${SLRIcons.close}</button>
       </div>`;
+    // Der i-Knopf zeigt sich als „an", solange wenigstens einer der beiden
+    // Kaesten offen ist.
+    const hinweisWeg = syntaxWeg && rechercheWeg;
 
     // Die beiden Schubladen merken sich ihre Stellung selbst. Vorgabe haengt
     // an der Bildschirmbreite — am Telefon zu, am Desktop offen —, aber nur
@@ -5661,8 +5758,12 @@ window.SLRViews = (() => {
       try { saved = localStorage.getItem('slr-search-drawer-' + key); } catch (_) { /* privates Fenster */ }
       return saved === null ? fallback : saved === '1';
     };
-    const fcOpen    = drawerOpen('field-codes', !isNarrow);
-    const termsOpen = drawerOpen('past-terms', !isNarrow);
+    // Beide von Anfang an offen — auch am Telefon. Sie sind der Grund, warum
+    // die Ansicht drei Spalten hat; zugeklappt muesste man sie erst suchen.
+    // Wer sie zumacht, findet sie beim naechsten Mal zu (drawerOpen liest den
+    // gemerkten Stand und faellt nur ohne einen auf die Vorgabe zurueck).
+    const fcOpen    = drawerOpen('field-codes', true);
+    const termsOpen = drawerOpen('past-terms', true);
     const fcCount   = fcCodes.reduce((n, g) => n + g.fields.length, 0);
 
     // Eine Spalte, auf jeder Breite dieselbe: Quelle -> Abfrage -> Suchen,
@@ -5673,6 +5774,7 @@ window.SLRViews = (() => {
       <div class="search-view">
         <div class="search-page">
 
+          <div class="search-main">
           <div class="search-step">
             <div class="search-step-label">Source</div>
             <div class="search-db-tabs" id="search-db-tabs">${tabsHTML}</div>
@@ -5684,58 +5786,86 @@ window.SLRViews = (() => {
               <span class="search-composer-syntax">${esc(DB_SYNTAX_NAMES[db] || '')}</span>
             </div>
 
-            <textarea class="search-textarea" id="search-query" rows="8"
-              placeholder="${esc(placeholder)}"
-              ${isSearch ? 'disabled' : ''}>${esc(query)}</textarea>
+            <div class="search-textarea-wrap">
+              <textarea class="search-textarea" id="search-query" rows="2"
+                placeholder="${esc(placeholder)}"
+                ${isSearch ? 'disabled' : ''}>${esc(query)}</textarea>
+              <!-- Eigener Griff statt der Browserecke: Die native Ecke einer
+                   Textarea reagiert auf der Maus, aber nicht auf einen Finger —
+                   auf dem Tablet liesse sich das Feld sonst gar nicht ziehen.
+                   Dieser hier haengt an Pointer-Ereignissen und gilt fuer
+                   beides. -->
+              <div class="search-textarea-grip" id="search-query-grip"
+                   role="separator" aria-orientation="horizontal"
+                   aria-label="Drag to resize the query field"
+                   title="Drag to resize"></div>
+            </div>
 
-            <!-- Der Syntaxhinweis steht jetzt UNTER dem Feld: Er beantwortet
-                 „wie schreibe ich das hier", und die Frage stellt sich erst,
-                 wenn das Feld da ist. -->
-            ${hintHTML}
+            <!-- Warnungen bleiben direkt am Feld: Ohne Schluessel laeuft die
+                 Suche gar nicht, das ist keine Erlaeuterung, sondern ein
+                 Hindernis. Die beiden Erlaeuterungen stehen unter der
+                 Bedienzeile, siehe unten. -->
             ${keyWarnHTML}
 
             <div class="search-actions">
-              ${isSearch
-                ? `<button class="btn-primary search-run-btn" id="search-cancel-btn">Cancel</button>`
-                : `<button class="btn-primary search-run-btn" id="search-run-btn" ${noKey ? 'disabled' : ''}>
-                     ${SLRIcons.search} Search
-                   </button>`
-              }
-              <label class="search-max-wrap" for="search-max">
-                <span>Max results</span>
-                <input class="form-input" id="search-max" type="number"
-                  min="1" max="10000"
-                  value="${esc(String(maxRes))}"
-                  ${isSearch ? 'disabled' : ''}>
-              </label>
-            </div>
-
-            <div class="search-scope-row">
-              <label class="search-scope-field" for="search-scope">
-                <span>Search in</span>
+              <div class="search-field">
+                <label class="search-field-label" for="search-scope">Search in</label>
                 <select class="filter-select" id="search-scope" ${isSearch ? 'disabled' : ''}
                         title="OpenAlex only. Narrower fields return fewer but far more precise hits.">
                   ${OPENALEX_SCOPES.map(o =>
                     `<option value="${o.wert}"${scopeVal === o.wert ? ' selected' : ''}>${o.label}</option>`
                   ).join('')}
                 </select>
-              </label>
-              <label class="search-scope-field" for="search-year-from">
-                <span>Years</span>
-                <span class="search-year-pair">
-                  <input class="form-input" id="search-year-from" type="number" inputmode="numeric"
-                    min="1800" max="2100" placeholder="from" value="${esc(String(yearFromVal))}"
+              </div>
+
+              <div class="search-field">
+                <label class="search-field-label" for="search-year-from">Years</label>
+                <div class="search-year-pair">
+                  <input class="form-input search-year-input" id="search-year-from" type="number" inputmode="numeric"
+                    min="1800" max="2100" placeholder="1900" value="${esc(String(yearFromVal))}"
                     ${isSearch ? 'disabled' : ''}>
                   <span class="search-year-dash">&ndash;</span>
-                  <input class="form-input" id="search-year-to" type="number" inputmode="numeric"
-                    min="1800" max="2100" placeholder="to" value="${esc(String(yearToVal))}"
+                  <input class="form-input search-year-input" id="search-year-to" type="number" inputmode="numeric"
+                    min="1800" max="2100" placeholder="${new Date().getFullYear()}" value="${esc(String(yearToVal))}"
                     ${isSearch ? 'disabled' : ''}>
-                </span>
-              </label>
+                </div>
+              </div>
+
+              <div class="search-field">
+                <label class="search-field-label" for="search-max">Max results</label>
+                <div class="search-max-stepper">
+                  <button type="button" class="search-step-btn" data-step="-1"
+                          aria-label="Lower the result limit" ${isSearch ? 'disabled' : ''}>&minus;</button>
+                  <input class="form-input" id="search-max" type="number"
+                    min="1" max="10000" step="50"
+                    value="${esc(String(maxRes))}"
+                    ${isSearch ? 'disabled' : ''}>
+                  <button type="button" class="search-step-btn" data-step="1"
+                          aria-label="Raise the result limit" ${isSearch ? 'disabled' : ''}>+</button>
+                  <button type="button" class="search-hint-btn" id="search-hint-btn"
+                          aria-expanded="${hinweisWeg ? 'false' : 'true'}"
+                          aria-controls="search-hint"
+                          aria-label="Show or hide the note on result limits"
+                          title="Show or hide the note on result limits">i</button>
+                </div>
+              </div>
             </div>
 
+            <div class="search-hints" id="search-hints">
+              ${hintHTML}
+              ${rechercheHinweis}
+            </div>
             ${statusHTML}
-            ${rechercheHinweis}
+          </div>
+          </div>
+
+          <div class="search-run-row">
+            ${isSearch
+              ? `<button class="btn-primary search-run-btn" id="search-cancel-btn">Cancel</button>`
+              : `<button class="btn-primary search-run-btn" id="search-run-btn" ${noKey ? 'disabled' : ''}>
+                   ${SLRIcons.search} Search
+                 </button>`
+            }
           </div>
 
           <details class="search-drawer" data-drawer="field-codes"${fcOpen ? ' open' : ''}>
@@ -5743,7 +5873,6 @@ window.SLRViews = (() => {
               ${SLRIcons.filter}
               <span class="search-drawer-title">Field codes</span>
               <span class="search-drawer-count">${fcCount}</span>
-              <span class="search-drawer-hint">click to insert at the cursor</span>
             </summary>
             <div class="search-drawer-body">
               <input class="form-input search-fc-filter" id="search-fc-filter" type="search"
@@ -5758,7 +5887,6 @@ window.SLRViews = (() => {
               ${SLRIcons.history}
               <span class="search-drawer-title">Saved terms</span>
               <span class="search-drawer-count">${sortedTerms.length}</span>
-              <span class="search-drawer-hint">from this project</span>
             </summary>
             <div class="search-drawer-body">
               <input class="form-input search-fc-filter" id="search-term-filter" type="search"
@@ -5883,6 +6011,173 @@ window.SLRViews = (() => {
     // Wire: settings link
     const goSettings = container.querySelector('#search-go-settings');
     if (goSettings) goSettings.addEventListener('click', () => SLRApp.navigate('settings'));
+
+    // Das Eingabefeld waechst mit dem Inhalt — bis der Nutzer selbst eine
+    // Hoehe einstellt. Danach gilt seine.
+    //
+    // Woran das erkannt wird: Beide, das Mitwachsen und der Zug am Griff,
+    // schreiben in style.height. Gemerkt wird deshalb der zuletzt selbst
+    // gesetzte Wert; steht dort etwas anderes, war es die Hand des Nutzers.
+    const queryFeld = container.querySelector('#search-query');
+    if (queryFeld) {
+      // Eine von Hand eingestellte Hoehe ueberlebt das naechste Neuzeichnen der
+      // Ansicht. Ohne das schnappt das Feld bei jedem Ansichtswechsel auf zwei
+      // Zeilen zurueck, was sich anfuehlt, als liesse es sich gar nicht ziehen.
+      const HOEHE_KEY = 'slr-search-query-height';
+      let selbstGesetzt = '';
+      // Ohne eine von Hand eingestellte Hoehe fuellt das Feld den Platz, den
+      // ihm die Spalte laesst — im Querformat also bis hinunter zum Suchknopf.
+      // Sobald jemand zieht, gilt seine Hoehe, und das Fuellen hoert auf.
+      const huelle = queryFeld.closest('.search-textarea-wrap');
+      let vonHand = false;
+      try {
+        const gemerkt = localStorage.getItem(HOEHE_KEY);
+        if (gemerkt && /^\d+px$/.test(gemerkt)) {
+          queryFeld.style.height = gemerkt;
+          vonHand = true;
+        }
+      } catch (_) { /* privates Fenster */ }
+      if (huelle) huelle.classList.toggle('is-manual', vonHand);
+
+      // Ein Zug am Griff aendert die Hoehe, ohne dass ein Ereignis dafuer
+      // ausgeloest wuerde — deshalb der Beobachter. Was wir selbst gesetzt
+      // haben, wird dabei uebergangen.
+      if (typeof ResizeObserver === 'function') {
+        let letzte = queryFeld.getBoundingClientRect().height;
+        new ResizeObserver(() => {
+          const jetzt = queryFeld.getBoundingClientRect().height;
+          if (Math.abs(jetzt - letzte) < 1) return;
+          letzte = jetzt;
+          if (queryFeld.style.height && queryFeld.style.height !== selbstGesetzt) {
+            try { localStorage.setItem(HOEHE_KEY, queryFeld.style.height); } catch (_) { /* egal */ }
+          }
+        }).observe(queryFeld);
+      }
+      // Das Mitwachsen hoert bei knapp der halben Fensterhoehe auf, sonst
+      // schoebe eine sehr lange Abfrage den Suchknopf aus dem Bild. Von Hand
+      // gilt diese Grenze NICHT — deshalb steht sie hier und nicht als
+      // max-height im Stylesheet, wo sie auch das Ziehen gedeckelt haette.
+      const mitwachsen = () => {
+        // Im Fuellmodus bestimmt die Spalte die Hoehe, nicht der Inhalt.
+        if (huelle && !huelle.classList.contains('is-manual')) return;
+        if (queryFeld.style.height && queryFeld.style.height !== selbstGesetzt) return;
+        const grenze = Math.round(window.innerHeight * 0.45);
+        queryFeld.style.height = 'auto';
+        queryFeld.style.height = Math.min(queryFeld.scrollHeight, grenze) + 'px';
+        selbstGesetzt = queryFeld.style.height;
+      };
+      queryFeld.addEventListener('input', mitwachsen);
+
+      // Der eigene Griff. Zieht in beide Richtungen, kennt eine Untergrenze
+      // von einer Zeile und keine Obergrenze — die gilt nur fuers
+      // automatische Mitwachsen.
+      const griff = container.querySelector('#search-query-grip');
+      if (griff) {
+        let ziehtGerade = false, startY = 0, startH = 0;
+        griff.addEventListener('pointerdown', ev => {
+          // Beim Zugbeginn aus dem Fuellmodus heraus: die aktuelle Hoehe
+          // festschreiben, sonst spraenge das Feld beim ersten Pixel.
+          if (huelle && !huelle.classList.contains('is-manual')) {
+            queryFeld.style.height = queryFeld.getBoundingClientRect().height + 'px';
+            huelle.classList.add('is-manual');
+          }
+          ziehtGerade = true;
+          startY = ev.clientY;
+          startH = queryFeld.getBoundingClientRect().height;
+          griff.classList.add('is-dragging');
+          try { griff.setPointerCapture(ev.pointerId); } catch (_) { /* egal */ }
+          ev.preventDefault();
+        });
+        griff.addEventListener('pointermove', ev => {
+          if (!ziehtGerade) return;
+          const neu = Math.max(34, startH + (ev.clientY - startY));
+          queryFeld.style.height = Math.round(neu) + 'px';
+        });
+        const fertig = () => {
+          if (!ziehtGerade) return;
+          ziehtGerade = false;
+          griff.classList.remove('is-dragging');
+          if (huelle) huelle.classList.add('is-manual');
+          try { localStorage.setItem(HOEHE_KEY, queryFeld.style.height); } catch (_) { /* egal */ }
+        };
+        griff.addEventListener('pointerup', fertig);
+        griff.addEventListener('pointercancel', fertig);
+      }
+      // Auch beim Aufbau, damit eine gemerkte lange Abfrage gleich sichtbar ist.
+      mitwachsen();
+    }
+
+    // Obergrenze: tippen, klicken oder scrollen. Das Zahlenfeld bringt zwar
+    // eigene Pfeilchen mit, die sind aber winzig und in manchen Browsern erst
+    // beim Ueberfahren da; ausserdem dreht ein Mausrad ueber einem
+    // Zahlenfeld von sich aus gar nichts.
+    const maxFeld = container.querySelector('#search-max');
+    if (maxFeld) {
+      const SCHRITT = 50, MIN = 1, MAX = 10000;
+      const setze = (wert) => {
+        const n = Math.max(MIN, Math.min(MAX, Math.round(wert)));
+        maxFeld.value = String(n);
+        maxFeld.dispatchEvent(new Event('change', { bubbles: true }));
+      };
+      const jetzt = () => parseInt(maxFeld.value, 10) || 500;
+
+      container.querySelectorAll('.search-step-btn').forEach(btn => {
+        btn.addEventListener('click', () => {
+          if (maxFeld.disabled) return;
+          setze(jetzt() + SCHRITT * (parseInt(btn.dataset.step, 10) || 1));
+        });
+      });
+
+      // Nur wenn das Feld den Fokus hat oder die Maus darueber steht — sonst
+      // wuerde ein Rollen ueber der Seite die Zahl unbemerkt verstellen.
+      // passive:false, weil das Scrollen der Seite dabei unterbleiben soll.
+      maxFeld.addEventListener('wheel', (ev) => {
+        if (maxFeld.disabled) return;
+        ev.preventDefault();
+        setze(jetzt() + (ev.deltaY < 0 ? SCHRITT : -SCHRITT));
+      }, { passive: false });
+    }
+
+    // Beide Erlaeuterungen: jedes x schliesst seinen eigenen Kasten, der
+    // i-Knopf schaltet beide zugleich.
+    const merke = (schluessel, weg) => {
+      try { localStorage.setItem(schluessel, weg ? '1' : '0'); }
+      catch (_) { /* privates Fenster — dann gilt es nur fuer diese Sitzung */ }
+    };
+    const hinweisKaesten = () => [
+      { el: container.querySelector('#search-hint-syntax'), key: 'slr-search-hint-syntax' },
+      { el: container.querySelector('#search-hint'),        key: 'slr-search-hint-hidden' },
+    ].filter(k => k.el);
+
+    container.querySelectorAll('[data-hint-close]').forEach(btn => {
+      btn.addEventListener('click', () => {
+        const kasten = btn.closest('.search-notice, .search-db-hint');
+        if (!kasten) return;
+        kasten.hidden = true;
+        merke(btn.dataset.hintClose, true);
+        aktualisiereHinweisKnopf();
+      });
+    });
+
+    const hinweisKnopf = container.querySelector('#search-hint-btn');
+    function aktualisiereHinweisKnopf() {
+      if (!hinweisKnopf) return;
+      const offen = hinweisKaesten().some(k => !k.el.hidden);
+      hinweisKnopf.setAttribute('aria-expanded', offen ? 'true' : 'false');
+      hinweisKnopf.classList.toggle('is-active', offen);
+    }
+    if (hinweisKnopf) {
+      hinweisKnopf.addEventListener('click', () => {
+        const kaesten = hinweisKaesten();
+        if (!kaesten.length) return;
+        // Ist noch irgendetwas offen, wird zugemacht; sonst alles auf.
+        const zumachen = kaesten.some(k => !k.el.hidden);
+        kaesten.forEach(k => { k.el.hidden = zumachen; merke(k.key, zumachen); });
+        aktualisiereHinweisKnopf();
+        if (!zumachen) kaesten[0].el.scrollIntoView({ block: 'nearest' });
+      });
+      aktualisiereHinweisKnopf();
+    }
 
     // Wire: Run
     const runBtn = container.querySelector('#search-run-btn');
@@ -7421,6 +7716,10 @@ window.SLRViews = (() => {
     // keyword rule editor are both long, and both are things you set up once
     // and rarely revisit, so they start closed.
     const tagsBody = `
+      <div class="tags-section-actions">
+        <button class="btn-secondary projects-add-btn tag-add-btn" id="tag-add-open">${SLRIcons.plus} Add Tag</button>
+      </div>
+
       <div class="tag-add-form" id="tag-add-form" style="display:none">
         <div class="tag-add-form-inner">
           <input type="color" class="tag-color-input" id="tag-new-color" value="#64A8FF">
@@ -7450,7 +7749,6 @@ window.SLRViews = (() => {
             <span>${tagKeys.length} tag${tagKeys.length !== 1 ? 's' : ''} defined &mdash;
             ${totalTagged} of ${totalArticles} articles tagged</span>
           </div>
-          <button class="btn-secondary projects-add-btn tag-add-btn" id="tag-add-open">${SLRIcons.plus} Add Tag</button>
         </div>
 
         <div class="tags-auto-note">

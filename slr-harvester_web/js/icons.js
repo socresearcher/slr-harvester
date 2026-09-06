@@ -197,6 +197,14 @@ window.SLRIcons = (() => {
        <path d="M16 2v4M8 2v4M3 10h18"/>`
     ),
 
+    // Zitatzeichen — steht in den Artikelkarten vor der Zitationszahl.
+    // `cited` daneben ist trotz seines Namens ein Personensymbol und dort
+    // missverstaendlich; es bleibt, weil andere Stellen darauf zeigen.
+    quote: base(
+      `<path d="M9 7H5.5A2.5 2.5 0 0 0 3 9.5V12a2 2 0 0 0 2 2h2a2 2 0 0 1 2 2v1a3 3 0 0 1-3 3"/>
+       <path d="M21 7h-3.5A2.5 2.5 0 0 0 15 9.5V12a2 2 0 0 0 2 2h2a2 2 0 0 1 2 2v1a3 3 0 0 1-3 3"/>`
+    ),
+
     // Cited by / citations
     cited: base(
       `<path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/>

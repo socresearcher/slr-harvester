@@ -813,6 +813,11 @@ a:hover {
     max-width: 32vw;
   }
 
+  /* .tag-card-btn ist hier bewusst NICHT dabei. Es sind Symbolknoepfe
+     innerhalb einer Kartenzeile; auf 40px hochgezogen machen sie die
+     Auto-Tag-Karte im Hochformat 70px statt 55px hoch, ohne dass sie dadurch
+     leichter zu treffen waeren — die Zeile bleibt ja gleich hoch. Freistehende
+     Knoepfe behalten ihr Beruehrziel. */
   .sidebar-header,
   .nav-item,
   .icon-btn,
@@ -820,8 +825,7 @@ a:hover {
   .btn-secondary,
   .btn-danger,
   .articles-action-btn,
-  .tag-add-btn,
-  .tag-card-btn {
+  .tag-add-btn {
     min-height: 40px;
   }
 
@@ -2111,21 +2115,70 @@ a:hover {
   min-width: 0;
 }
 
-/* Fixed tracks, not a flow of text. Every card in a list has the same width,
-   so a 1fr journal column puts the year and the citation count at the same x
-   on every card — which is what makes the list readable downwards. With the
-   old middle-dot separators those two moved with the length of the journal
-   name and no two cards lined up. */
+/* Quelle, Jahr und Zitationszahl stehen als EIN Zug in einer Zeile, durch
+   Punkte getrennt. Kein Umbruch: .article-meta-line erlaubt ihn allgemein, und
+   im Hochformat rutschten Jahr und Zitationszahl dadurch in eine zweite Zeile,
+   die mit einem einzelnen Trennpunkt begann. Stattdessen gibt der
+   Zeitschriftenname nach — er wird beschnitten und traegt den vollen Namen im
+   Hinweisfenster. */
 .article-meta-facts {
-  display: grid;
-  /* Both trailing tracks are sized, not auto: an auto-sized citation
-     column is as wide as its own number, so "412 cited" and "7 cited"
-     produced different column widths and pushed the year back out of
-     alignment even with a steady badge column beside them. The minmax
-     still lets an unusually large count take the room it needs. */
-  grid-template-columns: minmax(0, 1fr) 3.5em minmax(5.5em, auto);
-  gap: 0 14px;
-  align-items: baseline;
+  display: flex;
+  flex-wrap: nowrap;
+  align-items: center;
+  gap: 7px;
+  min-width: 0;
+}
+
+/* Jede Angabe fuehrt ihr eigenes Symbol mit, damit ohne Lesen erkennbar ist,
+   wovon die Rede ist: Dokument fuer die Quelle, Kalender fuer das Jahr,
+   Anfuehrungszeichen fuer die Zitationen. */
+.article-meta-fact {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  min-width: 0;
+  flex-shrink: 0;
+}
+
+/* Nur der Quellenname gibt nach — Jahr und Zitationszahl sind kurz und
+   sollen nicht beschnitten werden. */
+.article-meta-fact.article-meta-journal {
+  flex-shrink: 1;
+}
+
+.article-meta-icon {
+  display: inline-flex;
+  align-items: center;
+  flex-shrink: 0;
+  color: var(--text-faint);
+}
+
+.article-meta-icon svg {
+  width: 13px;
+  height: 13px;
+}
+
+.article-meta-sep {
+  color: var(--text-faint);
+  flex-shrink: 0;
+}
+
+.article-meta-value {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* Das Personensymbol der Autorenzeile sitzt oben, weil die Namen umbrechen
+   duerfen. */
+.article-meta-authors {
+  align-items: flex-start;
+  gap: 5px;
+}
+
+.article-meta-authors > .article-meta-icon {
+  margin-top: 2px;
 }
 
 /* The one part that has to give way, so it is the one that gets the ellipsis;
@@ -3588,10 +3641,23 @@ a.db-link:visited {
   display: flex;
   flex-wrap: wrap;
   gap: 6px;
-  padding: 10px 24px 12px;
+  /* Kein seitlicher Innenabstand: Der Kasten sitzt INNERHALB der
+     Werkzeugleiste, die bereits 24px links und rechts haelt. Mit eigenem
+     Abstand begannen die Kategorien 24px weiter rechts als Suchfeld und
+     Auswahllisten darueber — gemessen 104px gegen 80px. */
+  padding: 10px 0 12px;
   border-bottom: 1px solid var(--border-subtle);
   background: var(--surface);
   flex-shrink: 0;
+}
+
+/* Der „Add Tag"-Knopf steht jetzt IM Tags-Abschnitt statt darueber, wo er
+   unter der Gruppenueberschrift „Tags" sass und damit ausserhalb dessen, was
+   er betrifft. */
+.tags-section-actions {
+  display: flex;
+  justify-content: flex-end;
+  margin-bottom: 12px;
 }
 
 .corpus-tag-chip {
@@ -4285,7 +4351,12 @@ a.db-link:visited {
   margin: 24px 0 8px;
 }
 
-.settings-group-label:first-of-type {
+/* Knapp nur dort, wo die Ueberschrift die Seite EROEFFNET, also gleich unter
+   dem Seitenkopf. Vorher galt das fuer die erste Ueberschrift ueberhaupt
+   (:first-of-type) — im Konto und im Arbeitsbereich steht davor aber eine
+   Karte („Signed in as…", „Active workspace"), und die Ueberschrift klebte mit
+   gemessenen 6px daran. Nach einer Karte gelten jetzt die vollen 24px. */
+.view-head + .settings-group-label {
   margin-top: 6px;
 }
 
@@ -4398,6 +4469,22 @@ a.db-link:visited {
   font-weight: 500;
   color: var(--text-muted);
   margin-bottom: 5px;
+}
+
+/* Absaetze haben in dieser Anwendung keinen Eigenabstand. Ein .field-hint
+   klebte deshalb an der Zeile darueber: Im Arbeitsbereich standen die beiden
+   Auswahlknoepfe „Local Folder / Cloud Sync" und der erklaerende Absatz
+   darunter mit gemessenen 0px Abstand aufeinander, ebenso zwei
+   aufeinanderfolgende Absaetze.
+   Wo der Abstand ausdruecklich nicht gewollt ist — der erste Absatz ganz oben
+   in einer Karte —, steht style="margin-top:0" am Element; das schlaegt diese
+   Regel. */
+.field-hint {
+  margin-top: 10px;
+}
+
+.field-hint + .field-hint {
+  margin-top: 8px;
 }
 
 .form-field .field-hint {
@@ -5845,13 +5932,214 @@ a.db-link:visited {
   display: block;
 }
 
+/* Drei Spalten, sobald Platz ist: Feldcodes links, Editor in der Mitte,
+   gespeicherte Begriffe rechts. Beide Seitenspalten sind Nachschlagewerke
+   zum Eingabefeld — untereinander gestapelt hat man sie beim Tippen nicht
+   vor Augen, und genau dann braucht man sie.
+
+   Keine Breitenbegrenzung: Mit max-width stand diese Ansicht als einzige
+   eingerueckt da, waehrend jeder andere Reiter von Rand zu Rand geht.
+
+   Die Zuweisung erfolgt ueber grid-column und nicht ueber die
+   Dokumentreihenfolge, weil die im Dokument mit dem Editor beginnt — so
+   steht auf dem Telefon ohne Umsortierung das Wichtigste oben. */
 .search-page {
-  max-width: 980px;
-  margin: 0 auto;
-  padding: 18px 24px 40px;
+  /* Oben wie unten derselbe Abstand: Vorher standen 18px gegen 40px, sodass
+     Spalten und Suchknopf deutlich vor dem unteren Rand endeten. */
+  padding: 18px 24px;
+  display: grid;
+  grid-template-columns: minmax(230px, 260px) minmax(0, 1fr) minmax(240px, 300px);
+  align-items: start;
+  gap: 18px;
+}
+
+.search-main {
+  grid-column: 2;
+  grid-row: 1;
   display: flex;
   flex-direction: column;
   gap: 18px;
+  min-width: 0;
+}
+
+/* Ab hier tragen drei Spalten. Dann reichen sie von oben bis unten, und jede
+   scrollt fuer sich: Wer in der Begriffsliste rollt, soll die Liste bewegen
+   und nicht die Seite — sonst kommt man ans Listenende nur ueber das
+   Seitenende, und der Editor scrollt dabei aus dem Bild.
+
+   Ein zugeklapptes <details> wird davon ausgenommen; sonst zoege sich seine
+   Zusammenfassung ueber die ganze Spaltenhoehe. */
+/* 1024px statt 1181: Ein Tablet im Querformat (1024x768) soll die drei
+   Spalten bekommen — dort ist der Nutzen am groessten, weil man Feldcodes,
+   Abfrage und gespeicherte Begriffe zugleich sieht. Die Seitenspalten sind
+   dann schmaler, tragen ihre Chips aber noch. */
+@media (min-width: 1024px) {
+  #view-container > .search-view {
+    height: 100%;
+  }
+
+  /* Zwei Zeilen: oben die Arbeitsflaeche, unten der Suchknopf. Die beiden
+     Nachschlagewerke reichen ueber beide Zeilen und damit bis ganz nach
+     unten; der Knopf steht unter der Abfrage, nicht unter ihnen. */
+  .search-page {
+    height: 100%;
+    grid-template-rows: minmax(0, 1fr) auto;
+    align-items: stretch;
+    overflow: hidden;
+  }
+
+  .search-page > .search-drawer[data-drawer="field-codes"],
+  .search-page > .search-drawer[data-drawer="past-terms"] {
+    grid-row: 1 / span 2;
+  }
+
+  .search-run-row {
+    grid-column: 2;
+    grid-row: 2;
+    padding-top: 12px;
+  }
+
+  /* Die Spalte selbst scrollt NICHT. Sonst wandert beim Rollen im
+     Eingabefeld auch „Source" mit nach oben, obwohl nur der Text unter dem
+     Zeiger gemeint war. Was nicht hineinpasst, faengt das Eingabefeld ab —
+     es hat einen eigenen Rollbalken. */
+  .search-main {
+    overflow: hidden;
+    min-height: 0;
+  }
+
+  /* Der Abfragekasten fuellt die Spalte, und in ihm das Eingabefeld — bis
+     jemand es von Hand auf eine Hoehe zieht. Alles andere im Kasten
+     (Warnungen, Bedienzeile, Erlaeuterungen) behaelt seine Hoehe; nur das
+     Eingabefeld gibt nach. Damit ragt auch keine Infokarte mehr unten aus
+     dem Kasten heraus. */
+  .search-main > .search-composer {
+    flex: 1 1 auto;
+    min-height: 0;
+    overflow: hidden;
+  }
+
+  .search-composer > *:not(.search-textarea-wrap) {
+    flex: 0 0 auto;
+  }
+
+  .search-textarea-wrap:not(.is-manual) {
+    flex: 1 1 auto;
+    min-height: 64px;
+    display: flex;
+  }
+
+  .search-textarea-wrap:not(.is-manual) > .search-textarea {
+    flex: 1 1 auto;
+    height: auto;
+  }
+
+  /* Es scrollt die Schublade selbst, nicht ihr Koerper. Der naheliegende Weg
+     — details auf display:flex und der Koerper mit flex:1 und min-height:0 —
+     funktioniert hier nicht: Chrome laesst den Koerper eines <details> in
+     diesem Aufbau nicht schrumpfen, gemessen 1738px Inhalt in einer 770px
+     hohen Schublade. Also scrollt der ganze Kasten, und die Zusammenfassung
+     bleibt beim Rollen oben stehen. */
+  .search-page > .search-drawer {
+    overflow-y: auto;
+    min-height: 0;
+  }
+
+  .search-page > .search-drawer:not([open]) {
+    align-self: start;
+    overflow: hidden;
+  }
+
+  .search-page > .search-drawer > .search-drawer-summary {
+    position: sticky;
+    top: 0;
+    z-index: 2;
+    background: var(--surface);
+  }
+
+  .search-page > .search-drawer > .search-drawer-body {
+    max-height: none;
+    overflow: visible;
+  }
+}
+
+.search-page > .search-drawer[data-drawer="field-codes"] {
+  grid-column: 1;
+  grid-row: 1;
+}
+
+.search-page > .search-drawer[data-drawer="past-terms"] {
+  grid-column: 3;
+  grid-row: 1;
+}
+
+/* Beide Nachschlagewerke reichen ueber beide Rasterzeilen und damit bis ganz
+   nach unten; der Suchknopf sitzt in der zweiten Zeile unter der Abfrage.
+   Steht bewusst HINTER den Grundregeln darueber — sonst gewinnen deren
+   `grid-row: 1` bei gleicher Spezifitaet, weil sie spaeter kommen. */
+@media (min-width: 1024px) {
+  .search-page > .search-drawer[data-drawer="field-codes"],
+  .search-page > .search-drawer[data-drawer="past-terms"] {
+    grid-row: 1 / span 2;
+  }
+}
+
+/* Unterhalb dieser Breite tragen drei Spalten nicht mehr — die Seitenspalten
+   wuerden schmaler als ihre eigenen Chips. Dann steht der Editor ueber die
+   volle Breite und die beiden Nachschlagewerke teilen sie sich darunter zur
+   Haelfte. Nebeneinander und nicht gestapelt, damit man beide zugleich sieht;
+   gestapelt liegt das zweite eine Bildschirmhoehe entfernt. */
+@media (max-width: 1023px) {
+  .search-page {
+    grid-template-columns: 1fr 1fr;
+    gap: 16px;
+  }
+
+  .search-main {
+    grid-column: 1 / -1;
+    grid-row: 1;
+  }
+
+  .search-page > .search-drawer[data-drawer="field-codes"] {
+    grid-column: 1;
+    grid-row: 2;
+  }
+
+  .search-page > .search-drawer[data-drawer="past-terms"] {
+    grid-column: 2;
+    grid-row: 2;
+  }
+
+  /* Im Hochformat steht der Suchknopf unter BEIDEN Nachschlagewerken, ueber
+     die volle Breite. */
+  .search-run-row {
+    grid-column: 1 / -1;
+    grid-row: 3;
+  }
+}
+
+/* Bei drei Spalten wird es fuer die Seitenspalten eng — sie duerfen schmaler
+   werden, damit die Mitte lesbar bleibt. */
+@media (min-width: 1024px) and (max-width: 1320px) {
+  .search-page {
+    grid-template-columns: minmax(190px, 220px) minmax(0, 1fr) minmax(200px, 250px);
+    gap: 12px;
+  }
+}
+
+/* Am Telefon reicht auch das nicht mehr: zwei halbe Spalten sind schmaler
+   als ein einzelner Feldcode-Chip. Ab hier untereinander, Editor zuerst. */
+@media (max-width: 760px) {
+  .search-page {
+    display: flex;
+    flex-direction: column;
+    gap: 14px;
+  }
+  /* Gestapelt zaehlt die Dokumentreihenfolge, und in der steht der Knopf
+     gleich hinter der Abfrage. Er gehoert aber ans Ende. */
+  .search-main    { order: 1; }
+  .search-drawer  { order: 2; }
+  .search-run-row { order: 3; }
 }
 
 .search-step {
@@ -5916,7 +6204,11 @@ a.db-link:visited {
 
 .search-drawer-summary::after {
   content: '';
-  margin-left: auto;
+  /* Fester Abstand statt auto: Mit zwei auto-Raendern in derselben Zeile
+     teilen sich Zahl und Pfeil den freien Platz, und die Zahl landet
+     irgendwo in der Mitte statt rechts. Den Platz nimmt jetzt allein die
+     Zahl (margin-left: auto an .search-drawer-count). */
+  margin-left: 8px;
   width: 7px;
   height: 7px;
   border-right: 1.6px solid var(--text-faint);
@@ -5950,6 +6242,10 @@ a.db-link:visited {
 }
 
 .search-drawer-count {
+  /* Ganz nach rechts: Der erklaerende Zusatz daneben ist entfallen, damit
+     „Field codes" und „Saved terms" in einer Zeile bleiben; die Zahl steht
+     jetzt am Ende der Zeile statt gleich hinter dem Titel. */
+  margin-left: auto;
   font-size: 11px;
   font-weight: 700;
   color: var(--text-muted);
@@ -5958,13 +6254,6 @@ a.db-link:visited {
   padding: 1px 8px;
 }
 
-.search-drawer-hint {
-  font-size: 11.5px;
-  color: var(--text-faint);
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
 
 .search-drawer-body {
   border-top: 1px solid var(--border);
@@ -6127,22 +6416,63 @@ a.db-link:visited {
   align-self: stretch;
 }
 
-/* ── Suchmaske: Feldbereich und Zeitraum ──
-   Eine eigene Zeile unter den Aktionen, weil beides die Abfrage veraendert
-   und nicht ihre Ausfuehrung. */
-.search-scope-row {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 14px;
-  align-items: flex-end;
+/* Ein Knopf neben einer Auswahlliste darf nicht hoeher sein als sie. Die
+   Stimmproben in „Read aloud" standen als .btn-secondary neben einem
+   .form-input; der allgemeine Knopf-Innenabstand machte sie hoeher als das
+   Auswahlfeld daneben. Beide bekommen jetzt dieselbe feste Hoehe. */
+.tts-voice-row > .form-input,
+.tts-voice-row > .tts-test-btn {
+  height: 36px;
+  min-height: 36px;
+  box-sizing: border-box;
+  padding-top: 0;
+  padding-bottom: 0;
 }
 
-.search-scope-field {
+.tts-voice-row > .tts-test-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+/* ── Suchmaske: Suchraum, Zeitraum, Obergrenze ──
+   Alles in der Aktionszeile. Die Jahresfelder fassen vier Ziffern und
+   brauchten nie eine eigene Zeile. */
+.search-field {
   display: flex;
   flex-direction: column;
   gap: 4px;
+}
+
+.search-field-label {
   font-size: 12px;
   color: var(--text-muted);
+}
+
+/* Eine Hoehe fuer alles in dieser Zeile. .filter-select, .form-input und die
+   eigenen Knoepfe bringen je eigene Innenabstaende mit und standen deshalb
+   auf drei verschiedenen Hoehen. */
+.search-actions .filter-select,
+.search-actions .form-input,
+.search-actions .search-step-btn,
+.search-actions .search-hint-btn,
+.search-actions .search-run-btn {
+  height: 36px;
+  box-sizing: border-box;
+}
+
+/* So breit, dass der laengste Eintrag hineinpasst — „Everything (title,
+   abstract, full text)". Sonst steht dort eine abgeschnittene Zeile und man
+   muss aufklappen, um zu sehen, was eingestellt ist. */
+#search-scope {
+  /* Nachgemessen statt geschaetzt: Der laengste Eintrag ist 195px breit, dazu
+     kommen Innenabstand und Pfeil. 30ch ergaben 210px und schnitten ihn knapp
+     ab — die ch-Einheit richtet sich nach der Ziffernbreite, und die ist hier
+     schmaler als der Buchstabendurchschnitt.
+
+     Als px und nicht als ch, damit die Breite auch dann reicht, wenn die
+     Zeile umbricht und ch sich an einer anderen Schriftgroesse orientiert. */
+  min-width: 268px;
 }
 
 .search-year-pair {
@@ -6151,24 +6481,199 @@ a.db-link:visited {
   gap: 6px;
 }
 
-.search-year-pair input {
-  width: 78px;
+/* Gleicher Abstand links wie rechts — vorher stand die Zahl trotz
+   text-align: center sichtbar zu weit rechts, weil links 8px und rechts 4px
+   Innenabstand standen. */
+.search-year-input {
+  width: 7.5ch;
+  padding-left: 4px;
+  padding-right: 4px;
+  text-align: center;
+}
+
+/* Die Pfeilchen des Zahlenfelds nehmen bei vier Ziffern mehr Platz weg als
+   sie einbringen; hoch- und runterzaehlen laesst sich hier ueber die
+   Tastatur oder das Mausrad. */
+.search-year-input::-webkit-outer-spin-button,
+.search-year-input::-webkit-inner-spin-button {
+  -webkit-appearance: none;
+  margin: 0;
+}
+
+.search-year-input {
+  -moz-appearance: textfield;
+  appearance: textfield;
 }
 
 .search-year-dash {
   color: var(--text-faint);
 }
 
+/* Die Gruppenueberschrift klebte an der Karte darunter — sie hatte nur den
+   Abstand, den .settings-group-label allgemein mitbringt, und der ist fuer
+   eine Ueberschrift MITTEN in einem Abschnitt zu knapp. */
+.settings-group-label + .account-credentials,
+.settings-group-label + .account-card,
+.settings-group-label + .settings-card {
+  margin-top: 12px;
+}
+
+/* ── Obergrenze mit Schrittknoepfen ──
+   Klicken, tippen oder mit dem Mausrad drehen (siehe views.js). */
+.search-max-stepper {
+  display: flex;
+  align-items: stretch;
+  gap: 4px;
+}
+
+/* 8ch reichten fuer vier Ziffern nicht: Das Zahlenfeld haelt rechts Platz
+   fuer seine Pfeilchen frei, auch wenn wir sie nicht brauchen — „500" wurde
+   dadurch als „50(" abgeschnitten. */
+.search-max-stepper input {
+  width: 5.5em;
+  text-align: center;
+  padding-left: 4px;
+  padding-right: 4px;
+}
+
+.search-max-stepper input::-webkit-outer-spin-button,
+.search-max-stepper input::-webkit-inner-spin-button {
+  -webkit-appearance: none;
+  margin: 0;
+}
+
+.search-max-stepper input {
+  -moz-appearance: textfield;
+  appearance: textfield;
+}
+
+.search-step-btn {
+  min-width: 28px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--surface-2);
+  color: var(--text);
+  font-size: 15px;
+  line-height: 1;
+  cursor: pointer;
+  transition: background var(--transition), border-color var(--transition);
+}
+
+.search-step-btn:hover:not(:disabled) {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+.search-step-btn:disabled {
+  opacity: .45;
+  cursor: not-allowed;
+}
+
+/* ── Infoknopf und wegklickbarer Hinweis ──
+   Der Knopf steht im selben Kasten wie die Obergrenze, weil er sie erklaert. */
+.search-hint-btn {
+  width: 36px;
+  border-radius: 50%;
+  margin-left: 4px;
+  border: 1px solid var(--accent);
+  background: var(--surface-2);
+  color: var(--accent);
+  font-style: italic;
+  font-weight: 700;
+  font-size: 13px;
+  line-height: 1;
+  cursor: pointer;
+  flex-shrink: 0;
+}
+
+.search-hint-btn:hover {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+/* Der Schliessknopf war mit 25,4px hoeher als die Textzeile (18,8px) und
+   bestimmte damit die Hoehe des Kastens: Bei einer einzigen Textzeile blieben
+   oben 11px und unten 17,6px. Ursache war die Zeilenhoehe, die das inline
+   gesetzte SVG mitbringt. Als Flex-Kasten mit line-height 0 ist der Knopf nur
+   noch so hoch wie sein Symbol, und der Text gibt die Kastenhoehe vor. */
+/* Das x steht wie das i in einer eigenen Spalte, nicht ueber dem Text: links
+   das Symbol, in der Mitte der Text, rechts der Schliessknopf. Absolut gesetzt
+   lag es zuvor UEBER dem Text und drueckte ihn nicht weg.
+   Damit es die Kastenhoehe nicht bestimmt — es ist von Haus aus hoeher als
+   eine Textzeile —, ist es genau so hoch wie die Zeile gesetzt. */
+.search-hint-close {
+  margin-left: auto;
+  align-self: flex-start;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 18px;
+  height: 18px;
+  line-height: 0;
+  background: none;
+  border: none;
+  padding: 0;
+  cursor: pointer;
+  color: var(--text-faint);
+  flex-shrink: 0;
+}
+
+.search-hint-close:hover {
+  color: var(--text);
+}
+
+.search-hint-close svg {
+  width: 14px;
+  height: 14px;
+}
+
+/* Zwischen 640 und 900px bricht die Aktionszeile um, bleibt aber eine Zeile:
+   Der Suchknopf nimmt die volle Breite, die Felder ordnen sich darunter. Die
+   Auswahlliste behaelt dabei ihre Mindestbreite — sie passt bei 640px
+   dreifach in die Zeile, es gibt also keinen Grund, sie abzuschneiden. */
 @media (max-width: 900px) {
-  .search-scope-row {
+  .search-composer .search-actions {
     gap: 10px;
+    align-items: flex-end;
   }
-  .search-scope-field {
+  .search-actions > .search-run-btn {
     flex: 1 1 100%;
   }
-  .search-year-pair input {
+  .search-actions > .search-field {
+    flex: 0 1 auto;
+  }
+}
+
+/* Erst hier wird gestapelt: Zwei Felder nebeneinander waeren schmaler als
+   ihre eigene Beschriftung. Dann bekommt jedes eine ganze Zeile, und alle
+   Bedienelemente wachsen auf Fingergroesse. */
+@media (max-width: 640px) {
+  .search-composer .search-actions {
+    flex-direction: column;
+    align-items: stretch;
+  }
+  .search-actions > .search-field {
+    flex: 1 1 auto;
+  }
+  /* .filter-select bringt ein max-width: 170px mit — sinnvoll fuer die kurzen
+     Auswahllisten in den Listenansichten, hier aber genau die Deckelung, die
+     den laengsten Eintrag abschneidet. */
+  #search-scope {
+    min-width: 0;
+    width: 100%;
+    max-width: none;
+  }
+  .search-actions .filter-select,
+  .search-actions .form-input,
+  .search-actions .search-step-btn,
+  .search-actions .search-hint-btn {
+    height: 44px;
+  }
+  .search-max-stepper {
+    justify-content: flex-start;
+  }
+  .search-max-stepper input {
     flex: 1;
-    width: auto;
   }
 }
 
@@ -6254,33 +6759,20 @@ a.db-link:visited {
     padding: 12px;
   }
 
-  /* Auf dem Telefon zaehlt die Antwortflaeche: der Suchknopf ueber die
-     volle Breite, die Obergrenze darunter. */
-  .search-actions {
-    flex-direction: column;
-    align-items: stretch;
-  }
-
+  /* Der Suchknopf ueber die volle Breite. Das Umlegen der ganzen Zeile in
+     eine Spalte steht weiter unten und gilt erst ab 640px — auf einem Tablet
+     im Hochformat ist dafuer noch reichlich Platz. */
   .search-run-btn {
     width: 100%;
     min-height: 44px;
     justify-content: center;
   }
 
-  .search-max-wrap {
-    margin-left: 0;
-    justify-content: space-between;
-  }
 
   .search-drawer-summary {
     min-height: 44px;
   }
 
-  /* Der Hinweistext neben dem Schubladentitel ist auf schmalen Schirmen
-     das Erste, was weichen darf. */
-  .search-drawer-hint {
-    display: none;
-  }
 
   .search-drawer-body {
     max-height: 300px;
@@ -6288,11 +6780,15 @@ a.db-link:visited {
 }
 
 /* Hint box for free databases */
+/* Gleich gebaut wie .search-notice, damit beide Kaesten dieselbe Hoehe, denselben
+   Innenabstand und ihr x an derselben Stelle haben. Vorher: 9px/13px gegen
+   10px/12px und ein anderer Abstand zum Symbol — sichtbar als versetztes x
+   und als hoeherer oberer Kasten. */
 .search-db-hint {
   display: flex;
   align-items: flex-start;
-  gap: 8px;
-  padding: 9px 13px;
+  gap: 9px;
+  padding: 10px 12px;
   background: var(--surface-2);
   border: 1px solid var(--border);
   border-radius: var(--radius, 6px);
@@ -6327,7 +6823,14 @@ a.db-link:visited {
 
 .search-textarea {
   width: 100%;
-  min-height: 220px;
+  /* Keine max-height hier: Sie wuerde auch das Ziehen von Hand deckeln. Die
+     Obergrenze gilt nur fuers automatische Mitwachsen und steht deshalb in
+     views.js. */
+  /* Zwei Zeilen als Ausgangshoehe (rows="2" in views.js). Die meisten Abfragen
+     sind kurz; wer eine lange schreibt, zieht das Feld am Griff auf. Die
+     frueheren 220px Mindesthoehe haben resize: vertical praktisch ausgehebelt,
+     weil man nicht unter sie zurueckkonnte. */
+  min-height: 0;
   resize: vertical;
   background: var(--surface);
   border: 1px solid var(--border);
@@ -6347,12 +6850,84 @@ a.db-link:visited {
   border-color: var(--accent);
 }
 
+/* Der Ziehgriff unten rechts ist in der dunklen Fassung praktisch unsichtbar.
+   Zwei Striche machen sichtbar, dass man das Feld hier groesser und kleiner
+   ziehen kann — auch wenn es nur zwei Zeilen hoch ist. */
+/* Der eigene Griff sitzt in der unteren rechten Ecke des Feldes. Die native
+   Ecke wird abgeschaltet: Sie reagiert nur auf die Maus, und zwei Griffe
+   uebereinander sind einer zu viel. */
+.search-textarea-wrap {
+  position: relative;
+}
+
+.search-textarea {
+  resize: none;
+}
+
+/* Die Greifflaeche ist absichtlich groesser als das, was man sieht — 22px
+   sind fuer einen Finger knapp, 14px sichtbare Striche waeren fuer das Auge
+   zu viel. Deshalb ein grosses Feld ohne eigene Zeichnung und darin ein
+   kleines Eck. */
+.search-textarea-grip {
+  position: absolute;
+  right: 0;
+  bottom: 0;
+  width: 26px;
+  height: 26px;
+  cursor: ns-resize;
+  touch-action: none;
+}
+
+/* Das Eck selbst: schraege Striche, an der Ecke abgeschnitten. Vorher waren
+   es zwei gedrehte Kaesten mit transform-origin an der rechten Kante — die
+   Drehung schob sie ueber den Rand des Feldes hinaus, sichtbar als zwei
+   Balken, die aus der Ecke ragten. Ein Streifenmuster mit Dreiecksbeschnitt
+   kann das nicht passieren. */
+.search-textarea-grip::after {
+  content: '';
+  position: absolute;
+  /* 7px Abstand zu beiden Kanten: Der Rahmen ist an dieser Stelle 6px
+     gerundet (--radius) plus 1px Strichstaerke. Vorher lag die Zeichnung 5px
+     innen und damit mitten in der Rundung — sie schnitt den Rahmen sichtbar
+     an. Erst ab 7px ist die Kante wieder gerade. */
+  right: 7px;
+  bottom: 7px;
+  width: 11px;
+  height: 11px;
+  background: repeating-linear-gradient(
+    -45deg,
+    var(--text-faint) 0 1.5px,
+    transparent 1.5px 4px
+  );
+  clip-path: polygon(100% 0, 100% 100%, 0 100%);
+}
+
+.search-textarea-grip:hover::after,
+.search-textarea-grip.is-dragging::after {
+  background: repeating-linear-gradient(
+    -45deg,
+    var(--accent) 0 1.5px,
+    transparent 1.5px 4px
+  );
+}
+
 /* ── Actions row ── */
 .search-actions {
   display: flex;
-  align-items: center;
-  gap: 8px;
+  align-items: flex-end;
+  gap: 12px;
   flex-wrap: wrap;
+}
+
+/* Eigene Zeile, volle Breite der Spalte. */
+.search-run-row {
+  display: flex;
+}
+
+.search-run-row > .search-run-btn {
+  flex: 1;
+  min-height: 40px;
+  justify-content: center;
 }
 
 .search-run-btn {
@@ -6361,19 +6936,7 @@ a.db-link:visited {
   gap: 7px;
 }
 
-.search-max-wrap {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  margin-left: auto;
-  font-size: 13px;
-  color: var(--text-muted);
-  cursor: pointer;
-}
 
-.search-max-wrap input {
-  width: 92px;
-}
 
 /* ── Progress ── */
 .search-progress-wrap {
@@ -6500,6 +7063,16 @@ a.db-link:visited {
 }
 
 /* ── Notice boxes ── */
+/* Ohne diese Zeile bleibt ein Kasten mit hidden-Attribut sichtbar: Die
+   Klassenregel darunter schlaegt die Browservorgabe [hidden]{display:none},
+   weil eine Klasse gegen ein Attribut gewinnt. Genau daran hing, dass der
+   i-Knopf „keine Funktion" hatte — er schaltete das Attribut korrekt um, nur
+   sah man nichts davon. */
+.search-notice[hidden],
+.search-db-hint[hidden] {
+  display: none;
+}
+
 .search-notice {
   display: flex;
   align-items: flex-start;
@@ -6551,7 +7124,65 @@ a.db-link:visited {
 
 .search-notice-info svg {
   margin-top: 2px;
-  color: var(--text-faint);
+  color: var(--accent);
+}
+
+/* Die beiden Erlaeuterungen stehen untereinander unter der Bedienzeile. */
+.search-hints {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.search-hints:empty {
+  display: none;
+}
+
+/* Der Syntaxkasten bekommt dieselbe Anordnung wie der andere, damit sein x
+   rechts sitzt und das Symbol dieselbe Farbe traegt. */
+/* Symbol, Text und x sitzen auf derselben Grundlinie ausgerichtet und ohne
+   Zusatzabstaende. Vorher hob ein margin-top am Symbol und ein padding-top am
+   Text den Inhalt an, sodass oben weniger Luft blieb als unten — bei einem
+   einzeiligen Kasten deutlich sichtbar. Jetzt bestimmt allein der
+   Innenabstand des Kastens den Abstand nach oben und unten. */
+.search-db-hint > svg,
+.search-notice-info > svg {
+  color: var(--accent);
+  flex-shrink: 0;
+  width: 15px;
+  height: 15px;
+  margin: 0;
+}
+
+.search-db-hint > span,
+.search-notice-info > span {
+  flex: 1;
+  min-width: 0;
+  line-height: 1.5;
+  padding: 0;
+}
+
+/* Symbol oben links, x oben rechts — so wie bei einem mehrzeiligen Kasten
+   auch. Zentriert wird NICHTS: Der gleiche Abstand oben wie unten ergibt sich
+   bei einer Zeile von selbst, sobald Symbol und Text keine eigenen
+   Zusatzabstaende mehr mitbringen (siehe die Regeln darueber). Ein vorheriger
+   Versuch hatte beides zentriert und damit Symbol und x aus ihrer Ecke
+   geholt — das war nicht verlangt und sah bei mehrzeiligen Kaesten falsch
+   aus. */
+.search-db-hint,
+.search-notice-info {
+  align-items: flex-start;
+}
+
+.search-hint-close {
+  align-self: flex-start;
+  margin-top: 0;
+}
+
+/* Ein Knopf, der anzeigt, ob gerade etwas offen ist. */
+.search-hint-btn.is-active {
+  background: var(--accent-subtle, var(--surface-2));
+  color: var(--accent);
 }
 
 .search-notice-info strong {
@@ -7115,6 +7746,33 @@ a.db-link:visited {
   flex: none;
 }
 
+/* Beschriftung und Symbol sitzen mittig; der Abstand dazwischen kommt aus
+   dem Zwischenraum und nicht mehr aus einem &nbsp; im Text, das die
+   Beschriftung sichtbar aus der Mitte schob. */
+.viz-legend-toggle {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+}
+
+.viz-legend-toggle svg,
+.viz-toggle-icon svg {
+  width: 14px;
+  height: 14px;
+  flex-shrink: 0;
+}
+
+.viz-toggle-icon {
+  display: inline-flex;
+  align-items: center;
+}
+
+/* Ausgeblendet: das durchgestrichene Auge und die Beschriftung gedaempft. */
+.viz-legend-toggle.is-active .viz-toggle-icon {
+  color: var(--text-faint);
+}
+
 /* Das Seitenverhaeltnis sitzt an der BUEHNE, nicht an der SVG.
    Vorher trug die SVG aspect-ratio + max-height. Beides zusammen geht nicht
    auf: Sobald max-height greift, verletzt der Browser das Verhaeltnis, die
@@ -7199,7 +7857,11 @@ a.db-link:visited {
   border-radius: 18px;
   overflow: hidden;
   aspect-ratio: 956 / 520;
-  max-width: calc(var(--viz-map-h, 260px) * 956 / 520);
+  /* Die Karte darf die Spalte ausfuellen. Vorher deckelte die aus der
+     Ziehhoehe abgeleitete Breite sie bei 260px Hoehe auf 478px — auf einem
+     breiten Schirm ein Briefmarkenformat. Jetzt ist die volle Breite die
+     Obergrenze, und der Ziehgriff verkleinert von dort aus. */
+  max-width: min(100%, calc(var(--viz-map-h, 520px) * 956 / 520));
   margin: 0 auto;
 }
 
@@ -8096,10 +8758,13 @@ a.db-link:visited {
   .about-view,
   .tags-view,
   .databases-view,
+  /* .corpus-tag-breakdown ist hier bewusst NICHT dabei: Es sitzt innerhalb
+     der .list-toolbar und bekaeme deren seitlichen Abstand ein zweites Mal —
+     die Kategorien staenden dann 12px weiter rechts als Suchfeld und
+     Auswahllisten darueber. */
   .viz-view,
   .list-toolbar,
   .corpus-banner,
-  .corpus-tag-breakdown,
   .articles-stats {
     padding-left: 12px;
     padding-right: 12px;
