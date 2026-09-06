@@ -415,7 +415,7 @@ window.SLRViews = (() => {
             </button>
             <div class="welcome-account-menu" id="welcome-account-menu" hidden role="menu">
               <div class="account-menu-email">${esc(cloudUser.email)}</div>
-              <button class="account-menu-item" id="welcome-account-settings-btn" role="menuitem">Settings</button>
+              <button class="account-menu-item" id="welcome-account-account-btn" role="menuitem">Account</button>
               <button class="account-menu-item account-menu-item--danger" id="welcome-account-signout-btn" role="menuitem">Sign Out</button>
             </div>
           </div>
@@ -516,9 +516,11 @@ window.SLRViews = (() => {
         acctMenu.hidden = !willOpen;
         acctBtn.setAttribute('aria-expanded', String(willOpen));
       });
-      container.querySelector('#welcome-account-settings-btn').addEventListener('click', () => {
+      // Hinter dem Personensymbol erwartet man das eigene Konto, nicht die
+      // Einstellungen der Anwendung: E-Mail-Adresse, Passwort, Kontoloeschung.
+      container.querySelector('#welcome-account-account-btn').addEventListener('click', () => {
         closeWelcomeAccountMenu();
-        SLRApp.navigate('settings');
+        SLRApp.navigate('account');
       });
       container.querySelector('#welcome-account-signout-btn').addEventListener('click', () => {
         closeWelcomeAccountMenu();
@@ -945,14 +947,27 @@ window.SLRViews = (() => {
         // state.articles, nicht das Projekt der aufgeschlagenen Infokarte.
         const prismaBtn = container.querySelector('#proj-prisma-btn');
         if (prismaBtn) {
-          const istOffen = SLRApp.state.currentFolder === detailFolder;
-          if (!istOffen) {
-            prismaBtn.disabled = true;
-            prismaBtn.title = 'Open this project first to see its PRISMA flow';
-          }
-          prismaBtn.addEventListener('click', () => {
-            if (!istOffen) return;
+          prismaBtn.title = SLRApp.state.currentFolder === detailFolder
+            ? "Open this project's PRISMA screening flow"
+            : 'Opens this project and shows its PRISMA screening flow';
+          prismaBtn.addEventListener('click', async () => {
+            // Der Knopf war gesperrt, sobald die aufgeschlagene Infokarte nicht
+            // zum gerade geoeffneten Projekt gehoerte — und das ist der
+            // Regelfall, denn man schlaegt die Karte ja auf, um sich ein
+            // anderes Projekt anzusehen. Ein Knopf, den man fast nie druecken
+            // kann, ist keine Hilfe. Statt zu sperren, oeffnet er das Projekt
+            // jetzt selbst; die Visualisierungen zeichnen state.articles, also
+            // muss es geoeffnet sein, bevor sie etwas Richtiges zeigen koennen.
             SLRApp.state.vizChart = 'prisma';
+            if (SLRApp.state.currentFolder !== detailFolder) {
+              prismaBtn.disabled = true;
+              await SLRApp.openProject(detailFolder);
+              // openProject faengt Fehler selbst ab und zeichnet eine Meldung.
+              // Dann bleibt es beim bisherigen Projekt, und ein Wechsel in die
+              // Visualisierungen zeigte Zahlen eines anderen Projekts.
+              if (SLRApp.state.currentFolder !== detailFolder) return;
+            }
+            SLRApp.state.projectsDetailFolder = null;
             SLRApp.navigate('visualizations');
           });
         }

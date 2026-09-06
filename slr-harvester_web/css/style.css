@@ -4351,7 +4351,12 @@ a.db-link:visited {
   margin: 24px 0 8px;
 }
 
-.settings-group-label:first-of-type {
+/* Knapp nur dort, wo die Ueberschrift die Seite EROEFFNET, also gleich unter
+   dem Seitenkopf. Vorher galt das fuer die erste Ueberschrift ueberhaupt
+   (:first-of-type) — im Konto und im Arbeitsbereich steht davor aber eine
+   Karte („Signed in as…", „Active workspace"), und die Ueberschrift klebte mit
+   gemessenen 6px daran. Nach einer Karte gelten jetzt die vollen 24px. */
+.view-head + .settings-group-label {
   margin-top: 6px;
 }
 
@@ -4464,6 +4469,22 @@ a.db-link:visited {
   font-weight: 500;
   color: var(--text-muted);
   margin-bottom: 5px;
+}
+
+/* Absaetze haben in dieser Anwendung keinen Eigenabstand. Ein .field-hint
+   klebte deshalb an der Zeile darueber: Im Arbeitsbereich standen die beiden
+   Auswahlknoepfe „Local Folder / Cloud Sync" und der erklaerende Absatz
+   darunter mit gemessenen 0px Abstand aufeinander, ebenso zwei
+   aufeinanderfolgende Absaetze.
+   Wo der Abstand ausdruecklich nicht gewollt ist — der erste Absatz ganz oben
+   in einer Karte —, steht style="margin-top:0" am Element; das schlaegt diese
+   Regel. */
+.field-hint {
+  margin-top: 10px;
+}
+
+.field-hint + .field-hint {
+  margin-top: 8px;
 }
 
 .form-field .field-hint {
