@@ -6556,6 +6556,18 @@ window.SLRViews = (() => {
       <div class="scopus-api-notice">
         <span class="scopus-api-notice-icon">${SLRIcons.info}</span>
         <div>
+          <strong>Without a key there is no Scopus search</strong> &mdash; unlike OpenAlex,
+          Scopus has no anonymous access at all. Getting one:
+          <a href="https://dev.elsevier.com/apikey/manage" target="_blank" rel="noopener">register an API key</a>
+          with your institutional account, and add the
+          <a href="https://dev.elsevier.com/support.html" target="_blank" rel="noopener">institutional token</a>
+          if you need full-text or off-campus access.
+        </div>
+      </div>
+
+      <div class="scopus-api-notice">
+        <span class="scopus-api-notice-icon">${SLRIcons.info}</span>
+        <div>
           The <strong>Scopus Search API</strong> requires an institutional API key.
           Free API keys for academic institutions are available at
           <a href="https://dev.elsevier.com/" target="_blank" rel="noopener">dev.elsevier.com</a>.
@@ -6604,6 +6616,19 @@ window.SLRViews = (() => {
         <div>
           OpenAlex currently rate-limits anonymous search under heavy load. Adding a free
           API key or contact email moves requests out of the anonymous path when available.
+        </div>
+      </div>
+
+      <div class="scopus-api-notice" style="margin-top:10px">
+        <span class="scopus-api-notice-icon">${SLRIcons.check}</span>
+        <div>
+          <strong>Checked 6 Sep 2026:</strong> the same query returns the same number of
+          matches here as on openalex.org, with or without credentials &mdash; a key changes
+          your rate limit, not your results. Where this app shows fewer records, it is the
+          <em>Max results</em> cap, and the search now reports the full total alongside it.
+          A key is free: sign in at
+          <a href="https://openalex.org/" target="_blank" rel="noopener">openalex.org</a>
+          with a magic link (no password) and copy it from your account.
         </div>
       </div>
 
