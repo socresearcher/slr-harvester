@@ -6939,7 +6939,7 @@ window.SLRViews = (() => {
     }
   }
 
-  function renderSettings(container, { apiKey, instToken, openAlexKey, openAlexEmail, autoFetchEnabled, fetchMode, autoTagEnabled, autoRunScope, autoTagCategories, allTagCategories, folderName }) {
+  function renderSettings(container, { apiKey, instToken, openAlexKey, openAlexEmail, autoFetchEnabled, fetchMode, autoTagEnabled, autoRunScope, autoTagCategories, allTagCategories, folderName, guidedMode }) {
     const categories = Array.isArray(allTagCategories) ? allTagCategories : [];
     const enabledCategorySet = new Set(Array.isArray(autoTagCategories) && autoTagCategories.length ? autoTagCategories : categories);
 
@@ -7148,6 +7148,22 @@ window.SLRViews = (() => {
           body: automationBody,
         })}
 
+        <p class="settings-group-label">Guidance</p>
+        <div class="settings-card">
+          <div class="form-field">
+            <label for="settings-guided-mode">Guided mode</label>
+            <select class="form-input" id="settings-guided-mode">
+              <option value="off" ${guidedMode ? '' : 'selected'}>Disabled</option>
+              <option value="on" ${guidedMode ? 'selected' : ''}>Enabled</option>
+            </select>
+            <p class="field-hint">When enabled, each view explains itself once with a short
+              set of cards — what the page is for and what to do here first. Page through
+              them with &lsaquo; and &rsaquo; or by swiping, skip them for now, or silence
+              them for a single view.</p>
+          </div>
+          <button type="button" class="btn-secondary" id="settings-guided-reset">Show all guides again</button>
+        </div>
+
         <p class="settings-group-label">Reading</p>
         ${renderReadAloudSection()}
 
@@ -7173,7 +7189,42 @@ window.SLRViews = (() => {
         autoRunScope: container.querySelector('#settings-auto-run-scope').value === 'new' ? 'new' : 'all',
         autoTagCategories: autoTagCategoriesValue,
         fetchMode: container.querySelector('#settings-fetch-mode').value === 'all' ? 'all' : 'missing',
+        guidedMode: (container.querySelector('#settings-guided-mode') || {}).value !== 'off',
       };
+    }
+
+    // Jede Aenderung wird sofort gespeichert und ueberlebt damit das
+    // Neuladen. Vorher galt eine umgestellte Auswahl erst, wenn man den
+    // passenden Speicherknopf fand — wer „Auto-fetch" abschaltete und die
+    // Seite neu lud, fand es wieder eingeschaltet vor.
+    //
+    // Kurz aufgeschoben, damit ein Haken nach dem anderen in den Disziplinen
+    // nicht ebenso viele Schreibvorgaenge ausloest; der Speicherknopf bleibt
+    // fuer die Schluessel, die zusaetzlich in den Arbeitsordner geschrieben
+    // werden.
+    let sofortTimer = null;
+    const sofortSpeichern = () => {
+      clearTimeout(sofortTimer);
+      sofortTimer = setTimeout(() => { void SLRApp.saveSettings(collectSettingsFromForm()); }, 350);
+    };
+    [
+      '#settings-auto-fetch-enabled', '#settings-auto-tag-enabled',
+      '#settings-auto-run-scope', '#settings-fetch-mode', '#settings-guided-mode',
+      '#settings-apikey', '#settings-insttoken',
+      '#settings-openalex-key', '#settings-openalex-email',
+    ].forEach(wahl => {
+      const el = container.querySelector(wahl);
+      if (el) el.addEventListener('change', sofortSpeichern);
+    });
+    container.querySelectorAll('#settings-autotag-categories input[type="checkbox"]')
+      .forEach(cb => cb.addEventListener('change', sofortSpeichern));
+
+    const fuehrungKnopf = container.querySelector('#settings-guided-reset');
+    if (fuehrungKnopf) {
+      fuehrungKnopf.addEventListener('click', () => {
+        fuehrungZuruecksetzen();
+        SLRApp.showToast('Guides will show again.', false);
+      });
     }
 
     function flashSavedMsg(id) {
@@ -7201,9 +7252,11 @@ window.SLRViews = (() => {
 
     container.querySelector('#settings-autotag-categories-all')?.addEventListener('click', () => {
       container.querySelectorAll('#settings-autotag-categories input[type="checkbox"]').forEach(cb => { cb.checked = true; });
+      sofortSpeichern();
     });
     container.querySelector('#settings-autotag-categories-none')?.addEventListener('click', () => {
       container.querySelectorAll('#settings-autotag-categories input[type="checkbox"]').forEach(cb => { cb.checked = false; });
+      sofortSpeichern();
     });
 
     container.querySelector('#settings-scopus-test-btn').addEventListener('click', async () => {
@@ -8958,10 +9011,235 @@ window.SLRViews = (() => {
 
   //  Module export
 
+
+  // ── Gefuehrte Einfuehrung ────────────────────────────────────────────
+  //
+  // Beim ersten Betreten einer Ansicht erscheint eine Sprechblase, die sagt,
+  // wozu diese Seite da ist und was hier zuerst zu tun ist. Sie hat mehrere
+  // Karten, durch die man mit < und > blaettert oder wischt; sie laesst sich
+  // fuer diesmal schliessen (Skip), fuer diese Ansicht dauerhaft abstellen
+  // (Mute) und im ganzen ausschalten (Einstellungen).
+  //
+  // Warum eine eigene Blase und nicht Text auf der Seite: Wer die Anwendung
+  // kennt, will diesen Text nicht bei jedem Besuch wieder ueberlesen muessen.
+  const FUEHRUNG_STUMM = 'slr-guided-muted';
+
+  const FUEHRUNGEN = {
+    welcome: {
+      titel: 'Home',
+      karten: [
+        'This is the starting point. Before anything else you need a <strong>workspace</strong>: a local folder on this device, or a Cloud Sync account that follows you across browsers.',
+        'A <strong>workspace</strong> holds projects; a <strong>project</strong> holds one review — its searches, its articles, its screening decisions. Nothing is stored outside the workspace you pick.',
+        'Once a workspace is open, go to <strong>Projects</strong> and create your first project. Everything else in the sidebar works on the project that is currently open.',
+      ],
+    },
+    projects: {
+      titel: 'Projects',
+      karten: [
+        'Every review lives in its own project. A card shows how many articles it holds, how many are selected and when you last worked on it.',
+        'Click a card to <strong>open</strong> the project — the sidebar then works on it. The <strong>i</strong> button opens the project’s details without switching to it.',
+        'Pin the projects you work on often; the sort dropdown reorders the rest by date, name or last opened.',
+      ],
+    },
+    search: {
+      titel: 'Search',
+      karten: [
+        'Pick a <strong>source</strong> first — Scopus, PubMed or OpenAlex. Each has its own query syntax, and the field codes on the left change with it.',
+        'Write the query in the middle. Click a <strong>field code</strong> to insert it at the cursor, and a <strong>saved term</strong> to insert it in quotes. Drag the bottom-right corner to make the box taller.',
+        '<strong>Max results</strong> caps how much is retrieved. Leave it empty for no limit — but read the note behind the <strong>i</strong>: for a systematic review, capping the list is not a selection criterion.',
+        'Results are saved to the open project and appear under <strong>Articles</strong>. Every run is recorded in <strong>History</strong> with its query, so it can be reported and repeated.',
+      ],
+    },
+    articles: {
+      titel: 'Articles',
+      karten: [
+        'Everything the project has collected, from every search run. Duplicates across runs are merged.',
+        'Use <strong>Fetch</strong> to fill in what the database left out — abstracts, authors, document types, affiliations — and <strong>Tag</strong> to sort articles into disciplines automatically.',
+        'The filter row narrows the list by text, field, year or tag. What you filter here is what <strong>Export</strong> writes out.',
+        'Each card carries three actions: put the article in the <strong>corpus</strong>, mark it <strong>selected</strong>, or record a screening decision.',
+      ],
+    },
+    corpus: {
+      titel: 'Corpus',
+      karten: [
+        'The corpus is what survived your first pass: the articles you consider worth reading in full.',
+        'The same filters as in Articles work here, and the tag breakdown at the top shows how the corpus is distributed across disciplines.',
+      ],
+    },
+    selected: {
+      titel: 'Selected',
+      karten: [
+        'The articles you marked as belonging in the review itself — the ones your findings will rest on.',
+        'Export from here when you need the final reference list.',
+      ],
+    },
+    visualizations: {
+      titel: 'Visualizations',
+      karten: [
+        'Pictures of what the project holds: publication years, sources, countries, disciplines, the citation network — and the <strong>PRISMA</strong> screening flow.',
+        'The PRISMA diagram is built from the actual search log and your screening decisions, so it is a report of what happened, not a drawing you fill in by hand.',
+        'Every chart can be exported as an image for the paper itself.',
+      ],
+    },
+    history: {
+      titel: 'History',
+      karten: [
+        'Every search run with its query, source, date and result count. This is the record a systematic review has to publish.',
+        'Click a run to see the articles it returned, restore its query into the search box, or archive it when it no longer belongs to the review.',
+        'You can also <strong>import</strong> a result list from a file here; it becomes a run like any other.',
+      ],
+    },
+    databases: {
+      titel: 'Databases',
+      karten: [
+        'What each source covers, what it costs, and what it needs from you — Scopus wants an API key, PubMed and OpenAlex do not.',
+        'A review that uses only one database is hard to defend. This page is here to help you choose which ones to combine.',
+      ],
+    },
+    settings: {
+      titel: 'Settings',
+      karten: [
+        'API keys, what the app does on its own after a search, the reading voice, and your tags — all in one place.',
+        'Changes take effect at once and survive a reload. The Save buttons are there for the keys, which are also written into the workspace folder.',
+        '<strong>Auto-fetch</strong> and <strong>auto-tag</strong> run after every successful search. Worth switching off for very large result sets.',
+      ],
+    },
+    workspace: {
+      titel: 'Workspace',
+      karten: [
+        'Where this browser reads and writes your projects: a folder on this device, or your Cloud Sync account.',
+        'These are <strong>separate</strong> workspaces, not two views of the same projects. Switching moves nothing; each side keeps what it has.',
+      ],
+    },
+    account: {
+      titel: 'Account',
+      karten: [
+        'Your Cloud Sync sign-in: email address, password, and deletion. It applies to Cloud Sync only — a local folder needs no account.',
+      ],
+    },
+  };
+
+  function fuehrungStumm() {
+    try { return JSON.parse(localStorage.getItem(FUEHRUNG_STUMM) || '[]') || []; }
+    catch (_) { return []; }
+  }
+
+  function fuehrungStummSetzen(liste) {
+    try { localStorage.setItem(FUEHRUNG_STUMM, JSON.stringify(liste)); }
+    catch (_) { /* privates Fenster */ }
+  }
+
+  // Fuer diese Sitzung weggeklickt — kommt beim naechsten Start wieder.
+  const fuehrungUebersprungen = new Set();
+
+  function fuehrungZuruecksetzen() {
+    fuehrungStummSetzen([]);
+    fuehrungUebersprungen.clear();
+  }
+
+  function fuehrungEntfernen() {
+    document.getElementById('slr-guide')?.remove();
+  }
+
+  function renderGuide(ansicht, optionen) {
+    const an = !!(optionen && optionen.aktiv);
+    const eintrag = FUEHRUNGEN[ansicht];
+    fuehrungEntfernen();
+    if (!an || !eintrag) return;
+    if (fuehrungUebersprungen.has(ansicht)) return;
+    if (fuehrungStumm().includes(ansicht)) return;
+
+    let karte = 0;
+    const anzahl = eintrag.karten.length;
+
+    const kasten = document.createElement('div');
+    kasten.id = 'slr-guide';
+    kasten.className = 'slr-guide';
+    kasten.setAttribute('role', 'region');
+    kasten.setAttribute('aria-label', `Guide: ${eintrag.titel}`);
+    kasten.innerHTML = `
+      <div class="slr-guide-head">
+        <span class="slr-guide-icon" aria-hidden="true">${SLRIcons.info}</span>
+        <span class="slr-guide-title">${esc(eintrag.titel)}</span>
+        <span class="slr-guide-step" id="slr-guide-step"></span>
+        <button type="button" class="slr-guide-close" id="slr-guide-skip"
+                aria-label="Skip for now" title="Skip — back on the next visit">${SLRIcons.close}</button>
+      </div>
+      <div class="slr-guide-body" id="slr-guide-body"></div>
+      <div class="slr-guide-dots" id="slr-guide-dots"></div>
+      <div class="slr-guide-foot">
+        <button type="button" class="slr-guide-mute" id="slr-guide-mute">Don’t show again</button>
+        <div class="slr-guide-nav">
+          <button type="button" class="slr-guide-arrow" id="slr-guide-prev"
+                  aria-label="Previous">&lsaquo;</button>
+          <button type="button" class="slr-guide-arrow" id="slr-guide-next"
+                  aria-label="Next">&rsaquo;</button>
+        </div>
+      </div>`;
+    document.body.appendChild(kasten);
+
+    const koerper = kasten.querySelector('#slr-guide-body');
+    const stand   = kasten.querySelector('#slr-guide-step');
+    const punkte  = kasten.querySelector('#slr-guide-dots');
+    const zurueck = kasten.querySelector('#slr-guide-prev');
+    const vor     = kasten.querySelector('#slr-guide-next');
+
+    function zeichne() {
+      koerper.innerHTML = eintrag.karten[karte];
+      stand.textContent = `${karte + 1} / ${anzahl}`;
+      zurueck.disabled = karte === 0;
+      // Auf der letzten Karte schliesst der Pfeil die Blase: Ein Knopf, der
+      // nichts mehr tut, laesst offen, wie man hier wieder herauskommt.
+      vor.innerHTML = karte === anzahl - 1 ? '&times;' : '&rsaquo;';
+      vor.setAttribute('aria-label', karte === anzahl - 1 ? 'Done' : 'Next');
+      punkte.innerHTML = eintrag.karten.map((_, i) =>
+        `<button type="button" class="slr-guide-dot${i === karte ? ' is-current' : ''}"
+                 data-karte="${i}" aria-label="Card ${i + 1} of ${anzahl}"></button>`).join('');
+      punkte.querySelectorAll('.slr-guide-dot').forEach(p => {
+        p.addEventListener('click', () => { karte = parseInt(p.dataset.karte, 10) || 0; zeichne(); });
+      });
+    }
+
+    const schliessen = () => { fuehrungUebersprungen.add(ansicht); fuehrungEntfernen(); };
+
+    kasten.querySelector('#slr-guide-skip').addEventListener('click', schliessen);
+    kasten.querySelector('#slr-guide-mute').addEventListener('click', () => {
+      const liste = fuehrungStumm();
+      if (!liste.includes(ansicht)) liste.push(ansicht);
+      fuehrungStummSetzen(liste);
+      fuehrungEntfernen();
+    });
+    zurueck.addEventListener('click', () => { if (karte > 0) { karte--; zeichne(); } });
+    vor.addEventListener('click', () => {
+      if (karte < anzahl - 1) { karte++; zeichne(); } else schliessen();
+    });
+
+    // Wischen — mit dem Finger wie mit der Maus. 40 Pixel, damit ein
+    // versehentliches Zittern nicht schon blaettert.
+    let startX = null;
+    kasten.addEventListener('pointerdown', ev => {
+      if (ev.target.closest('button')) return;
+      startX = ev.clientX;
+    });
+    kasten.addEventListener('pointerup', ev => {
+      if (startX === null) return;
+      const weg = ev.clientX - startX;
+      startX = null;
+      if (Math.abs(weg) < 40) return;
+      if (weg < 0 && karte < anzahl - 1) { karte++; zeichne(); }
+      if (weg > 0 && karte > 0) { karte--; zeichne(); }
+    });
+
+    zeichne();
+  }
+
   return {
     // Die Feldcode-Tafeln, damit app.js beim Merken neuer Begriffe erkennen
     // kann, was ein Feldcode ist und was ein Suchbegriff.
     FIELD_CODES_BY_DB,
+    renderGuide,
+    fuehrungZuruecksetzen,
+    fuehrungEntfernen,
     renderWelcome,
     renderProjects,
     renderArticles,
