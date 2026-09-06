@@ -8684,10 +8684,13 @@ a.db-link:visited {
   .about-view,
   .tags-view,
   .databases-view,
+  /* .corpus-tag-breakdown ist hier bewusst NICHT dabei: Es sitzt innerhalb
+     der .list-toolbar und bekaeme deren seitlichen Abstand ein zweites Mal —
+     die Kategorien staenden dann 12px weiter rechts als Suchfeld und
+     Auswahllisten darueber. */
   .viz-view,
   .list-toolbar,
   .corpus-banner,
-  .corpus-tag-breakdown,
   .articles-stats {
     padding-left: 12px;
     padding-right: 12px;
