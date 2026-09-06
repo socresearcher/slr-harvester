@@ -2854,10 +2854,10 @@ window.SLRViews = (() => {
         <div class="list-toolbar-row">
           <div class="filter-year-wrap">
             <input class="year-input" id="${yearFromId}" type="number"
-                   placeholder="From" min="1900" max="2100" value="${esc(yearFromValue)}">
+                   placeholder="1900" min="1900" max="2100" value="${esc(yearFromValue)}">
                  <span>-</span>
             <input class="year-input" id="${yearToId}" type="number"
-                   placeholder="To" min="1900" max="2100" value="${esc(yearToValue)}">
+                   placeholder="${new Date().getFullYear()}" min="1900" max="2100" value="${esc(yearToValue)}">
           </div>
           <select class="filter-select" id="${sortId}" title="Sort order">
             <option value="newest" ${sortValue==='newest'?'selected':''}>Newest first</option>
@@ -7674,6 +7674,10 @@ window.SLRViews = (() => {
     // keyword rule editor are both long, and both are things you set up once
     // and rarely revisit, so they start closed.
     const tagsBody = `
+      <div class="tags-section-actions">
+        <button class="btn-secondary projects-add-btn tag-add-btn" id="tag-add-open">${SLRIcons.plus} Add Tag</button>
+      </div>
+
       <div class="tag-add-form" id="tag-add-form" style="display:none">
         <div class="tag-add-form-inner">
           <input type="color" class="tag-color-input" id="tag-new-color" value="#64A8FF">
@@ -7703,7 +7707,6 @@ window.SLRViews = (() => {
             <span>${tagKeys.length} tag${tagKeys.length !== 1 ? 's' : ''} defined &mdash;
             ${totalTagged} of ${totalArticles} articles tagged</span>
           </div>
-          <button class="btn-secondary projects-add-btn tag-add-btn" id="tag-add-open">${SLRIcons.plus} Add Tag</button>
         </div>
 
         <div class="tags-auto-note">

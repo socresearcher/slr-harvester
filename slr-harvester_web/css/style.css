@@ -813,6 +813,11 @@ a:hover {
     max-width: 32vw;
   }
 
+  /* .tag-card-btn ist hier bewusst NICHT dabei. Es sind Symbolknoepfe
+     innerhalb einer Kartenzeile; auf 40px hochgezogen machen sie die
+     Auto-Tag-Karte im Hochformat 70px statt 55px hoch, ohne dass sie dadurch
+     leichter zu treffen waeren — die Zeile bleibt ja gleich hoch. Freistehende
+     Knoepfe behalten ihr Beruehrziel. */
   .sidebar-header,
   .nav-item,
   .icon-btn,
@@ -820,8 +825,7 @@ a:hover {
   .btn-secondary,
   .btn-danger,
   .articles-action-btn,
-  .tag-add-btn,
-  .tag-card-btn {
+  .tag-add-btn {
     min-height: 40px;
   }
 
@@ -3588,10 +3592,23 @@ a.db-link:visited {
   display: flex;
   flex-wrap: wrap;
   gap: 6px;
-  padding: 10px 24px 12px;
+  /* Kein seitlicher Innenabstand: Der Kasten sitzt INNERHALB der
+     Werkzeugleiste, die bereits 24px links und rechts haelt. Mit eigenem
+     Abstand begannen die Kategorien 24px weiter rechts als Suchfeld und
+     Auswahllisten darueber — gemessen 104px gegen 80px. */
+  padding: 10px 0 12px;
   border-bottom: 1px solid var(--border-subtle);
   background: var(--surface);
   flex-shrink: 0;
+}
+
+/* Der „Add Tag"-Knopf steht jetzt IM Tags-Abschnitt statt darueber, wo er
+   unter der Gruppenueberschrift „Tags" sass und damit ausserhalb dessen, was
+   er betrifft. */
+.tags-section-actions {
+  display: flex;
+  justify-content: flex-end;
+  margin-bottom: 12px;
 }
 
 .corpus-tag-chip {
@@ -6316,6 +6333,25 @@ a.db-link:visited {
   align-self: stretch;
 }
 
+/* Ein Knopf neben einer Auswahlliste darf nicht hoeher sein als sie. Die
+   Stimmproben in „Read aloud" standen als .btn-secondary neben einem
+   .form-input; der allgemeine Knopf-Innenabstand machte sie hoeher als das
+   Auswahlfeld daneben. Beide bekommen jetzt dieselbe feste Hoehe. */
+.tts-voice-row > .form-input,
+.tts-voice-row > .tts-test-btn {
+  height: 36px;
+  min-height: 36px;
+  box-sizing: border-box;
+  padding-top: 0;
+  padding-bottom: 0;
+}
+
+.tts-voice-row > .tts-test-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
 /* ── Suchmaske: Suchraum, Zeitraum, Obergrenze ──
    Alles in der Aktionszeile. Die Jahresfelder fassen vier Ziffern und
    brauchten nie eine eigene Zeile. */
@@ -6388,6 +6424,15 @@ a.db-link:visited {
 
 .search-year-dash {
   color: var(--text-faint);
+}
+
+/* Die Gruppenueberschrift klebte an der Karte darunter — sie hatte nur den
+   Abstand, den .settings-group-label allgemein mitbringt, und der ist fuer
+   eine Ueberschrift MITTEN in einem Abschnitt zu knapp. */
+.settings-group-label + .account-credentials,
+.settings-group-label + .account-card,
+.settings-group-label + .settings-card {
+  margin-top: 12px;
 }
 
 /* ── Obergrenze mit Schrittknoepfen ──
@@ -6463,9 +6508,34 @@ a.db-link:visited {
   color: var(--accent);
 }
 
+/* Der Schliessknopf war mit 25,4px hoeher als die Textzeile (18,8px) und
+   bestimmte damit die Hoehe des Kastens: Bei einer einzigen Textzeile blieben
+   oben 11px und unten 17,6px. Ursache war die Zeilenhoehe, die das inline
+   gesetzte SVG mitbringt. Als Flex-Kasten mit line-height 0 ist der Knopf nur
+   noch so hoch wie sein Symbol, und der Text gibt die Kastenhoehe vor. */
+/* Der Schliessknopf haengt in der Ecke, statt in der Zeile mitzuzaehlen.
+   Grund: Er ist mit 20px hoeher als die Textzeile (18,75px) und bestimmte
+   damit die Hoehe des Kastens — bei einer einzigen Zeile blieben oben 11px
+   und unten 12,3px. Absolut gesetzt bestimmt allein der Text die Hoehe, und
+   der Abstand ist oben wie unten gleich. Der Text bekommt rechts Platz,
+   damit er nicht unter den Knopf laeuft. */
+.search-db-hint,
+.search-notice-info {
+  position: relative;
+}
+
+.search-db-hint > span,
+.search-notice-info > span {
+  padding-right: 24px;
+}
+
 .search-hint-close {
-  margin-left: auto;
-  align-self: flex-start;
+  position: absolute;
+  top: 8px;
+  right: 10px;
+  display: flex;
+  align-items: center;
+  line-height: 0;
   background: none;
   border: none;
   padding: 2px;
@@ -6726,10 +6796,10 @@ a.db-link:visited {
    kleines Eck. */
 .search-textarea-grip {
   position: absolute;
-  right: 3px;
-  bottom: 3px;
-  width: 24px;
-  height: 24px;
+  right: 0;
+  bottom: 0;
+  width: 26px;
+  height: 26px;
   cursor: ns-resize;
   touch-action: none;
 }
@@ -6742,10 +6812,14 @@ a.db-link:visited {
 .search-textarea-grip::after {
   content: '';
   position: absolute;
-  right: 2px;
-  bottom: 2px;
-  width: 13px;
-  height: 13px;
+  /* 7px Abstand zu beiden Kanten: Der Rahmen ist an dieser Stelle 6px
+     gerundet (--radius) plus 1px Strichstaerke. Vorher lag die Zeichnung 5px
+     innen und damit mitten in der Rundung — sie schnitt den Rahmen sichtbar
+     an. Erst ab 7px ist die Kante wieder gerade. */
+  right: 7px;
+  bottom: 7px;
+  width: 11px;
+  height: 11px;
   background: repeating-linear-gradient(
     -45deg,
     var(--text-faint) 0 1.5px,
@@ -7014,16 +7088,20 @@ a.db-link:visited {
   padding: 0;
 }
 
-/* Die drei Teile mittig zueinander — bei einer Zeile heisst das: alles auf
-   einer Hoehe, und der Kasten ist genau so hoch wie diese eine Zeile plus
-   Innenabstand. */
+/* Symbol oben links, x oben rechts — so wie bei einem mehrzeiligen Kasten
+   auch. Zentriert wird NICHTS: Der gleiche Abstand oben wie unten ergibt sich
+   bei einer Zeile von selbst, sobald Symbol und Text keine eigenen
+   Zusatzabstaende mehr mitbringen (siehe die Regeln darueber). Ein vorheriger
+   Versuch hatte beides zentriert und damit Symbol und x aus ihrer Ecke
+   geholt — das war nicht verlangt und sah bei mehrzeiligen Kaesten falsch
+   aus. */
 .search-db-hint,
 .search-notice-info {
-  align-items: center;
+  align-items: flex-start;
 }
 
 .search-hint-close {
-  align-self: center;
+  align-self: flex-start;
   margin-top: 0;
 }
 
