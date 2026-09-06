@@ -5672,7 +5672,7 @@ window.SLRViews = (() => {
     const termsHTML = sortedTerms.length > 0
       ? sortedTerms.map(t =>
           `<div class="search-term-row">
-             <button class="search-term-item" data-term="${esc(t)}" title="Use this term in the query editor">${esc(t)}</button>
+             <button class="search-term-item" data-term="${esc(t)}" title="Insert this term in quotes at the cursor">${esc(t)}</button>
              <button class="search-term-delete" data-delete-term="${esc(t)}" title="Delete this saved term" aria-label="Delete saved term">${SLRIcons.trash}</button>
            </div>`
         ).join('')
@@ -5992,10 +5992,45 @@ window.SLRViews = (() => {
     });
 
     // Wire: past term clicks
+    //
+    // Der Begriff wird an der Schreibmarke EINGEFUEGT, nicht gegen die ganze
+    // Abfrage getauscht. Vorher setzte ein Klick ta.value auf den Begriff und
+    // loeschte damit alles, was schon dastand — man konnte eine Abfrage also
+    // nicht aus mehreren gemerkten Begriffen zusammensetzen, obwohl genau das
+    // der Zweck der Liste ist.
+    //
+    // In Anfuehrungszeichen, weil ein gemerkter Begriff aus mehreren Woertern
+    // bestehen kann: machine learning ohne Anfuehrungszeichen sind fuer jede
+    // der drei Datenbanken zwei durch UND verbundene Woerter, nicht die
+    // Wendung. Die Anfuehrungszeichen sind zugleich das Merkmal, an dem die
+    // Gegenrichtung neue Begriffe wiedererkennt (siehe extractQueryTerms).
     container.querySelectorAll('.search-term-item').forEach(btn => {
       btn.addEventListener('click', () => {
         const ta = container.querySelector('#search-query');
-        if (ta) { ta.value = btn.dataset.term; ta.focus(); }
+        if (!ta) return;
+        const roh = String(btn.dataset.term || '').trim();
+        if (!roh) return;
+        // Steht der Begriff schon in Anfuehrungszeichen, nicht noch einmal
+        // welche darumsetzen; innenliegende werden entfernt, sonst endete die
+        // Wendung mitten im Begriff.
+        const begriff = /^".*"$/.test(roh) ? roh : '"' + roh.replace(/"/g, '') + '"';
+
+        const s = ta.selectionStart, e = ta.selectionEnd;
+        const davor = ta.value.slice(0, s), danach = ta.value.slice(e);
+        // Ein Leerzeichen nur dort, wo sonst zwei Bestandteile zusammenkleben —
+        // nicht hinter einer oeffnenden und nicht vor einer schliessenden
+        // Klammer.
+        const luftVorn   = davor  && !/[\s(]$/.test(davor);
+        const luftHinten = danach && !/^[\s)]/.test(danach);
+        const ins = (luftVorn ? ' ' : '') + begriff + (luftHinten ? ' ' : '');
+
+        ta.value = davor + ins + danach;
+        const pos = s + ins.length;
+        ta.selectionStart = ta.selectionEnd = pos;
+        ta.focus();
+        // Damit das Feld mitwaechst und alles reagiert, was am Eingabefeld
+        // haengt — ein von Hand gesetztes value loest von sich aus nichts aus.
+        ta.dispatchEvent(new Event('input', { bubbles: true }));
       });
     });
 
@@ -8903,6 +8938,9 @@ window.SLRViews = (() => {
   //  Module export
 
   return {
+    // Die Feldcode-Tafeln, damit app.js beim Merken neuer Begriffe erkennen
+    // kann, was ein Feldcode ist und was ein Suchbegriff.
+    FIELD_CODES_BY_DB,
     renderWelcome,
     renderProjects,
     renderArticles,

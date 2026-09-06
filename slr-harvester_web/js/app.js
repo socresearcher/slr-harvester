@@ -1881,51 +1881,101 @@ window.SLRApp = (() => {
 		return allResults.slice(0, maxResults);
 	}
 
-	// Past Terms should hold reusable search terms, not the raw query string
-	// verbatim. Rules: a quoted phrase is one term; a wildcard (algorithm*)
-	// survives untouched since nothing here strips "*"; field codes and
-	// boolean operators are never saved; everything else between AND/OR/NOT
-	// (Scopus's W/n and PRE/n proximity operators count too) is one term,
-	// same as a quoted phrase would be.
+	// Alle Feldcodes aller drei Datenbanken in einer Menge. Aus views.js, damit
+	// es nur eine Tafel gibt: Was dort in der Spalte "Field codes" steht, gilt
+	// hier als Feldcode. Gross-/Kleinschreibung zaehlt — die Codes sind
+	// durchweg GROSS geschrieben, und "language" oder "key" sollen als
+	// Suchbegriffe durchgehen, waehrend LANGUAGE und KEY es nicht tun.
+	let _feldcodeMenge = null;
+	function feldcodes() {
+		if (_feldcodeMenge) return _feldcodeMenge;
+		_feldcodeMenge = new Set();
+		const tafeln = (window.SLRViews && SLRViews.FIELD_CODES_BY_DB) || {};
+		for (const db of Object.keys(tafeln)) {
+			for (const gruppe of tafeln[db] || []) {
+				for (const feld of gruppe.fields || []) {
+					if (feld && feld.code) _feldcodeMenge.add(String(feld.code).trim());
+				}
+			}
+		}
+		return _feldcodeMenge;
+	}
+
+	// Dieselben Codes, aber nur die mit Buchstaben oder Ziffern und die
+	// laengsten zuerst — fuer das Herausschneiden aus einer Abfrage.
+	let _feldcodeListe = null;
+	function feldcodesNachLaenge() {
+		if (_feldcodeListe) return _feldcodeListe;
+		_feldcodeListe = [...feldcodes()]
+			.filter(c => /[A-Za-z0-9]/.test(c))
+			.sort((a, b) => b.length - a.length);
+		return _feldcodeListe;
+	}
+
+	// Gemerkt wird zweierlei: was in der Abfrage in Anfuehrungszeichen steht —
+	// das ist die Gegenrichtung zum Klick in "Saved terms", der einen Begriff
+	// eben dort in Anfuehrungszeichen einsetzt — und darueber hinaus jedes
+	// unzitierte EINZELWORT.
+	//
+	// Einzelne Woerter, nicht ganze Abschnitte zwischen den Bool'schen
+	// Operatoren: So war es frueher, und dabei entstanden Begriffe, die in der
+	// Abfrage gar nicht vorkamen. Aus `robots AND (welding OR assembly)` wurde
+	// "robots welding" gemerkt, weil die Klammern vorher durch Leerzeichen
+	// ersetzt wurden und die beiden Woerter dadurch zusammenrueckten. Wer eine
+	// Wendung merken will, setzt sie in Anfuehrungszeichen — wo sie ohnehin
+	// hingehoert, weil sie sonst auch von der Datenbank als zwei durch UND
+	// verbundene Woerter gelesen wird.
 	function extractQueryTerms(query) {
 		const terms = [];
 		const seen = new Set();
-		const addTerm = (text) => {
-			const cleaned = String(text).replace(/[()[\]]/g, ' ').replace(/\s+/g, ' ').trim();
-			if (!cleaned || !/[a-zA-Z]/.test(cleaned)) return; // skip empty/pure-number-or-punctuation leftovers
-			const key = cleaned.toLowerCase();
+		const codes = feldcodes();
+
+		const merke = (text) => {
+			const sauber = String(text).replace(/\s+/g, ' ').trim();
+			// Leeres, reine Zahlen und reine Zeichensetzung sind keine Begriffe.
+			if (!sauber || !/[a-zA-Z\u00C0-\u024F]/.test(sauber)) return;
+			// Ein Feldcode bleibt einer, auch in Anfuehrungszeichen.
+			if (codes.has(sauber)) return;
+			const key = sauber.toLowerCase();
 			if (seen.has(key)) return;
 			seen.add(key);
-			terms.push(cleaned);
+			terms.push(sauber);
 		};
 
-		// 1. Quoted phrases are their own terms — pulled out (and blanked)
-		// before any further processing so a word like "and" inside a phrase
-		// is never mistaken for the boolean operator.
-		let rest = String(query || '').replace(/"([^"]+)"/g, (_, phrase) => {
-			addTerm(phrase);
+		// 1. Zitierte Wendungen — danach ausgeblendet, damit ein "and" INNERHALB
+		// einer Wendung nicht als Operator gelesen und die Wendung nicht
+		// zusaetzlich in ihre Einzelwoerter zerlegt wird.
+		let rest = String(query || '').replace(/"([^"]*)"/g, (_, wendung) => {
+			merke(wendung);
 			return ' ';
 		});
 
-		// 2. Field-code wrappers (TITLE-ABS-KEY(...), AUTH(...), ...): the
-		// ALL-CAPS code right before "(" is dropped, its parenthesised
-		// content stays for the later steps.
-		rest = rest.replace(/\b[A-Z][A-Z0-9-]*\s*\(/g, ' ');
+		// 2. Alles, was auf den Feldcode-Tafeln steht, faellt weg — mit den
+		// laengsten zuerst, sonst risse TITLE aus TITLE-ABS-KEY ein Bruchstueck
+		// heraus. Reine Zeichen (Klammern, Sternchen, "") sind nicht dabei; um
+		// die kuemmert sich die Zerlegung in Schritt 5.
+		for (const code of feldcodesNachLaenge()) {
+			rest = rest.split(code).join(' ');
+		}
 
-		// 3. Bare numeric-field comparisons (PUBYEAR > 2019) — neither the
-		// field name nor the lone number is a meaningful term.
-		rest = rest.replace(/\b[A-Z][A-Z0-9-]*\s*(?:>=|<=|>|<|=)\s*\d+/g, ' ');
+		// 3. Naeheoperatoren mit Zahl: W/3, PRE/2. Auf den Tafeln stehen sie als
+		// W/n und PRE/n, treffen also nicht auf sich selbst zu.
+		rest = rest.replace(/\b(?:W|PRE)\/\d+/gi, ' ');
 
-		// 4. OpenAlex-style "key:" / "key.sub:" filter prefixes.
+		// 4. Feldmarken in eckigen Klammern (PubMed) und uebriggebliebene
+		// Filtervorsaetze der Form `schluessel:`.
+		rest = rest.replace(/\[[^\]]*\]/g, ' ');
 		rest = rest.replace(/\b[a-zA-Z_][a-zA-Z0-9_.]*:(?:>|<)?/g, ' ');
 
-		// 5. PubMed-style bracket field tags: term[TIAB], 2019:2024[PDAT].
-		rest = rest.replace(/\[[^\]]*\]/g, ' ');
-
-		// 6. Everything remaining, split on boolean/proximity operators —
-		// each span between them is one word sequence, treated the same as
-		// a quoted phrase.
-		rest.split(/\b(?:AND\s+NOT|OR\s+NOT|AND|OR|NOT|W\/\d+|PRE\/\d+)\b/gi).forEach(addTerm);
+		// 5. Der Rest, Wort fuer Wort. Platzhalter (comput*, wom?n, colo#r) und
+		// Bindestriche gehoeren zum Wort; alles andere trennt. Ein einzelner
+		// Buchstabe ist kein Suchbegriff, sondern ein Ueberbleibsel.
+		for (const roh of rest.split(/[^A-Za-z0-9_*?#'.\u00C0-\u024F-]+/)) {
+			const wort = roh.replace(/^[^A-Za-z0-9*?#\u00C0-\u024F]+/, '')
+			                .replace(/[^A-Za-z0-9*?#\u00C0-\u024F]+$/, '');
+			if (wort.length < 2) continue;
+			merke(wort);
+		}
 
 		return terms;
 	}
