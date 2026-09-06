@@ -4431,10 +4431,10 @@ window.SLRViews = (() => {
                   <button class="viz-mode-tab" data-mode="selected">Selected&nbsp;(${stats.selected})</button>
                   <button class="viz-mode-tab" data-mode="corpus">Corpus&nbsp;(${stats.corpus})</button>
                 </div>
-                <button class="viz-legend-toggle" id="viz-none-toggle">Hide None</button>
-                <button class="viz-legend-toggle" id="viz-legend-toggle">Hide Legend</button>
-                <button class="viz-legend-toggle" id="viz-tags-btn" title="Open Tags \u2014 rename categories and change the colours the tag charts use">${SLRIcons.tag || ''}&nbsp;Tags</button>
-                <button class="viz-legend-toggle viz-export-btn" id="viz-export-btn" title="Export the current chart as PNG or SVG">${SLRIcons.download}&nbsp;Export</button>
+                <button class="viz-legend-toggle" id="viz-none-toggle"><span class="viz-toggle-icon"></span><span>Hide None</span></button>
+                <button class="viz-legend-toggle" id="viz-legend-toggle"><span class="viz-toggle-icon"></span><span>Hide Legend</span></button>
+                <button class="viz-legend-toggle" id="viz-tags-btn" title="Open Tags \u2014 rename categories and change the colours the tag charts use">${SLRIcons.tag || ''}<span>Tags</span></button>
+                <button class="viz-legend-toggle viz-export-btn" id="viz-export-btn" title="Export the current chart as PNG or SVG">${SLRIcons.download}<span>Export</span></button>
               </div>
             </div>
           </div>
@@ -4665,13 +4665,24 @@ window.SLRViews = (() => {
       } else if (chartType === 'world') {
         const wrap = el.querySelector('.viz-world-wrap');
         if (wrap) {
-          const h = getChartHeight('slr-world-chart-height');
+          // Die Karte startet ausgefuellt, nicht auf dem gemeinsamen
+          // Vorgabewert der Hoehendiagramme. Bei ihr bestimmt die Hoehe ueber
+          // das Seitenverhaeltnis auch die Breite — mit den rund 268px der
+          // uebrigen Diagramme waere sie nur 492px breit und stuende als
+          // Briefmarke in einer weiten Spalte. Wer sie kleiner will, zieht
+          // sie kleiner; der Wert wird dann gemerkt.
+          const gemerkt = parseInt(localStorage.getItem('slr-world-chart-height'), 10);
+          const h = (Number.isFinite(gemerkt) && gemerkt >= CHART_HEIGHT_MIN && gemerkt <= CHART_HEIGHT_MAX)
+            ? gemerkt : CHART_HEIGHT_MAX;
           wrap.style.setProperty('--viz-map-h', h + 'px');
           wireChartResize(el, {
             handleId: 'viz-world-resize-handle',
             storageKey: 'slr-world-chart-height',
             areaEl: wrap,
-            startFrom: () => getChartHeight('slr-world-chart-height'),
+            startFrom: () => {
+              const g = parseInt(localStorage.getItem('slr-world-chart-height'), 10);
+              return (Number.isFinite(g) && g >= CHART_HEIGHT_MIN && g <= CHART_HEIGHT_MAX) ? g : CHART_HEIGHT_MAX;
+            },
             applyHeight: (target, newH) => target.style.setProperty('--viz-map-h', newH + 'px'),
           });
         }
@@ -5014,18 +5025,22 @@ window.SLRViews = (() => {
       // Mode tabs are always visible; dim them when irrelevant (PRISMA doesn't use mode)
       if (modeTabs) modeTabs.style.opacity = currentChart === 'prisma' ? '0.35' : '';
       if (modeTabs) modeTabs.style.pointerEvents = currentChart === 'prisma' ? 'none' : '';
-        if (legendBtn) {
-          legendBtn.textContent = showLegend ? 'Hide Legend' : 'Show Legend';
-          legendBtn.classList.toggle('is-active', !showLegend);
-          legendBtn.disabled = !legendSupported;
-          legendBtn.style.opacity = legendSupported ? '1' : '0.45';
-        }
-        if (noneBtn) {
-          noneBtn.textContent = showNone ? 'Hide None' : 'Show None';
-          noneBtn.classList.toggle('is-active', !showNone);
-          noneBtn.disabled = !noneSupported;
-          noneBtn.style.opacity = noneSupported ? '1' : '0.45';
-        }
+        // Das Auge zeigt den ZUSTAND, nicht die Handlung: offen heisst
+        // sichtbar, durchgestrichen heisst ausgeblendet. Die Beschriftung
+        // nennt weiterhin die Handlung, sonst muesste man beim Lesen raten,
+        // ob „Legend" gerade eine Feststellung oder ein Knopf ist.
+        const setzeSchalter = (btn, sichtbar, wortSichtbar, wortWeg, moeglich) => {
+          if (!btn) return;
+          const symbol = btn.querySelector('.viz-toggle-icon');
+          const text   = btn.querySelector('span:last-child');
+          if (symbol) symbol.innerHTML = sichtbar ? SLRIcons.eye : SLRIcons.eyeOff;
+          if (text) text.textContent = sichtbar ? wortSichtbar : wortWeg;
+          btn.classList.toggle('is-active', !sichtbar);
+          btn.disabled = !moeglich;
+          btn.style.opacity = moeglich ? '1' : '0.45';
+        };
+        setzeSchalter(legendBtn, showLegend, 'Hide Legend', 'Show Legend', legendSupported);
+        setzeSchalter(noneBtn,   showNone,   'Hide None',   'Show None',   noneSupported);
         if (groupBySel) {
           groupBySel.disabled = !groupBySupported;
           groupBySel.style.opacity = groupBySupported ? '1' : '0.45';
@@ -5130,7 +5145,29 @@ window.SLRViews = (() => {
     });
 
     container.querySelector('#viz-tags-btn')?.addEventListener('click', () => {
+      // navigate('tags') klappt den Tags-Abschnitt in den Einstellungen auf.
+      // Danach noch hinscrollen — die Einstellungen beginnen mit Scopus und
+      // OpenAlex, Tags steht weit unten und waere sonst nicht im Bild.
       SLRApp.navigate('tags');
+      // Nicht ueber scrollIntoView mit behavior:'smooth' — das haengt an einer
+      // Bildfolge, und wenn das Fenster gerade nicht gezeichnet wird, laeuft
+      // die Bewegung nie an; gemessen blieb scrollTop dann auf 0, waehrend das
+      // Ziel 1998px tiefer stand. Der Rollbalken wird deshalb direkt gesetzt.
+      const hinrollen = (versuch = 0) => {
+        const behaelter = document.getElementById('view-container');
+        const ziel = document.querySelector('#tags-tags');
+        if (!behaelter || !ziel) {
+          if (versuch < 10) setTimeout(() => hinrollen(versuch + 1), 40);
+          return;
+        }
+        const abstand = ziel.getBoundingClientRect().top - behaelter.getBoundingClientRect().top;
+        behaelter.scrollTop += abstand - 12;   // ein wenig Luft ueber der Ueberschrift
+      };
+      // Zweimal: Der Tags-Bereich wird nach dem Zeichnen der Einstellungen
+      // nachtraeglich befuellt und waechst dabei, sodass die erste Messung um
+      // einige hundert Pixel danebenliegt. Der zweite Lauf raeumt das auf.
+      setTimeout(hinrollen, 0);
+      setTimeout(hinrollen, 180);
     });
 
     container.querySelector('#viz-export-btn')?.addEventListener('click', () => {
@@ -5707,9 +5744,20 @@ window.SLRViews = (() => {
               <span class="search-composer-syntax">${esc(DB_SYNTAX_NAMES[db] || '')}</span>
             </div>
 
-            <textarea class="search-textarea" id="search-query" rows="2"
-              placeholder="${esc(placeholder)}"
-              ${isSearch ? 'disabled' : ''}>${esc(query)}</textarea>
+            <div class="search-textarea-wrap">
+              <textarea class="search-textarea" id="search-query" rows="2"
+                placeholder="${esc(placeholder)}"
+                ${isSearch ? 'disabled' : ''}>${esc(query)}</textarea>
+              <!-- Eigener Griff statt der Browserecke: Die native Ecke einer
+                   Textarea reagiert auf der Maus, aber nicht auf einen Finger —
+                   auf dem Tablet liesse sich das Feld sonst gar nicht ziehen.
+                   Dieser hier haengt an Pointer-Ereignissen und gilt fuer
+                   beides. -->
+              <div class="search-textarea-grip" id="search-query-grip"
+                   role="separator" aria-orientation="horizontal"
+                   aria-label="Drag to resize the query field"
+                   title="Drag to resize"></div>
+            </div>
 
             <!-- Warnungen bleiben direkt am Feld: Ohne Schluessel laeuft die
                  Suche gar nicht, das ist keine Erlaeuterung, sondern ein
@@ -5739,11 +5787,11 @@ window.SLRViews = (() => {
                 <label class="search-field-label" for="search-year-from">Years</label>
                 <div class="search-year-pair">
                   <input class="form-input search-year-input" id="search-year-from" type="number" inputmode="numeric"
-                    min="1800" max="2100" placeholder="from" value="${esc(String(yearFromVal))}"
+                    min="1800" max="2100" placeholder="1900" value="${esc(String(yearFromVal))}"
                     ${isSearch ? 'disabled' : ''}>
                   <span class="search-year-dash">&ndash;</span>
                   <input class="form-input search-year-input" id="search-year-to" type="number" inputmode="numeric"
-                    min="1800" max="2100" placeholder="to" value="${esc(String(yearToVal))}"
+                    min="1800" max="2100" placeholder="${new Date().getFullYear()}" value="${esc(String(yearToVal))}"
                     ${isSearch ? 'disabled' : ''}>
                 </div>
               </div>
@@ -5966,6 +6014,35 @@ window.SLRViews = (() => {
         selbstGesetzt = queryFeld.style.height;
       };
       queryFeld.addEventListener('input', mitwachsen);
+
+      // Der eigene Griff. Zieht in beide Richtungen, kennt eine Untergrenze
+      // von einer Zeile und keine Obergrenze — die gilt nur fuers
+      // automatische Mitwachsen.
+      const griff = container.querySelector('#search-query-grip');
+      if (griff) {
+        let ziehtGerade = false, startY = 0, startH = 0;
+        griff.addEventListener('pointerdown', ev => {
+          ziehtGerade = true;
+          startY = ev.clientY;
+          startH = queryFeld.getBoundingClientRect().height;
+          griff.classList.add('is-dragging');
+          try { griff.setPointerCapture(ev.pointerId); } catch (_) { /* egal */ }
+          ev.preventDefault();
+        });
+        griff.addEventListener('pointermove', ev => {
+          if (!ziehtGerade) return;
+          const neu = Math.max(34, startH + (ev.clientY - startY));
+          queryFeld.style.height = Math.round(neu) + 'px';
+        });
+        const fertig = () => {
+          if (!ziehtGerade) return;
+          ziehtGerade = false;
+          griff.classList.remove('is-dragging');
+          try { localStorage.setItem(HOEHE_KEY, queryFeld.style.height); } catch (_) { /* egal */ }
+        };
+        griff.addEventListener('pointerup', fertig);
+        griff.addEventListener('pointercancel', fertig);
+      }
       // Auch beim Aufbau, damit eine gemerkte lange Abfrage gleich sichtbar ist.
       mitwachsen();
     }

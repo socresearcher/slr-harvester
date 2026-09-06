@@ -5880,7 +5880,11 @@ a.db-link:visited {
 
    Ein zugeklapptes <details> wird davon ausgenommen; sonst zoege sich seine
    Zusammenfassung ueber die ganze Spaltenhoehe. */
-@media (min-width: 1181px) {
+/* 1024px statt 1181: Ein Tablet im Querformat (1024x768) soll die drei
+   Spalten bekommen — dort ist der Nutzen am groessten, weil man Feldcodes,
+   Abfrage und gespeicherte Begriffe zugleich sieht. Die Seitenspalten sind
+   dann schmaler, tragen ihre Chips aber noch. */
+@media (min-width: 1024px) {
   #view-container > .search-view {
     height: 100%;
   }
@@ -5941,7 +5945,7 @@ a.db-link:visited {
    volle Breite und die beiden Nachschlagewerke teilen sie sich darunter zur
    Haelfte. Nebeneinander und nicht gestapelt, damit man beide zugleich sieht;
    gestapelt liegt das zweite eine Bildschirmhoehe entfernt. */
-@media (max-width: 1180px) {
+@media (max-width: 1023px) {
   .search-page {
     grid-template-columns: 1fr 1fr;
     gap: 16px;
@@ -5960,6 +5964,15 @@ a.db-link:visited {
   .search-page > .search-drawer[data-drawer="past-terms"] {
     grid-column: 2;
     grid-row: 2;
+  }
+}
+
+/* Bei drei Spalten wird es fuer die Seitenspalten eng — sie duerfen schmaler
+   werden, damit die Mitte lesbar bleibt. */
+@media (min-width: 1024px) and (max-width: 1320px) {
+  .search-page {
+    grid-template-columns: minmax(190px, 220px) minmax(0, 1fr) minmax(200px, 250px);
+    gap: 12px;
   }
 }
 
@@ -6283,7 +6296,7 @@ a.db-link:visited {
 
      Als px und nicht als ch, damit die Breite auch dann reicht, wenn die
      Zeile umbricht und ch sich an einer anderen Schriftgroesse orientiert. */
-  min-width: 240px;
+  min-width: 268px;
 }
 
 .search-year-pair {
@@ -6292,9 +6305,12 @@ a.db-link:visited {
   gap: 6px;
 }
 
+/* Gleicher Abstand links wie rechts — vorher stand die Zahl trotz
+   text-align: center sichtbar zu weit rechts, weil links 8px und rechts 4px
+   Innenabstand standen. */
 .search-year-input {
-  width: 6.5ch;
-  padding-left: 8px;
+  width: 7.5ch;
+  padding-left: 4px;
   padding-right: 4px;
   text-align: center;
 }
@@ -6325,9 +6341,25 @@ a.db-link:visited {
   gap: 4px;
 }
 
+/* 8ch reichten fuer vier Ziffern nicht: Das Zahlenfeld haelt rechts Platz
+   fuer seine Pfeilchen frei, auch wenn wir sie nicht brauchen — „500" wurde
+   dadurch als „50(" abgeschnitten. */
 .search-max-stepper input {
-  width: 8ch;
+  width: 5.5em;
   text-align: center;
+  padding-left: 4px;
+  padding-right: 4px;
+}
+
+.search-max-stepper input::-webkit-outer-spin-button,
+.search-max-stepper input::-webkit-inner-spin-button {
+  -webkit-appearance: none;
+  margin: 0;
+}
+
+.search-max-stepper input {
+  -moz-appearance: textfield;
+  appearance: textfield;
 }
 
 .search-step-btn {
@@ -6552,11 +6584,15 @@ a.db-link:visited {
 }
 
 /* Hint box for free databases */
+/* Gleich gebaut wie .search-notice, damit beide Kaesten dieselbe Hoehe, denselben
+   Innenabstand und ihr x an derselben Stelle haben. Vorher: 9px/13px gegen
+   10px/12px und ein anderer Abstand zum Symbol — sichtbar als versetztes x
+   und als hoeherer oberer Kasten. */
 .search-db-hint {
   display: flex;
   align-items: flex-start;
-  gap: 8px;
-  padding: 9px 13px;
+  gap: 9px;
+  padding: 10px 12px;
   background: var(--surface-2);
   border: 1px solid var(--border);
   border-radius: var(--radius, 6px);
@@ -6621,10 +6657,55 @@ a.db-link:visited {
 /* Der Ziehgriff unten rechts ist in der dunklen Fassung praktisch unsichtbar.
    Zwei Striche machen sichtbar, dass man das Feld hier groesser und kleiner
    ziehen kann — auch wenn es nur zwei Zeilen hoch ist. */
-.search-textarea::-webkit-resizer {
-  border-width: 7px;
-  border-style: solid;
-  border-color: transparent var(--text-muted) var(--text-muted) transparent;
+/* Der eigene Griff sitzt in der unteren rechten Ecke des Feldes. Die native
+   Ecke wird abgeschaltet: Sie reagiert nur auf die Maus, und zwei Griffe
+   uebereinander sind einer zu viel. */
+.search-textarea-wrap {
+  position: relative;
+}
+
+.search-textarea {
+  resize: none;
+}
+
+.search-textarea-grip {
+  position: absolute;
+  right: 2px;
+  bottom: 2px;
+  width: 22px;
+  height: 22px;
+  cursor: ns-resize;
+  touch-action: none;
+  border-radius: 0 0 var(--radius, 6px) 0;
+}
+
+/* Zwei Striche, wie man sie von einem Ziehgriff kennt. */
+.search-textarea-grip::before,
+.search-textarea-grip::after {
+  content: '';
+  position: absolute;
+  right: 4px;
+  height: 1.5px;
+  background: var(--text-muted);
+  transform: rotate(-45deg);
+  transform-origin: right center;
+}
+
+.search-textarea-grip::before {
+  bottom: 7px;
+  width: 11px;
+}
+
+.search-textarea-grip::after {
+  bottom: 11px;
+  width: 6px;
+}
+
+.search-textarea-grip:hover::before,
+.search-textarea-grip:hover::after,
+.search-textarea-grip.is-dragging::before,
+.search-textarea-grip.is-dragging::after {
+  background: var(--accent);
 }
 
 /* ── Actions row ── */
@@ -6851,13 +6932,20 @@ a.db-link:visited {
 
 /* Der Syntaxkasten bekommt dieselbe Anordnung wie der andere, damit sein x
    rechts sitzt und das Symbol dieselbe Farbe traegt. */
-.search-db-hint {
-  align-items: flex-start;
-}
-
 .search-db-hint > svg {
   color: var(--accent);
   flex-shrink: 0;
+  margin-top: 2px;
+}
+
+/* Der Text traegt in beiden Kaesten dieselbe Zeilenhoehe und denselben
+   Abstand nach oben und unten. */
+.search-db-hint > span,
+.search-notice-info > span {
+  flex: 1;
+  min-width: 0;
+  line-height: 1.55;
+  padding-top: 1px;
 }
 
 /* Ein Knopf, der anzeigt, ob gerade etwas offen ist. */
@@ -7427,6 +7515,33 @@ a.db-link:visited {
   flex: none;
 }
 
+/* Beschriftung und Symbol sitzen mittig; der Abstand dazwischen kommt aus
+   dem Zwischenraum und nicht mehr aus einem &nbsp; im Text, das die
+   Beschriftung sichtbar aus der Mitte schob. */
+.viz-legend-toggle {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+}
+
+.viz-legend-toggle svg,
+.viz-toggle-icon svg {
+  width: 14px;
+  height: 14px;
+  flex-shrink: 0;
+}
+
+.viz-toggle-icon {
+  display: inline-flex;
+  align-items: center;
+}
+
+/* Ausgeblendet: das durchgestrichene Auge und die Beschriftung gedaempft. */
+.viz-legend-toggle.is-active .viz-toggle-icon {
+  color: var(--text-faint);
+}
+
 /* Das Seitenverhaeltnis sitzt an der BUEHNE, nicht an der SVG.
    Vorher trug die SVG aspect-ratio + max-height. Beides zusammen geht nicht
    auf: Sobald max-height greift, verletzt der Browser das Verhaeltnis, die
@@ -7511,7 +7626,11 @@ a.db-link:visited {
   border-radius: 18px;
   overflow: hidden;
   aspect-ratio: 956 / 520;
-  max-width: calc(var(--viz-map-h, 260px) * 956 / 520);
+  /* Die Karte darf die Spalte ausfuellen. Vorher deckelte die aus der
+     Ziehhoehe abgeleitete Breite sie bei 260px Hoehe auf 478px — auf einem
+     breiten Schirm ein Briefmarkenformat. Jetzt ist die volle Breite die
+     Obergrenze, und der Ziehgriff verkleinert von dort aus. */
+  max-width: min(100%, calc(var(--viz-map-h, 520px) * 956 / 520));
   margin: 0 auto;
 }
 
