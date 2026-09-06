@@ -1402,14 +1402,34 @@ window.SLRViews = (() => {
                 >+${rest.length} more</button><span class="article-authors-rest" hidden>${esc(rest.join('; '))}</span></span>`;
     })();
 
-    // No separators between the three: they sit in fixed grid tracks, so the
-    // columns themselves do the separating, and a middle dot would only add
-    // noise to a row whose whole point is to be scanned quickly.
+    // Quelle, Jahr und Zitationen stehen als ein Zug nebeneinander, durch
+    // Punkte getrennt und je von einem Symbol angefuehrt.
+    //
+    // Vorher waren es drei feste Rasterspalten. Die Absicht dahinter war, dass
+    // sich Jahr und Zitationszahl ueber die Karten hinweg untereinander lesen
+    // lassen — nur hielt das nicht: Ein langer Zeitschriftentitel wurde zwar
+    // beschnitten, die Marken davor (Dokumentart, Open Access) schoben die
+    // beiden hinteren Spalten aber trotzdem hin und her, sodass sie eben NICHT
+    // untereinander standen. Damit kostete das Raster Platz, ohne den
+    // versprochenen Nutzen zu liefern.
     const MISSING = '<span class="article-meta-missing">&mdash;</span>';
+    const punkt = '<span class="article-meta-sep" aria-hidden="true">&middot;</span>';
     const factsHTML = `
-                <span class="article-meta-journal${istZeitschrift(a) ? ' is-journal' : ''}" ${a.publicationName ? `title="${esc(a.publicationName)}"` : ''}>${a.publicationName ? esc(a.publicationName) : MISSING}</span>
-                <span class="article-meta-year">${year ? esc(year) : MISSING}</span>
-                <span class="article-meta-cited">${a.citedby || 0} cited</span>`;
+                <span class="article-meta-fact article-meta-journal${istZeitschrift(a) ? ' is-journal' : ''}"
+                      ${a.publicationName ? `title="${esc(a.publicationName)}"` : ''}>
+                  <span class="article-meta-icon" aria-hidden="true">${SLRIcons.articles}</span>
+                  <span class="article-meta-value">${a.publicationName ? esc(a.publicationName) : MISSING}</span>
+                </span>
+                ${punkt}
+                <span class="article-meta-fact article-meta-year" title="Publication year">
+                  <span class="article-meta-icon" aria-hidden="true">${SLRIcons.calendar}</span>
+                  <span class="article-meta-value">${year ? esc(year) : MISSING}</span>
+                </span>
+                ${punkt}
+                <span class="article-meta-fact article-meta-cited" title="Times cited">
+                  <span class="article-meta-icon" aria-hidden="true">${SLRIcons.quote}</span>
+                  <span class="article-meta-value">${a.citedby || 0} cited</span>
+                </span>`;
 
     const idRow = (doiLink || eidLink) ? `
       <div class="article-id-row">
@@ -1493,7 +1513,10 @@ window.SLRViews = (() => {
             <div class="article-main">
               <div class="article-title">${esc(a.title)}</div>
               <div class="article-meta">
-                <div class="article-meta-line article-meta-authors">${authorsHTML}</div>
+                <div class="article-meta-line article-meta-authors">
+                  <span class="article-meta-icon" aria-hidden="true">${SLRIcons.user}</span>
+                  ${authorsHTML}
+                </div>
                 <div class="article-meta-line article-meta-facts">${factsHTML}
                 </div>
               </div>
@@ -5720,8 +5743,12 @@ window.SLRViews = (() => {
       try { saved = localStorage.getItem('slr-search-drawer-' + key); } catch (_) { /* privates Fenster */ }
       return saved === null ? fallback : saved === '1';
     };
-    const fcOpen    = drawerOpen('field-codes', !isNarrow);
-    const termsOpen = drawerOpen('past-terms', !isNarrow);
+    // Beide von Anfang an offen — auch am Telefon. Sie sind der Grund, warum
+    // die Ansicht drei Spalten hat; zugeklappt muesste man sie erst suchen.
+    // Wer sie zumacht, findet sie beim naechsten Mal zu (drawerOpen liest den
+    // gemerkten Stand und faellt nur ohne einen auf die Vorgabe zurueck).
+    const fcOpen    = drawerOpen('field-codes', true);
+    const termsOpen = drawerOpen('past-terms', true);
     const fcCount   = fcCodes.reduce((n, g) => n + g.fields.length, 0);
 
     // Eine Spalte, auf jeder Breite dieselbe: Quelle -> Abfrage -> Suchen,

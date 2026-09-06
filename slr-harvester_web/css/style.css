@@ -2115,21 +2115,70 @@ a:hover {
   min-width: 0;
 }
 
-/* Fixed tracks, not a flow of text. Every card in a list has the same width,
-   so a 1fr journal column puts the year and the citation count at the same x
-   on every card — which is what makes the list readable downwards. With the
-   old middle-dot separators those two moved with the length of the journal
-   name and no two cards lined up. */
+/* Quelle, Jahr und Zitationszahl stehen als EIN Zug in einer Zeile, durch
+   Punkte getrennt. Kein Umbruch: .article-meta-line erlaubt ihn allgemein, und
+   im Hochformat rutschten Jahr und Zitationszahl dadurch in eine zweite Zeile,
+   die mit einem einzelnen Trennpunkt begann. Stattdessen gibt der
+   Zeitschriftenname nach — er wird beschnitten und traegt den vollen Namen im
+   Hinweisfenster. */
 .article-meta-facts {
-  display: grid;
-  /* Both trailing tracks are sized, not auto: an auto-sized citation
-     column is as wide as its own number, so "412 cited" and "7 cited"
-     produced different column widths and pushed the year back out of
-     alignment even with a steady badge column beside them. The minmax
-     still lets an unusually large count take the room it needs. */
-  grid-template-columns: minmax(0, 1fr) 3.5em minmax(5.5em, auto);
-  gap: 0 14px;
-  align-items: baseline;
+  display: flex;
+  flex-wrap: nowrap;
+  align-items: center;
+  gap: 7px;
+  min-width: 0;
+}
+
+/* Jede Angabe fuehrt ihr eigenes Symbol mit, damit ohne Lesen erkennbar ist,
+   wovon die Rede ist: Dokument fuer die Quelle, Kalender fuer das Jahr,
+   Anfuehrungszeichen fuer die Zitationen. */
+.article-meta-fact {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  min-width: 0;
+  flex-shrink: 0;
+}
+
+/* Nur der Quellenname gibt nach — Jahr und Zitationszahl sind kurz und
+   sollen nicht beschnitten werden. */
+.article-meta-fact.article-meta-journal {
+  flex-shrink: 1;
+}
+
+.article-meta-icon {
+  display: inline-flex;
+  align-items: center;
+  flex-shrink: 0;
+  color: var(--text-faint);
+}
+
+.article-meta-icon svg {
+  width: 13px;
+  height: 13px;
+}
+
+.article-meta-sep {
+  color: var(--text-faint);
+  flex-shrink: 0;
+}
+
+.article-meta-value {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* Das Personensymbol der Autorenzeile sitzt oben, weil die Namen umbrechen
+   duerfen. */
+.article-meta-authors {
+  align-items: flex-start;
+  gap: 5px;
+}
+
+.article-meta-authors > .article-meta-icon {
+  margin-top: 2px;
 }
 
 /* The one part that has to give way, so it is the one that gets the ellipsis;
@@ -5874,7 +5923,9 @@ a.db-link:visited {
    Dokumentreihenfolge, weil die im Dokument mit dem Editor beginnt — so
    steht auf dem Telefon ohne Umsortierung das Wichtigste oben. */
 .search-page {
-  padding: 18px 24px 40px;
+  /* Oben wie unten derselbe Abstand: Vorher standen 18px gegen 40px, sodass
+     Spalten und Suchknopf deutlich vor dem unteren Rand endeten. */
+  padding: 18px 24px;
   display: grid;
   grid-template-columns: minmax(230px, 260px) minmax(0, 1fr) minmax(240px, 300px);
   align-items: start;
@@ -5927,22 +5978,33 @@ a.db-link:visited {
     padding-top: 12px;
   }
 
+  /* Die Spalte selbst scrollt NICHT. Sonst wandert beim Rollen im
+     Eingabefeld auch „Source" mit nach oben, obwohl nur der Text unter dem
+     Zeiger gemeint war. Was nicht hineinpasst, faengt das Eingabefeld ab —
+     es hat einen eigenen Rollbalken. */
   .search-main {
-    overflow-y: auto;
+    overflow: hidden;
     min-height: 0;
-    padding-right: 4px;
   }
 
   /* Der Abfragekasten fuellt die Spalte, und in ihm das Eingabefeld — bis
-     jemand es von Hand auf eine Hoehe zieht. */
+     jemand es von Hand auf eine Hoehe zieht. Alles andere im Kasten
+     (Warnungen, Bedienzeile, Erlaeuterungen) behaelt seine Hoehe; nur das
+     Eingabefeld gibt nach. Damit ragt auch keine Infokarte mehr unten aus
+     dem Kasten heraus. */
   .search-main > .search-composer {
     flex: 1 1 auto;
     min-height: 0;
+    overflow: hidden;
+  }
+
+  .search-composer > *:not(.search-textarea-wrap) {
+    flex: 0 0 auto;
   }
 
   .search-textarea-wrap:not(.is-manual) {
     flex: 1 1 auto;
-    min-height: 90px;
+    min-height: 64px;
     display: flex;
   }
 
@@ -6513,32 +6575,23 @@ a.db-link:visited {
    oben 11px und unten 17,6px. Ursache war die Zeilenhoehe, die das inline
    gesetzte SVG mitbringt. Als Flex-Kasten mit line-height 0 ist der Knopf nur
    noch so hoch wie sein Symbol, und der Text gibt die Kastenhoehe vor. */
-/* Der Schliessknopf haengt in der Ecke, statt in der Zeile mitzuzaehlen.
-   Grund: Er ist mit 20px hoeher als die Textzeile (18,75px) und bestimmte
-   damit die Hoehe des Kastens — bei einer einzigen Zeile blieben oben 11px
-   und unten 12,3px. Absolut gesetzt bestimmt allein der Text die Hoehe, und
-   der Abstand ist oben wie unten gleich. Der Text bekommt rechts Platz,
-   damit er nicht unter den Knopf laeuft. */
-.search-db-hint,
-.search-notice-info {
-  position: relative;
-}
-
-.search-db-hint > span,
-.search-notice-info > span {
-  padding-right: 24px;
-}
-
+/* Das x steht wie das i in einer eigenen Spalte, nicht ueber dem Text: links
+   das Symbol, in der Mitte der Text, rechts der Schliessknopf. Absolut gesetzt
+   lag es zuvor UEBER dem Text und drueckte ihn nicht weg.
+   Damit es die Kastenhoehe nicht bestimmt — es ist von Haus aus hoeher als
+   eine Textzeile —, ist es genau so hoch wie die Zeile gesetzt. */
 .search-hint-close {
-  position: absolute;
-  top: 8px;
-  right: 10px;
+  margin-left: auto;
+  align-self: flex-start;
   display: flex;
   align-items: center;
+  justify-content: center;
+  width: 18px;
+  height: 18px;
   line-height: 0;
   background: none;
   border: none;
-  padding: 2px;
+  padding: 0;
   cursor: pointer;
   color: var(--text-faint);
   flex-shrink: 0;
