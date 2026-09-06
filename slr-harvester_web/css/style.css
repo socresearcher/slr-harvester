@@ -5873,6 +5873,59 @@ a.db-link:visited {
   min-width: 0;
 }
 
+/* Ab hier tragen drei Spalten. Dann reichen sie von oben bis unten, und jede
+   scrollt fuer sich: Wer in der Begriffsliste rollt, soll die Liste bewegen
+   und nicht die Seite — sonst kommt man ans Listenende nur ueber das
+   Seitenende, und der Editor scrollt dabei aus dem Bild.
+
+   Ein zugeklapptes <details> wird davon ausgenommen; sonst zoege sich seine
+   Zusammenfassung ueber die ganze Spaltenhoehe. */
+@media (min-width: 1181px) {
+  #view-container > .search-view {
+    height: 100%;
+  }
+
+  .search-page {
+    height: 100%;
+    align-items: stretch;
+    overflow: hidden;
+  }
+
+  .search-main {
+    overflow-y: auto;
+    min-height: 0;
+    padding-right: 4px;
+  }
+
+  /* Es scrollt die Schublade selbst, nicht ihr Koerper. Der naheliegende Weg
+     — details auf display:flex und der Koerper mit flex:1 und min-height:0 —
+     funktioniert hier nicht: Chrome laesst den Koerper eines <details> in
+     diesem Aufbau nicht schrumpfen, gemessen 1738px Inhalt in einer 770px
+     hohen Schublade. Also scrollt der ganze Kasten, und die Zusammenfassung
+     bleibt beim Rollen oben stehen. */
+  .search-page > .search-drawer {
+    overflow-y: auto;
+    min-height: 0;
+  }
+
+  .search-page > .search-drawer:not([open]) {
+    align-self: start;
+    overflow: hidden;
+  }
+
+  .search-page > .search-drawer > .search-drawer-summary {
+    position: sticky;
+    top: 0;
+    z-index: 2;
+    background: var(--surface);
+  }
+
+  .search-page > .search-drawer > .search-drawer-body {
+    max-height: none;
+    overflow: visible;
+  }
+}
+
 .search-page > .search-drawer[data-drawer="field-codes"] {
   grid-column: 1;
   grid-row: 1;
@@ -6193,16 +6246,9 @@ a.db-link:visited {
   align-self: stretch;
 }
 
-/* ── Suchmaske: Feldbereich und Zeitraum ──
-   Eine eigene Zeile unter den Aktionen, weil beides die Abfrage veraendert
-   und nicht ihre Ausfuehrung. */
-.search-scope-row {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 14px;
-  align-items: flex-end;
-}
-
+/* ── Suchmaske: Suchraum, Zeitraum, Obergrenze ──
+   Alles in der Aktionszeile. Die Jahresfelder fassen vier Ziffern und
+   brauchten nie eine eigene Zeile. */
 .search-scope-field {
   display: flex;
   flex-direction: column;
@@ -6211,30 +6257,138 @@ a.db-link:visited {
   color: var(--text-muted);
 }
 
+/* So breit, dass der laengste Eintrag hineinpasst — „Everything (title,
+   abstract, full text)". Sonst steht dort eine abgeschnittene Zeile und man
+   muss aufklappen, um zu sehen, was eingestellt ist. */
+#search-scope {
+  /* Nachgemessen statt geschaetzt: Der laengste Eintrag ist 195px breit, dazu
+     kommen Innenabstand und Pfeil. 30ch ergaben 210px und schnitten ihn knapp
+     ab — die ch-Einheit richtet sich nach der Ziffernbreite, und die ist hier
+     schmaler als der Buchstabendurchschnitt. */
+  min-width: 34ch;
+}
+
 .search-year-pair {
   display: flex;
   align-items: center;
   gap: 6px;
 }
 
-.search-year-pair input {
-  width: 78px;
+.search-year-input {
+  width: 6.5ch;
+  padding-left: 8px;
+  padding-right: 4px;
+  text-align: center;
+}
+
+/* Die Pfeilchen des Zahlenfelds nehmen bei vier Ziffern mehr Platz weg als
+   sie einbringen; hoch- und runterzaehlen laesst sich hier ueber die
+   Tastatur oder das Mausrad. */
+.search-year-input::-webkit-outer-spin-button,
+.search-year-input::-webkit-inner-spin-button {
+  -webkit-appearance: none;
+  margin: 0;
+}
+
+.search-year-input {
+  -moz-appearance: textfield;
+  appearance: textfield;
 }
 
 .search-year-dash {
   color: var(--text-faint);
 }
 
+/* ── Obergrenze mit Schrittknoepfen ──
+   Klicken, tippen oder mit dem Mausrad drehen (siehe views.js). */
+.search-max-stepper {
+  display: flex;
+  align-items: stretch;
+  gap: 4px;
+}
+
+.search-max-stepper input {
+  width: 8ch;
+  text-align: center;
+}
+
+.search-step-btn {
+  min-width: 28px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--surface-2);
+  color: var(--text);
+  font-size: 15px;
+  line-height: 1;
+  cursor: pointer;
+  transition: background var(--transition), border-color var(--transition);
+}
+
+.search-step-btn:hover:not(:disabled) {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+.search-step-btn:disabled {
+  opacity: .45;
+  cursor: not-allowed;
+}
+
+/* ── Infoknopf und wegklickbarer Hinweis ── */
+.search-hint-btn {
+  align-self: flex-end;
+  width: 26px;
+  height: 26px;
+  border-radius: 50%;
+  border: 1px solid var(--border);
+  background: var(--surface-2);
+  color: var(--text-muted);
+  font-style: italic;
+  font-weight: 700;
+  font-size: 13px;
+  line-height: 1;
+  cursor: pointer;
+  flex-shrink: 0;
+}
+
+.search-hint-btn:hover {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+.search-hint-close {
+  margin-left: auto;
+  align-self: flex-start;
+  background: none;
+  border: none;
+  padding: 2px;
+  cursor: pointer;
+  color: var(--text-faint);
+  flex-shrink: 0;
+}
+
+.search-hint-close:hover {
+  color: var(--text);
+}
+
+.search-hint-close svg {
+  width: 14px;
+  height: 14px;
+}
+
+/* Am Telefon bricht die Aktionszeile ohnehin um; dann soll jedes Feld eine
+   ganze Zeile bekommen — ausser den Jahren, die zu zweit in eine passen. */
 @media (max-width: 900px) {
-  .search-scope-row {
+  .search-actions {
     gap: 10px;
   }
-  .search-scope-field {
+  .search-actions > .search-run-btn,
+  .search-actions > .search-scope-field:not(.search-max-wrap) {
     flex: 1 1 100%;
   }
-  .search-year-pair input {
-    flex: 1;
-    width: auto;
+  #search-scope {
+    min-width: 0;
+    width: 100%;
   }
 }
 
@@ -6424,9 +6578,15 @@ a.db-link:visited {
 /* ── Actions row ── */
 .search-actions {
   display: flex;
-  align-items: center;
-  gap: 8px;
+  align-items: flex-end;
+  gap: 12px;
   flex-wrap: wrap;
+}
+
+/* Der Suchknopf traegt keine Beschriftung darueber und saesse sonst zwei
+   Pixel tiefer als die beschrifteten Felder daneben. */
+.search-actions > .search-run-btn {
+  margin-bottom: 1px;
 }
 
 .search-run-btn {

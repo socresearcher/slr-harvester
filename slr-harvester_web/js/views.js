@@ -5647,8 +5647,12 @@ window.SLRViews = (() => {
     // Steht bewusst in der Suchansicht und nicht in der Hilfe: Die Versuchung,
     // eine zu grosse Trefferliste ueber „Max results" zu kuerzen, entsteht
     // genau hier, und was dabei wegfaellt, ist nicht begruendbar.
+    // Beim ersten Mal wichtig, danach im Weg — also wegklickbar. Der Infoknopf
+    // neben „Max results" holt ihn zurueck.
+    let hinweisWeg = false;
+    try { hinweisWeg = localStorage.getItem('slr-search-hint-hidden') === '1'; } catch (_) { /* privates Fenster */ }
     const rechercheHinweis = `
-      <div class="search-notice search-notice-info">
+      <div class="search-notice search-notice-info" id="search-hint"${hinweisWeg ? ' hidden' : ''}>
         ${SLRIcons.info}
         <span><strong>Narrow the question, not the list.</strong> For a systematic review,
         capping results is not a selection criterion — the records that fall away are
@@ -5656,6 +5660,8 @@ window.SLRViews = (() => {
         Use criteria you can state instead: publication years, document type (article,
         review, book chapter), a narrower search field, language, or the topic itself.
         Keep <em>Max results</em> above the total your query reports.</span>
+        <button type="button" class="search-hint-close" id="search-hint-close"
+                aria-label="Hide this note" title="Hide — the i button brings it back">${SLRIcons.close}</button>
       </div>`;
 
     // Die beiden Schubladen merken sich ihre Stellung selbst. Vorgabe haengt
@@ -5708,16 +5714,7 @@ window.SLRViews = (() => {
                      ${SLRIcons.search} Search
                    </button>`
               }
-              <label class="search-max-wrap" for="search-max">
-                <span>Max results</span>
-                <input class="form-input" id="search-max" type="number"
-                  min="1" max="10000"
-                  value="${esc(String(maxRes))}"
-                  ${isSearch ? 'disabled' : ''}>
-              </label>
-            </div>
 
-            <div class="search-scope-row">
               <label class="search-scope-field" for="search-scope">
                 <span>Search in</span>
                 <select class="filter-select" id="search-scope" ${isSearch ? 'disabled' : ''}
@@ -5727,18 +5724,37 @@ window.SLRViews = (() => {
                   ).join('')}
                 </select>
               </label>
+
               <label class="search-scope-field" for="search-year-from">
                 <span>Years</span>
                 <span class="search-year-pair">
-                  <input class="form-input" id="search-year-from" type="number" inputmode="numeric"
+                  <input class="form-input search-year-input" id="search-year-from" type="number" inputmode="numeric"
                     min="1800" max="2100" placeholder="from" value="${esc(String(yearFromVal))}"
                     ${isSearch ? 'disabled' : ''}>
                   <span class="search-year-dash">&ndash;</span>
-                  <input class="form-input" id="search-year-to" type="number" inputmode="numeric"
+                  <input class="form-input search-year-input" id="search-year-to" type="number" inputmode="numeric"
                     min="1800" max="2100" placeholder="to" value="${esc(String(yearToVal))}"
                     ${isSearch ? 'disabled' : ''}>
                 </span>
               </label>
+
+              <label class="search-scope-field search-max-wrap" for="search-max">
+                <span>Max results</span>
+                <span class="search-max-stepper">
+                  <button type="button" class="search-step-btn" data-step="-1"
+                          aria-label="Lower the result limit" ${isSearch ? 'disabled' : ''}>&minus;</button>
+                  <input class="form-input" id="search-max" type="number"
+                    min="1" max="10000" step="50"
+                    value="${esc(String(maxRes))}"
+                    ${isSearch ? 'disabled' : ''}>
+                  <button type="button" class="search-step-btn" data-step="1"
+                          aria-label="Raise the result limit" ${isSearch ? 'disabled' : ''}>+</button>
+                </span>
+              </label>
+
+              <button type="button" class="search-hint-btn" id="search-hint-btn"
+                      aria-label="Why the result limit is not a selection criterion"
+                      title="Why the result limit is not a selection criterion">i</button>
             </div>
 
             ${statusHTML}
@@ -5910,6 +5926,56 @@ window.SLRViews = (() => {
       queryFeld.addEventListener('input', mitwachsen);
       // Auch beim Aufbau, damit eine gemerkte lange Abfrage gleich sichtbar ist.
       mitwachsen();
+    }
+
+    // Obergrenze: tippen, klicken oder scrollen. Das Zahlenfeld bringt zwar
+    // eigene Pfeilchen mit, die sind aber winzig und in manchen Browsern erst
+    // beim Ueberfahren da; ausserdem dreht ein Mausrad ueber einem
+    // Zahlenfeld von sich aus gar nichts.
+    const maxFeld = container.querySelector('#search-max');
+    if (maxFeld) {
+      const SCHRITT = 50, MIN = 1, MAX = 10000;
+      const setze = (wert) => {
+        const n = Math.max(MIN, Math.min(MAX, Math.round(wert)));
+        maxFeld.value = String(n);
+        maxFeld.dispatchEvent(new Event('change', { bubbles: true }));
+      };
+      const jetzt = () => parseInt(maxFeld.value, 10) || 500;
+
+      container.querySelectorAll('.search-step-btn').forEach(btn => {
+        btn.addEventListener('click', () => {
+          if (maxFeld.disabled) return;
+          setze(jetzt() + SCHRITT * (parseInt(btn.dataset.step, 10) || 1));
+        });
+      });
+
+      // Nur wenn das Feld den Fokus hat oder die Maus darueber steht — sonst
+      // wuerde ein Rollen ueber der Seite die Zahl unbemerkt verstellen.
+      // passive:false, weil das Scrollen der Seite dabei unterbleiben soll.
+      maxFeld.addEventListener('wheel', (ev) => {
+        if (maxFeld.disabled) return;
+        ev.preventDefault();
+        setze(jetzt() + (ev.deltaY < 0 ? SCHRITT : -SCHRITT));
+      }, { passive: false });
+    }
+
+    // Recherchehinweis: wegklickbar, der Infoknopf holt ihn zurueck.
+    const hinweis = container.querySelector('#search-hint');
+    const hinweisKnopf = container.querySelector('#search-hint-btn');
+    const hinweisZu = container.querySelector('#search-hint-close');
+    const merkeHinweis = (versteckt) => {
+      try { localStorage.setItem('slr-search-hint-hidden', versteckt ? '1' : '0'); }
+      catch (_) { /* privates Fenster — dann gilt es nur fuer diese Sitzung */ }
+    };
+    if (hinweisZu && hinweis) {
+      hinweisZu.addEventListener('click', () => { hinweis.hidden = true; merkeHinweis(true); });
+    }
+    if (hinweisKnopf && hinweis) {
+      hinweisKnopf.addEventListener('click', () => {
+        hinweis.hidden = !hinweis.hidden;
+        merkeHinweis(hinweis.hidden);
+        if (!hinweis.hidden) hinweis.scrollIntoView({ block: 'nearest' });
+      });
     }
 
     // Wire: Run
