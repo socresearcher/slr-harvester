@@ -1901,32 +1901,80 @@ window.SLRApp = (() => {
 		return _feldcodeMenge;
 	}
 
-	// Gemerkt wird, was in der Abfrage in Anfuehrungszeichen steht — und sonst
-	// nichts. Das ist die Gegenrichtung zum Klick in "Saved terms", der einen
-	// Begriff eben dort in Anfuehrungszeichen einsetzt: Was man einsetzt, kommt
-	// so zurueck, und was man selbst in Anfuehrungszeichen tippt, wird beim
-	// naechsten Lauf gemerkt.
+	// Dieselben Codes, aber nur die mit Buchstaben oder Ziffern und die
+	// laengsten zuerst — fuer das Herausschneiden aus einer Abfrage.
+	let _feldcodeListe = null;
+	function feldcodesNachLaenge() {
+		if (_feldcodeListe) return _feldcodeListe;
+		_feldcodeListe = [...feldcodes()]
+			.filter(c => /[A-Za-z0-9]/.test(c))
+			.sort((a, b) => b.length - a.length);
+		return _feldcodeListe;
+	}
+
+	// Gemerkt wird zweierlei: was in der Abfrage in Anfuehrungszeichen steht —
+	// das ist die Gegenrichtung zum Klick in "Saved terms", der einen Begriff
+	// eben dort in Anfuehrungszeichen einsetzt — und darueber hinaus jedes
+	// unzitierte EINZELWORT.
 	//
-	// Vorher wurde zusaetzlich alles zwischen den Bool'schen Operatoren
-	// gemerkt. Das erzeugte Begriffe, die in der Abfrage gar nicht vorkamen:
-	// Aus `robots AND (welding OR assembly)` wurde "robots welding" gemerkt,
-	// weil die Klammern vorher durch Leerzeichen ersetzt wurden und die beiden
-	// Woerter dadurch zusammenruecken.
+	// Einzelne Woerter, nicht ganze Abschnitte zwischen den Bool'schen
+	// Operatoren: So war es frueher, und dabei entstanden Begriffe, die in der
+	// Abfrage gar nicht vorkamen. Aus `robots AND (welding OR assembly)` wurde
+	// "robots welding" gemerkt, weil die Klammern vorher durch Leerzeichen
+	// ersetzt wurden und die beiden Woerter dadurch zusammenrueckten. Wer eine
+	// Wendung merken will, setzt sie in Anfuehrungszeichen — wo sie ohnehin
+	// hingehoert, weil sie sonst auch von der Datenbank als zwei durch UND
+	// verbundene Woerter gelesen wird.
 	function extractQueryTerms(query) {
 		const terms = [];
 		const seen = new Set();
 		const codes = feldcodes();
 
-		for (const treffer of String(query || '').matchAll(/"([^"]*)"/g)) {
-			const cleaned = treffer[1].replace(/\s+/g, ' ').trim();
+		const merke = (text) => {
+			const sauber = String(text).replace(/\s+/g, ' ').trim();
 			// Leeres, reine Zahlen und reine Zeichensetzung sind keine Begriffe.
-			if (!cleaned || !/[a-zA-Z]/.test(cleaned)) continue;
-			// Ein in Anfuehrungszeichen gesetzter Feldcode ist trotzdem keiner.
-			if (codes.has(cleaned)) continue;
-			const key = cleaned.toLowerCase();
-			if (seen.has(key)) continue;
+			if (!sauber || !/[a-zA-Z\u00C0-\u024F]/.test(sauber)) return;
+			// Ein Feldcode bleibt einer, auch in Anfuehrungszeichen.
+			if (codes.has(sauber)) return;
+			const key = sauber.toLowerCase();
+			if (seen.has(key)) return;
 			seen.add(key);
-			terms.push(cleaned);
+			terms.push(sauber);
+		};
+
+		// 1. Zitierte Wendungen — danach ausgeblendet, damit ein "and" INNERHALB
+		// einer Wendung nicht als Operator gelesen und die Wendung nicht
+		// zusaetzlich in ihre Einzelwoerter zerlegt wird.
+		let rest = String(query || '').replace(/"([^"]*)"/g, (_, wendung) => {
+			merke(wendung);
+			return ' ';
+		});
+
+		// 2. Alles, was auf den Feldcode-Tafeln steht, faellt weg — mit den
+		// laengsten zuerst, sonst risse TITLE aus TITLE-ABS-KEY ein Bruchstueck
+		// heraus. Reine Zeichen (Klammern, Sternchen, "") sind nicht dabei; um
+		// die kuemmert sich die Zerlegung in Schritt 5.
+		for (const code of feldcodesNachLaenge()) {
+			rest = rest.split(code).join(' ');
+		}
+
+		// 3. Naeheoperatoren mit Zahl: W/3, PRE/2. Auf den Tafeln stehen sie als
+		// W/n und PRE/n, treffen also nicht auf sich selbst zu.
+		rest = rest.replace(/\b(?:W|PRE)\/\d+/gi, ' ');
+
+		// 4. Feldmarken in eckigen Klammern (PubMed) und uebriggebliebene
+		// Filtervorsaetze der Form `schluessel:`.
+		rest = rest.replace(/\[[^\]]*\]/g, ' ');
+		rest = rest.replace(/\b[a-zA-Z_][a-zA-Z0-9_.]*:(?:>|<)?/g, ' ');
+
+		// 5. Der Rest, Wort fuer Wort. Platzhalter (comput*, wom?n, colo#r) und
+		// Bindestriche gehoeren zum Wort; alles andere trennt. Ein einzelner
+		// Buchstabe ist kein Suchbegriff, sondern ein Ueberbleibsel.
+		for (const roh of rest.split(/[^A-Za-z0-9_*?#'.\u00C0-\u024F-]+/)) {
+			const wort = roh.replace(/^[^A-Za-z0-9*?#\u00C0-\u024F]+/, '')
+			                .replace(/[^A-Za-z0-9*?#\u00C0-\u024F]+$/, '');
+			if (wort.length < 2) continue;
+			merke(wort);
 		}
 
 		return terms;
