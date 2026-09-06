@@ -5766,13 +5766,6 @@ window.SLRViews = (() => {
             ${keyWarnHTML}
 
             <div class="search-actions">
-              ${isSearch
-                ? `<button class="btn-primary search-run-btn" id="search-cancel-btn">Cancel</button>`
-                : `<button class="btn-primary search-run-btn" id="search-run-btn" ${noKey ? 'disabled' : ''}>
-                     ${SLRIcons.search} Search
-                   </button>`
-              }
-
               <div class="search-field">
                 <label class="search-field-label" for="search-scope">Search in</label>
                 <select class="filter-select" id="search-scope" ${isSearch ? 'disabled' : ''}
@@ -5824,12 +5817,20 @@ window.SLRViews = (() => {
           </div>
           </div>
 
+          <div class="search-run-row">
+            ${isSearch
+              ? `<button class="btn-primary search-run-btn" id="search-cancel-btn">Cancel</button>`
+              : `<button class="btn-primary search-run-btn" id="search-run-btn" ${noKey ? 'disabled' : ''}>
+                   ${SLRIcons.search} Search
+                 </button>`
+            }
+          </div>
+
           <details class="search-drawer" data-drawer="field-codes"${fcOpen ? ' open' : ''}>
             <summary class="search-drawer-summary">
               ${SLRIcons.filter}
               <span class="search-drawer-title">Field codes</span>
               <span class="search-drawer-count">${fcCount}</span>
-              <span class="search-drawer-hint">click to insert at the cursor</span>
             </summary>
             <div class="search-drawer-body">
               <input class="form-input search-fc-filter" id="search-fc-filter" type="search"
@@ -5844,7 +5845,6 @@ window.SLRViews = (() => {
               ${SLRIcons.history}
               <span class="search-drawer-title">Saved terms</span>
               <span class="search-drawer-count">${sortedTerms.length}</span>
-              <span class="search-drawer-hint">from this project</span>
             </summary>
             <div class="search-drawer-body">
               <input class="form-input search-fc-filter" id="search-term-filter" type="search"
@@ -5983,10 +5983,19 @@ window.SLRViews = (() => {
       // Zeilen zurueck, was sich anfuehlt, als liesse es sich gar nicht ziehen.
       const HOEHE_KEY = 'slr-search-query-height';
       let selbstGesetzt = '';
+      // Ohne eine von Hand eingestellte Hoehe fuellt das Feld den Platz, den
+      // ihm die Spalte laesst — im Querformat also bis hinunter zum Suchknopf.
+      // Sobald jemand zieht, gilt seine Hoehe, und das Fuellen hoert auf.
+      const huelle = queryFeld.closest('.search-textarea-wrap');
+      let vonHand = false;
       try {
         const gemerkt = localStorage.getItem(HOEHE_KEY);
-        if (gemerkt && /^\d+px$/.test(gemerkt)) queryFeld.style.height = gemerkt;
+        if (gemerkt && /^\d+px$/.test(gemerkt)) {
+          queryFeld.style.height = gemerkt;
+          vonHand = true;
+        }
       } catch (_) { /* privates Fenster */ }
+      if (huelle) huelle.classList.toggle('is-manual', vonHand);
 
       // Ein Zug am Griff aendert die Hoehe, ohne dass ein Ereignis dafuer
       // ausgeloest wuerde — deshalb der Beobachter. Was wir selbst gesetzt
@@ -6007,6 +6016,8 @@ window.SLRViews = (() => {
       // gilt diese Grenze NICHT — deshalb steht sie hier und nicht als
       // max-height im Stylesheet, wo sie auch das Ziehen gedeckelt haette.
       const mitwachsen = () => {
+        // Im Fuellmodus bestimmt die Spalte die Hoehe, nicht der Inhalt.
+        if (huelle && !huelle.classList.contains('is-manual')) return;
         if (queryFeld.style.height && queryFeld.style.height !== selbstGesetzt) return;
         const grenze = Math.round(window.innerHeight * 0.45);
         queryFeld.style.height = 'auto';
@@ -6022,6 +6033,12 @@ window.SLRViews = (() => {
       if (griff) {
         let ziehtGerade = false, startY = 0, startH = 0;
         griff.addEventListener('pointerdown', ev => {
+          // Beim Zugbeginn aus dem Fuellmodus heraus: die aktuelle Hoehe
+          // festschreiben, sonst spraenge das Feld beim ersten Pixel.
+          if (huelle && !huelle.classList.contains('is-manual')) {
+            queryFeld.style.height = queryFeld.getBoundingClientRect().height + 'px';
+            huelle.classList.add('is-manual');
+          }
           ziehtGerade = true;
           startY = ev.clientY;
           startH = queryFeld.getBoundingClientRect().height;
@@ -6038,6 +6055,7 @@ window.SLRViews = (() => {
           if (!ziehtGerade) return;
           ziehtGerade = false;
           griff.classList.remove('is-dragging');
+          if (huelle) huelle.classList.add('is-manual');
           try { localStorage.setItem(HOEHE_KEY, queryFeld.style.height); } catch (_) { /* egal */ }
         };
         griff.addEventListener('pointerup', fertig);

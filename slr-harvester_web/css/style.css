@@ -5889,16 +5889,49 @@ a.db-link:visited {
     height: 100%;
   }
 
+  /* Zwei Zeilen: oben die Arbeitsflaeche, unten der Suchknopf. Die beiden
+     Nachschlagewerke reichen ueber beide Zeilen und damit bis ganz nach
+     unten; der Knopf steht unter der Abfrage, nicht unter ihnen. */
   .search-page {
     height: 100%;
+    grid-template-rows: minmax(0, 1fr) auto;
     align-items: stretch;
     overflow: hidden;
+  }
+
+  .search-page > .search-drawer[data-drawer="field-codes"],
+  .search-page > .search-drawer[data-drawer="past-terms"] {
+    grid-row: 1 / span 2;
+  }
+
+  .search-run-row {
+    grid-column: 2;
+    grid-row: 2;
+    padding-top: 12px;
   }
 
   .search-main {
     overflow-y: auto;
     min-height: 0;
     padding-right: 4px;
+  }
+
+  /* Der Abfragekasten fuellt die Spalte, und in ihm das Eingabefeld — bis
+     jemand es von Hand auf eine Hoehe zieht. */
+  .search-main > .search-composer {
+    flex: 1 1 auto;
+    min-height: 0;
+  }
+
+  .search-textarea-wrap:not(.is-manual) {
+    flex: 1 1 auto;
+    min-height: 90px;
+    display: flex;
+  }
+
+  .search-textarea-wrap:not(.is-manual) > .search-textarea {
+    flex: 1 1 auto;
+    height: auto;
   }
 
   /* Es scrollt die Schublade selbst, nicht ihr Koerper. Der naheliegende Weg
@@ -5940,6 +5973,17 @@ a.db-link:visited {
   grid-row: 1;
 }
 
+/* Beide Nachschlagewerke reichen ueber beide Rasterzeilen und damit bis ganz
+   nach unten; der Suchknopf sitzt in der zweiten Zeile unter der Abfrage.
+   Steht bewusst HINTER den Grundregeln darueber — sonst gewinnen deren
+   `grid-row: 1` bei gleicher Spezifitaet, weil sie spaeter kommen. */
+@media (min-width: 1024px) {
+  .search-page > .search-drawer[data-drawer="field-codes"],
+  .search-page > .search-drawer[data-drawer="past-terms"] {
+    grid-row: 1 / span 2;
+  }
+}
+
 /* Unterhalb dieser Breite tragen drei Spalten nicht mehr — die Seitenspalten
    wuerden schmaler als ihre eigenen Chips. Dann steht der Editor ueber die
    volle Breite und die beiden Nachschlagewerke teilen sie sich darunter zur
@@ -5965,6 +6009,13 @@ a.db-link:visited {
     grid-column: 2;
     grid-row: 2;
   }
+
+  /* Im Hochformat steht der Suchknopf unter BEIDEN Nachschlagewerken, ueber
+     die volle Breite. */
+  .search-run-row {
+    grid-column: 1 / -1;
+    grid-row: 3;
+  }
 }
 
 /* Bei drei Spalten wird es fuer die Seitenspalten eng — sie duerfen schmaler
@@ -5984,6 +6035,11 @@ a.db-link:visited {
     flex-direction: column;
     gap: 14px;
   }
+  /* Gestapelt zaehlt die Dokumentreihenfolge, und in der steht der Knopf
+     gleich hinter der Abfrage. Er gehoert aber ans Ende. */
+  .search-main    { order: 1; }
+  .search-drawer  { order: 2; }
+  .search-run-row { order: 3; }
 }
 
 .search-step {
@@ -6048,7 +6104,11 @@ a.db-link:visited {
 
 .search-drawer-summary::after {
   content: '';
-  margin-left: auto;
+  /* Fester Abstand statt auto: Mit zwei auto-Raendern in derselben Zeile
+     teilen sich Zahl und Pfeil den freien Platz, und die Zahl landet
+     irgendwo in der Mitte statt rechts. Den Platz nimmt jetzt allein die
+     Zahl (margin-left: auto an .search-drawer-count). */
+  margin-left: 8px;
   width: 7px;
   height: 7px;
   border-right: 1.6px solid var(--text-faint);
@@ -6082,6 +6142,10 @@ a.db-link:visited {
 }
 
 .search-drawer-count {
+  /* Ganz nach rechts: Der erklaerende Zusatz daneben ist entfallen, damit
+     „Field codes" und „Saved terms" in einer Zeile bleiben; die Zahl steht
+     jetzt am Ende der Zeile statt gleich hinter dem Titel. */
+  margin-left: auto;
   font-size: 11px;
   font-weight: 700;
   color: var(--text-muted);
@@ -6090,13 +6154,6 @@ a.db-link:visited {
   padding: 1px 8px;
 }
 
-.search-drawer-hint {
-  font-size: 11.5px;
-  color: var(--text-faint);
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
 
 .search-drawer-body {
   border-top: 1px solid var(--border);
@@ -6572,11 +6629,6 @@ a.db-link:visited {
     min-height: 44px;
   }
 
-  /* Der Hinweistext neben dem Schubladentitel ist auf schmalen Schirmen
-     das Erste, was weichen darf. */
-  .search-drawer-hint {
-    display: none;
-  }
 
   .search-drawer-body {
     max-height: 300px;
@@ -6668,44 +6720,47 @@ a.db-link:visited {
   resize: none;
 }
 
+/* Die Greifflaeche ist absichtlich groesser als das, was man sieht — 22px
+   sind fuer einen Finger knapp, 14px sichtbare Striche waeren fuer das Auge
+   zu viel. Deshalb ein grosses Feld ohne eigene Zeichnung und darin ein
+   kleines Eck. */
 .search-textarea-grip {
   position: absolute;
-  right: 2px;
-  bottom: 2px;
-  width: 22px;
-  height: 22px;
+  right: 3px;
+  bottom: 3px;
+  width: 24px;
+  height: 24px;
   cursor: ns-resize;
   touch-action: none;
-  border-radius: 0 0 var(--radius, 6px) 0;
 }
 
-/* Zwei Striche, wie man sie von einem Ziehgriff kennt. */
-.search-textarea-grip::before,
+/* Das Eck selbst: schraege Striche, an der Ecke abgeschnitten. Vorher waren
+   es zwei gedrehte Kaesten mit transform-origin an der rechten Kante — die
+   Drehung schob sie ueber den Rand des Feldes hinaus, sichtbar als zwei
+   Balken, die aus der Ecke ragten. Ein Streifenmuster mit Dreiecksbeschnitt
+   kann das nicht passieren. */
 .search-textarea-grip::after {
   content: '';
   position: absolute;
-  right: 4px;
-  height: 1.5px;
-  background: var(--text-muted);
-  transform: rotate(-45deg);
-  transform-origin: right center;
+  right: 2px;
+  bottom: 2px;
+  width: 13px;
+  height: 13px;
+  background: repeating-linear-gradient(
+    -45deg,
+    var(--text-faint) 0 1.5px,
+    transparent 1.5px 4px
+  );
+  clip-path: polygon(100% 0, 100% 100%, 0 100%);
 }
 
-.search-textarea-grip::before {
-  bottom: 7px;
-  width: 11px;
-}
-
-.search-textarea-grip::after {
-  bottom: 11px;
-  width: 6px;
-}
-
-.search-textarea-grip:hover::before,
 .search-textarea-grip:hover::after,
-.search-textarea-grip.is-dragging::before,
 .search-textarea-grip.is-dragging::after {
-  background: var(--accent);
+  background: repeating-linear-gradient(
+    -45deg,
+    var(--accent) 0 1.5px,
+    transparent 1.5px 4px
+  );
 }
 
 /* ── Actions row ── */
@@ -6716,10 +6771,15 @@ a.db-link:visited {
   flex-wrap: wrap;
 }
 
-/* Der Suchknopf traegt keine Beschriftung darueber und saesse sonst zwei
-   Pixel tiefer als die beschrifteten Felder daneben. */
-.search-actions > .search-run-btn {
-  margin-bottom: 1px;
+/* Eigene Zeile, volle Breite der Spalte. */
+.search-run-row {
+  display: flex;
+}
+
+.search-run-row > .search-run-btn {
+  flex: 1;
+  min-height: 40px;
+  justify-content: center;
 }
 
 .search-run-btn {
@@ -6932,20 +6992,39 @@ a.db-link:visited {
 
 /* Der Syntaxkasten bekommt dieselbe Anordnung wie der andere, damit sein x
    rechts sitzt und das Symbol dieselbe Farbe traegt. */
-.search-db-hint > svg {
+/* Symbol, Text und x sitzen auf derselben Grundlinie ausgerichtet und ohne
+   Zusatzabstaende. Vorher hob ein margin-top am Symbol und ein padding-top am
+   Text den Inhalt an, sodass oben weniger Luft blieb als unten — bei einem
+   einzeiligen Kasten deutlich sichtbar. Jetzt bestimmt allein der
+   Innenabstand des Kastens den Abstand nach oben und unten. */
+.search-db-hint > svg,
+.search-notice-info > svg {
   color: var(--accent);
   flex-shrink: 0;
-  margin-top: 2px;
+  width: 15px;
+  height: 15px;
+  margin: 0;
 }
 
-/* Der Text traegt in beiden Kaesten dieselbe Zeilenhoehe und denselben
-   Abstand nach oben und unten. */
 .search-db-hint > span,
 .search-notice-info > span {
   flex: 1;
   min-width: 0;
-  line-height: 1.55;
-  padding-top: 1px;
+  line-height: 1.5;
+  padding: 0;
+}
+
+/* Die drei Teile mittig zueinander — bei einer Zeile heisst das: alles auf
+   einer Hoehe, und der Kasten ist genau so hoch wie diese eine Zeile plus
+   Innenabstand. */
+.search-db-hint,
+.search-notice-info {
+  align-items: center;
+}
+
+.search-hint-close {
+  align-self: center;
+  margin-top: 0;
 }
 
 /* Ein Knopf, der anzeigt, ob gerade etwas offen ist. */
