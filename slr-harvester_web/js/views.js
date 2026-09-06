@@ -5715,19 +5715,19 @@ window.SLRViews = (() => {
                    </button>`
               }
 
-              <label class="search-scope-field" for="search-scope">
-                <span>Search in</span>
+              <div class="search-field">
+                <label class="search-field-label" for="search-scope">Search in</label>
                 <select class="filter-select" id="search-scope" ${isSearch ? 'disabled' : ''}
                         title="OpenAlex only. Narrower fields return fewer but far more precise hits.">
                   ${OPENALEX_SCOPES.map(o =>
                     `<option value="${o.wert}"${scopeVal === o.wert ? ' selected' : ''}>${o.label}</option>`
                   ).join('')}
                 </select>
-              </label>
+              </div>
 
-              <label class="search-scope-field" for="search-year-from">
-                <span>Years</span>
-                <span class="search-year-pair">
+              <div class="search-field">
+                <label class="search-field-label" for="search-year-from">Years</label>
+                <div class="search-year-pair">
                   <input class="form-input search-year-input" id="search-year-from" type="number" inputmode="numeric"
                     min="1800" max="2100" placeholder="from" value="${esc(String(yearFromVal))}"
                     ${isSearch ? 'disabled' : ''}>
@@ -5735,12 +5735,12 @@ window.SLRViews = (() => {
                   <input class="form-input search-year-input" id="search-year-to" type="number" inputmode="numeric"
                     min="1800" max="2100" placeholder="to" value="${esc(String(yearToVal))}"
                     ${isSearch ? 'disabled' : ''}>
-                </span>
-              </label>
+                </div>
+              </div>
 
-              <label class="search-scope-field search-max-wrap" for="search-max">
-                <span>Max results</span>
-                <span class="search-max-stepper">
+              <div class="search-field">
+                <label class="search-field-label" for="search-max">Max results</label>
+                <div class="search-max-stepper">
                   <button type="button" class="search-step-btn" data-step="-1"
                           aria-label="Lower the result limit" ${isSearch ? 'disabled' : ''}>&minus;</button>
                   <input class="form-input" id="search-max" type="number"
@@ -5749,16 +5749,17 @@ window.SLRViews = (() => {
                     ${isSearch ? 'disabled' : ''}>
                   <button type="button" class="search-step-btn" data-step="1"
                           aria-label="Raise the result limit" ${isSearch ? 'disabled' : ''}>+</button>
-                </span>
-              </label>
-
-              <button type="button" class="search-hint-btn" id="search-hint-btn"
-                      aria-label="Why the result limit is not a selection criterion"
-                      title="Why the result limit is not a selection criterion">i</button>
+                  <button type="button" class="search-hint-btn" id="search-hint-btn"
+                          aria-expanded="${hinweisWeg ? 'false' : 'true'}"
+                          aria-controls="search-hint"
+                          aria-label="Show or hide the note on result limits"
+                          title="Show or hide the note on result limits">i</button>
+                </div>
+              </div>
             </div>
 
-            ${statusHTML}
             ${rechercheHinweis}
+            ${statusHTML}
           </div>
           </div>
 
@@ -5917,10 +5918,15 @@ window.SLRViews = (() => {
     const queryFeld = container.querySelector('#search-query');
     if (queryFeld) {
       let selbstGesetzt = '';
+      // Das Mitwachsen hoert bei knapp der halben Fensterhoehe auf, sonst
+      // schoebe eine sehr lange Abfrage den Suchknopf aus dem Bild. Von Hand
+      // gilt diese Grenze NICHT — deshalb steht sie hier und nicht als
+      // max-height im Stylesheet, wo sie auch das Ziehen gedeckelt haette.
       const mitwachsen = () => {
         if (queryFeld.style.height && queryFeld.style.height !== selbstGesetzt) return;
+        const grenze = Math.round(window.innerHeight * 0.45);
         queryFeld.style.height = 'auto';
-        queryFeld.style.height = queryFeld.scrollHeight + 'px';
+        queryFeld.style.height = Math.min(queryFeld.scrollHeight, grenze) + 'px';
         selbstGesetzt = queryFeld.style.height;
       };
       queryFeld.addEventListener('input', mitwachsen);

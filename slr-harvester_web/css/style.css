@@ -6249,12 +6249,27 @@ a.db-link:visited {
 /* ── Suchmaske: Suchraum, Zeitraum, Obergrenze ──
    Alles in der Aktionszeile. Die Jahresfelder fassen vier Ziffern und
    brauchten nie eine eigene Zeile. */
-.search-scope-field {
+.search-field {
   display: flex;
   flex-direction: column;
   gap: 4px;
+}
+
+.search-field-label {
   font-size: 12px;
   color: var(--text-muted);
+}
+
+/* Eine Hoehe fuer alles in dieser Zeile. .filter-select, .form-input und die
+   eigenen Knoepfe bringen je eigene Innenabstaende mit und standen deshalb
+   auf drei verschiedenen Hoehen. */
+.search-actions .filter-select,
+.search-actions .form-input,
+.search-actions .search-step-btn,
+.search-actions .search-hint-btn,
+.search-actions .search-run-btn {
+  height: 36px;
+  box-sizing: border-box;
 }
 
 /* So breit, dass der laengste Eintrag hineinpasst — „Everything (title,
@@ -6264,8 +6279,11 @@ a.db-link:visited {
   /* Nachgemessen statt geschaetzt: Der laengste Eintrag ist 195px breit, dazu
      kommen Innenabstand und Pfeil. 30ch ergaben 210px und schnitten ihn knapp
      ab — die ch-Einheit richtet sich nach der Ziffernbreite, und die ist hier
-     schmaler als der Buchstabendurchschnitt. */
-  min-width: 34ch;
+     schmaler als der Buchstabendurchschnitt.
+
+     Als px und nicht als ch, damit die Breite auch dann reicht, wenn die
+     Zeile umbricht und ch sich an einer anderen Schriftgroesse orientiert. */
+  min-width: 240px;
 }
 
 .search-year-pair {
@@ -6334,12 +6352,12 @@ a.db-link:visited {
   cursor: not-allowed;
 }
 
-/* ── Infoknopf und wegklickbarer Hinweis ── */
+/* ── Infoknopf und wegklickbarer Hinweis ──
+   Der Knopf steht im selben Kasten wie die Obergrenze, weil er sie erklaert. */
 .search-hint-btn {
-  align-self: flex-end;
-  width: 26px;
-  height: 26px;
+  width: 36px;
   border-radius: 50%;
+  margin-left: 4px;
   border: 1px solid var(--border);
   background: var(--surface-2);
   color: var(--text-muted);
@@ -6376,19 +6394,53 @@ a.db-link:visited {
   height: 14px;
 }
 
-/* Am Telefon bricht die Aktionszeile ohnehin um; dann soll jedes Feld eine
-   ganze Zeile bekommen — ausser den Jahren, die zu zweit in eine passen. */
+/* Zwischen 640 und 900px bricht die Aktionszeile um, bleibt aber eine Zeile:
+   Der Suchknopf nimmt die volle Breite, die Felder ordnen sich darunter. Die
+   Auswahlliste behaelt dabei ihre Mindestbreite — sie passt bei 640px
+   dreifach in die Zeile, es gibt also keinen Grund, sie abzuschneiden. */
 @media (max-width: 900px) {
-  .search-actions {
+  .search-composer .search-actions {
     gap: 10px;
+    align-items: flex-end;
   }
-  .search-actions > .search-run-btn,
-  .search-actions > .search-scope-field:not(.search-max-wrap) {
+  .search-actions > .search-run-btn {
     flex: 1 1 100%;
   }
+  .search-actions > .search-field {
+    flex: 0 1 auto;
+  }
+}
+
+/* Erst hier wird gestapelt: Zwei Felder nebeneinander waeren schmaler als
+   ihre eigene Beschriftung. Dann bekommt jedes eine ganze Zeile, und alle
+   Bedienelemente wachsen auf Fingergroesse. */
+@media (max-width: 640px) {
+  .search-composer .search-actions {
+    flex-direction: column;
+    align-items: stretch;
+  }
+  .search-actions > .search-field {
+    flex: 1 1 auto;
+  }
+  /* .filter-select bringt ein max-width: 170px mit — sinnvoll fuer die kurzen
+     Auswahllisten in den Listenansichten, hier aber genau die Deckelung, die
+     den laengsten Eintrag abschneidet. */
   #search-scope {
     min-width: 0;
     width: 100%;
+    max-width: none;
+  }
+  .search-actions .filter-select,
+  .search-actions .form-input,
+  .search-actions .search-step-btn,
+  .search-actions .search-hint-btn {
+    height: 44px;
+  }
+  .search-max-stepper {
+    justify-content: flex-start;
+  }
+  .search-max-stepper input {
+    flex: 1;
   }
 }
 
@@ -6474,23 +6526,15 @@ a.db-link:visited {
     padding: 12px;
   }
 
-  /* Auf dem Telefon zaehlt die Antwortflaeche: der Suchknopf ueber die
-     volle Breite, die Obergrenze darunter. */
-  .search-actions {
-    flex-direction: column;
-    align-items: stretch;
-  }
-
+  /* Der Suchknopf ueber die volle Breite. Das Umlegen der ganzen Zeile in
+     eine Spalte steht weiter unten und gilt erst ab 640px — auf einem Tablet
+     im Hochformat ist dafuer noch reichlich Platz. */
   .search-run-btn {
     width: 100%;
     min-height: 44px;
     justify-content: center;
   }
 
-  .search-max-wrap {
-    margin-left: 0;
-    justify-content: space-between;
-  }
 
   .search-drawer-summary {
     min-height: 44px;
@@ -6547,10 +6591,9 @@ a.db-link:visited {
 
 .search-textarea {
   width: 100%;
-  /* Obergrenze fuers automatische Mitwachsen (siehe wireQueryAutogrow in
-     views.js). Ohne sie schoebe eine sehr lange Abfrage den Suchknopf aus
-     dem Bild. */
-  max-height: 45vh;
+  /* Keine max-height hier: Sie wuerde auch das Ziehen von Hand deckeln. Die
+     Obergrenze gilt nur fuers automatische Mitwachsen und steht deshalb in
+     views.js. */
   /* Zwei Zeilen als Ausgangshoehe (rows="2" in views.js). Die meisten Abfragen
      sind kurz; wer eine lange schreibt, zieht das Feld am Griff auf. Die
      frueheren 220px Mindesthoehe haben resize: vertical praktisch ausgehebelt,
@@ -6575,6 +6618,15 @@ a.db-link:visited {
   border-color: var(--accent);
 }
 
+/* Der Ziehgriff unten rechts ist in der dunklen Fassung praktisch unsichtbar.
+   Zwei Striche machen sichtbar, dass man das Feld hier groesser und kleiner
+   ziehen kann — auch wenn es nur zwei Zeilen hoch ist. */
+.search-textarea::-webkit-resizer {
+  border-width: 7px;
+  border-style: solid;
+  border-color: transparent var(--text-muted) var(--text-muted) transparent;
+}
+
 /* ── Actions row ── */
 .search-actions {
   display: flex;
@@ -6595,19 +6647,7 @@ a.db-link:visited {
   gap: 7px;
 }
 
-.search-max-wrap {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  margin-left: auto;
-  font-size: 13px;
-  color: var(--text-muted);
-  cursor: pointer;
-}
 
-.search-max-wrap input {
-  width: 92px;
-}
 
 /* ── Progress ── */
 .search-progress-wrap {
