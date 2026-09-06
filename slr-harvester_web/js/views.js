@@ -5673,6 +5673,7 @@ window.SLRViews = (() => {
       <div class="search-view">
         <div class="search-page">
 
+          <div class="search-main">
           <div class="search-step">
             <div class="search-step-label">Source</div>
             <div class="search-db-tabs" id="search-db-tabs">${tabsHTML}</div>
@@ -5684,7 +5685,7 @@ window.SLRViews = (() => {
               <span class="search-composer-syntax">${esc(DB_SYNTAX_NAMES[db] || '')}</span>
             </div>
 
-            <textarea class="search-textarea" id="search-query" rows="8"
+            <textarea class="search-textarea" id="search-query" rows="2"
               placeholder="${esc(placeholder)}"
               ${isSearch ? 'disabled' : ''}>${esc(query)}</textarea>
 
@@ -5736,6 +5737,7 @@ window.SLRViews = (() => {
 
             ${statusHTML}
             ${rechercheHinweis}
+          </div>
           </div>
 
           <details class="search-drawer" data-drawer="field-codes"${fcOpen ? ' open' : ''}>

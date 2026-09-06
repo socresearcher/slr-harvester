@@ -5845,13 +5845,52 @@ a.db-link:visited {
   display: block;
 }
 
+/* Drei Spalten, sobald Platz ist: Feldcodes links, Editor in der Mitte,
+   gespeicherte Begriffe rechts. Beide Seitenspalten sind Nachschlagewerke
+   zum Eingabefeld — untereinander gestapelt hat man sie beim Tippen nicht
+   vor Augen, und genau dann braucht man sie.
+
+   Keine Breitenbegrenzung: Mit max-width stand diese Ansicht als einzige
+   eingerueckt da, waehrend jeder andere Reiter von Rand zu Rand geht.
+
+   Die Zuweisung erfolgt ueber grid-column und nicht ueber die
+   Dokumentreihenfolge, weil die im Dokument mit dem Editor beginnt — so
+   steht auf dem Telefon ohne Umsortierung das Wichtigste oben. */
 .search-page {
-  max-width: 980px;
-  margin: 0 auto;
   padding: 18px 24px 40px;
+  display: grid;
+  grid-template-columns: minmax(230px, 260px) minmax(0, 1fr) minmax(240px, 300px);
+  align-items: start;
+  gap: 18px;
+}
+
+.search-main {
+  grid-column: 2;
+  grid-row: 1;
   display: flex;
   flex-direction: column;
   gap: 18px;
+  min-width: 0;
+}
+
+.search-page > .search-drawer[data-drawer="field-codes"] {
+  grid-column: 1;
+  grid-row: 1;
+}
+
+.search-page > .search-drawer[data-drawer="past-terms"] {
+  grid-column: 3;
+  grid-row: 1;
+}
+
+/* Unterhalb dieser Breite tragen drei Spalten nicht mehr — die Seitenspalten
+   wuerden schmaler als ihre eigenen Chips. Dann untereinander, Editor zuerst. */
+@media (max-width: 1180px) {
+  .search-page {
+    display: flex;
+    flex-direction: column;
+    gap: 16px;
+  }
 }
 
 .search-step {
@@ -6327,7 +6366,11 @@ a.db-link:visited {
 
 .search-textarea {
   width: 100%;
-  min-height: 220px;
+  /* Zwei Zeilen als Ausgangshoehe (rows="2" in views.js). Die meisten Abfragen
+     sind kurz; wer eine lange schreibt, zieht das Feld am Griff auf. Die
+     frueheren 220px Mindesthoehe haben resize: vertical praktisch ausgehebelt,
+     weil man nicht unter sie zurueckkonnte. */
+  min-height: 0;
   resize: vertical;
   background: var(--surface);
   border: 1px solid var(--border);
