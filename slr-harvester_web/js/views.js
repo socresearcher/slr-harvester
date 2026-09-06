@@ -5640,13 +5640,15 @@ window.SLRViews = (() => {
   function renderSearch(container, projectData, settings, search) {
     const db       = (search && search.db) || 'scopus';
     const query    = (search && search.query) || '';
-    const maxRes   = (search && search.maxResults) || 500;
+    // null heisst: keine Obergrenze; dann bleibt das Feld leer und der
+    // Platzhalter sagt, was das bedeutet.
+    const maxRes   = (search && search.maxResults !== undefined)
+      ? (search.maxResults === null ? '' : search.maxResults)
+      : 500;
     const scopeVal    = (search && search.scope) || 'all';
     const yearFromVal = (search && search.yearFrom) || '';
     const yearToVal   = (search && search.yearTo)   || '';
     const isSearch = !!(search && search.isSearching);
-    const progress = (search && search.progress) || 0;
-    const progMsg  = (search && search.progressMsg) || '';
     const errMsg   = (search && search.error) || '';
     const lastCnt  = search && search.lastCount != null ? search.lastCount : null;
 
@@ -5713,13 +5715,15 @@ window.SLRViews = (() => {
       : '';
 
     // Progress / status
+    //
+    // Waehrend des Laufs steht hier nichts mehr: Der Fortschritt wird in der
+    // Fussleiste gezeigt — mit Ladekreis, Prozentzahl und "x von y" —, und
+    // zwar in jeder Ansicht, nicht nur auf dieser Seite. Ein zweiter Balken
+    // an dieser Stelle waere dieselbe Auskunft ein zweites Mal, nur
+    // ungenauer.
     let statusHTML = '';
     if (isSearch) {
-      statusHTML = `
-        <div class="search-progress-wrap">
-          <div class="search-progress-track"><div class="search-progress-bar" style="width:${progress}%"></div></div>
-          <div class="search-progress-msg">${esc(progMsg)}</div>
-        </div>`;
+      statusHTML = '';
     } else if (errMsg) {
       statusHTML = `<div class="search-notice search-notice-error">${SLRIcons.warning}<span>${esc(errMsg)}</span></div>`;
     } else if (lastCnt !== null) {
@@ -5837,7 +5841,8 @@ window.SLRViews = (() => {
                   <button type="button" class="search-step-btn" data-step="-1"
                           aria-label="Lower the result limit" ${isSearch ? 'disabled' : ''}>&minus;</button>
                   <input class="form-input" id="search-max" type="number"
-                    min="1" max="10000" step="50"
+                    min="1" max="10000" step="50" placeholder="No limit"
+                    title="Leave empty for no limit — everything the database returns"
                     value="${esc(String(maxRes))}"
                     ${isSearch ? 'disabled' : ''}>
                   <button type="button" class="search-step-btn" data-step="1"
@@ -6148,18 +6153,30 @@ window.SLRViews = (() => {
     // Zahlenfeld von sich aus gar nichts.
     const maxFeld = container.querySelector('#search-max');
     if (maxFeld) {
-      const SCHRITT = 50, MIN = 1, MAX = 10000;
+      const SCHRITT = 50, MIN = 1, MAX = 10000, VORGABE = 500;
       const setze = (wert) => {
         const n = Math.max(MIN, Math.min(MAX, Math.round(wert)));
         maxFeld.value = String(n);
         maxFeld.dispatchEvent(new Event('change', { bubbles: true }));
       };
-      const jetzt = () => parseInt(maxFeld.value, 10) || 500;
+      const leer = () => String(maxFeld.value).trim() === '';
+      const jetzt = () => parseInt(maxFeld.value, 10) || VORGABE;
+
+      // Aus dem leeren Feld heraus — also aus "keine Obergrenze" — fuehrt nur
+      // der Weg nach unten: Ueber "alles" hinaus gibt es nichts, also tut das
+      // Plus dort nichts, und das Minus setzt die Vorgabe.
+      const schritt = (richtung) => {
+        if (leer()) {
+          if (richtung < 0) setze(VORGABE);
+          return;
+        }
+        setze(jetzt() + SCHRITT * richtung);
+      };
 
       container.querySelectorAll('.search-step-btn').forEach(btn => {
         btn.addEventListener('click', () => {
           if (maxFeld.disabled) return;
-          setze(jetzt() + SCHRITT * (parseInt(btn.dataset.step, 10) || 1));
+          schritt(parseInt(btn.dataset.step, 10) || 1);
         });
       });
 
@@ -6169,7 +6186,7 @@ window.SLRViews = (() => {
       maxFeld.addEventListener('wheel', (ev) => {
         if (maxFeld.disabled) return;
         ev.preventDefault();
-        setze(jetzt() + (ev.deltaY < 0 ? SCHRITT : -SCHRITT));
+        schritt(ev.deltaY < 0 ? 1 : -1);
       }, { passive: false });
     }
 
@@ -6235,7 +6252,11 @@ window.SLRViews = (() => {
         SLRApp.state.search.scope    = scopeSel ? scopeSel.value : 'all';
         SLRApp.state.search.yearFrom = jahr('#search-year-from');
         SLRApp.state.search.yearTo   = jahr('#search-year-to');
-        SLRApp.executeSearch(q, max ? parseInt(max.value) || 500 : 500, SLRApp.state.search.db);
+        // Leeres Feld heisst: keine Obergrenze. Deshalb null statt einer
+        // Ersatzzahl — executeSearch unterscheidet beides.
+        const rohGrenze = max ? String(max.value).trim() : '';
+        const grenze = rohGrenze === '' ? null : (parseInt(rohGrenze, 10) || null);
+        SLRApp.executeSearch(q, grenze, SLRApp.state.search.db);
       });
     }
 

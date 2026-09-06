@@ -6938,30 +6938,16 @@ a.db-link:visited {
 
 
 
-/* ── Progress ── */
-.search-progress-wrap {
-  display: flex;
-  flex-direction: column;
-  gap: 5px;
-}
+/* Der eigene Fortschrittsbalken der Suchansicht ist entfallen: Der Lauf
+   meldet sich jetzt in derselben Fussleiste wie das Nachladen von Metadaten,
+   und die ist in jeder Ansicht zu sehen, nicht nur auf der Suchseite. */
 
-.search-progress-track {
-  height: 4px;
-  background: var(--surface-2);
-  border-radius: 2px;
-  overflow: hidden;
-}
-
-.search-progress-bar {
-  height: 100%;
-  background: var(--accent);
-  border-radius: 2px;
-  transition: width .35s ease;
-}
-
-.search-progress-msg {
-  font-size: 12px;
-  color: var(--text-muted);
+/* Solange die Fussleiste steht, endet der Inhalt darueber statt darunter.
+   Ohne das lag sie ueber dem, was am unteren Rand steht — im Suchlauf ueber
+   dem Abbruchknopf, also ueber der einzigen Schaltflaeche, die waehrend eines
+   Laufs noch gebraucht wird. */
+body.has-progress-footer #view-container {
+  padding-bottom: 76px;
 }
 
 /* ── Fetch progress overlay ─────────────────────────────────────────────── */
@@ -7060,6 +7046,43 @@ a.db-link:visited {
   background: var(--accent);
   border-radius: 3px;
   transition: width .2s ease;
+}
+
+/* Solange nicht feststeht, wie viel insgesamt kommt — beim Anlaufen einer
+   Suche etwa, bevor die Datenbank ihre Trefferzahl genannt hat —, laeuft ein
+   Band durch den Balken und der Ring dreht sich. Eine Prozentzahl steht dann
+   nicht da: Sie waere geraten. */
+.fetch-progress-overlay.is-indeterminate .fpo-bar {
+  width: 35%;
+  transition: none;
+  animation: fpo-band 1.1s ease-in-out infinite;
+}
+
+.fetch-progress-overlay.is-indeterminate .fpo-ring-progress {
+  transform-origin: 22px 22px;
+  animation: fpo-dreh 1s linear infinite;
+}
+
+@keyframes fpo-band {
+  0%   { transform: translateX(-100%); }
+  100% { transform: translateX(285%); }
+}
+
+@keyframes fpo-dreh {
+  to { transform: rotate(360deg); }
+}
+
+/* Wer Bewegung abgestellt hat, bekommt einen ruhenden Balken statt eines
+   laufenden Bandes — sichtbar, dass etwas anliegt, ohne Bewegung. */
+@media (prefers-reduced-motion: reduce) {
+  .fetch-progress-overlay.is-indeterminate .fpo-bar,
+  .fetch-progress-overlay.is-indeterminate .fpo-ring-progress {
+    animation: none;
+  }
+  .fetch-progress-overlay.is-indeterminate .fpo-bar {
+    width: 100%;
+    opacity: .45;
+  }
 }
 
 /* ── Notice boxes ── */
@@ -7187,12 +7210,6 @@ a.db-link:visited {
 
 .search-notice-info strong {
   color: var(--text);
-}
-
-@media (prefers-reduced-motion: no-preference) {
-  .search-progress-bar {
-    transition: width .35s ease;
-  }
 }
 
 /* ══════════════════════════════════════════════════════════════
