@@ -144,6 +144,14 @@ window.SLRApp = (() => {
 		search: {
 			query: '',
 			maxResults: 500,
+			// Gesamttreffer laut Datenbank, unabhaengig von maxResults. null,
+			// solange keine Suche lief oder die Quelle keine Zahl liefert.
+			lastTotal: null,
+			// 'all' durchsucht auch Volltexte (OpenAlex-Vorgabe), 'titleabs'
+			// nur Titel und Abstract.
+			scope: 'all',
+			yearFrom: '',
+			yearTo: '',
 			isSearching: false,
 			abortController: null,
 			progress: 0,
@@ -484,6 +492,12 @@ window.SLRApp = (() => {
 
 	function renderCurrentView() {
 		if (!_container) return;
+		// Tags und Auto-Tag Rules sind seit 06.09.2026 keine eigenen Ansichten
+		// mehr, sondern eine Gruppe innerhalb der Einstellungen. Die Namen
+		// bleiben gueltige Sprungziele: Der Kurzweg aus den Visualisierungen
+		// zeigt darauf, und eine aus der letzten Sitzung gemerkte Ansicht kann
+		// es ebenfalls tun.
+		if (state.view === 'tags' || state.view === 'autotag-rules') state.view = 'settings';
 		const uiStateSnapshot = captureViewUiState();
 		SLRAppUI.updateTopbar(state, {
 			viewTitle: _viewTitle,
@@ -538,6 +552,18 @@ window.SLRApp = (() => {
 					fetchMode: state.fetchMode,
 					folderName: state.folderName,
 				});
+				// Tags sitzen jetzt in den Einstellungen. Sie werden nach
+				// renderSettings in den dort vorgesehenen Platz gezeichnet, weil
+				// sie Projektdaten brauchen, die die Einstellungen selbst nicht
+				// fuehren — und auch nicht fuehren sollten.
+				{
+					const tagsPlatz = _container.querySelector('#settings-tags-mount');
+					if (tagsPlatz) {
+						SLRViews.renderTags(tagsPlatz, state.articles, state.projectData,
+							getAutoTagRules(), Array.isArray(state.autoTagRules),
+							state.folderName, { eingebettet: true });
+					}
+				}
 				break;
 			case 'workspace':
 				SLRViews.renderWorkspace(_container, { folderName: state.folderName });
@@ -551,10 +577,7 @@ window.SLRApp = (() => {
 			case 'privacy':
 				SLRViews.renderPrivacy(_container);
 				break;
-			case 'tags':
-			case 'autotag-rules': // legacy nav target — Auto-Tag Rules now lives inside Tags
-				SLRViews.renderTags(_container, state.articles, state.projectData, getAutoTagRules(), Array.isArray(state.autoTagRules), state.folderName);
-				break;
+
 			default:
 				SLRViews.renderError(_container, `Unknown view: ${state.view}`);
 				break;
@@ -569,6 +592,11 @@ window.SLRApp = (() => {
 		// open would silently do nothing, stuck showing the same panel.
 		// openProjectDetail() is the only intentional way into that panel.
 		if (view === 'projects') state.projectsDetailFolder = null;
+		// Wer gezielt zu den Tags springt, soll sie offen vorfinden und nicht
+		// erst in den Einstellungen danach suchen muessen.
+		if (view === 'tags' || view === 'autotag-rules') {
+			try { SLRViews.rememberSectionOpen(view === 'tags' ? 'tags-tags' : 'tags-autotag', true); } catch (e) { /* Speicher gesperrt */ }
+		}
 		state.view = view;
 		renderCurrentView();
 		persistActiveProjectView();
@@ -1487,10 +1515,27 @@ window.SLRApp = (() => {
 		localStorage.setItem('slr-openalex-key', openAlexKey);
 		localStorage.setItem('slr-openalex-email', openAlexEmail);
 		const url = new URL('https://api.openalex.org/works');
+		// Zusatzfilter aus der Suchmaske: Zeitraum und Feldbereich. Sie kommen
+		// als filter-Bestandteile, weil OpenAlex sie nur dort kennt.
+		const zusatz = [];
+		const vonJahr = String(state.search.yearFrom || '').trim();
+		const bisJahr = String(state.search.yearTo   || '').trim();
+		if (/^\d{4}$/.test(vonJahr)) zusatz.push(`from_publication_date:${vonJahr}-01-01`);
+		if (/^\d{4}$/.test(bisJahr)) zusatz.push(`to_publication_date:${bisJahr}-12-31`);
+
 		if (query.includes(':') && query.includes(',')) {
-			url.searchParams.set('filter', query);
+			url.searchParams.set('filter', [query].concat(zusatz).join(','));
+		} else if (state.search.scope === 'titleabs') {
+			// Titel und Abstract statt allem: Fuer eine systematische Recherche
+			// ist das der gemeinte Suchraum. Gemessen an einer Beispielabfrage
+			// stehen 2.418 Treffer gegen 88.702, weil `search=` auch Volltexte
+			// durchsucht. Kommata im Suchtext wuerden den Filter zersaegen und
+			// werden deshalb zu Leerzeichen.
+			const sicher = query.replace(/,/g, ' ');
+			url.searchParams.set('filter', [`title_and_abstract.search:${sicher}`].concat(zusatz).join(','));
 		} else {
 			url.searchParams.set('search', query);
+			if (zusatz.length) url.searchParams.set('filter', zusatz.join(','));
 		}
 		url.searchParams.set('per-page', String(options.perPage || 200));
 		if (options.cursor) url.searchParams.set('cursor', options.cursor);
@@ -1802,6 +1847,13 @@ window.SLRApp = (() => {
 			}
 
 			const rows = (data && data.results) || [];
+			// Wie viele Arbeiten OpenAlex insgesamt zu dieser Abfrage kennt —
+			// unabhaengig davon, wie viele davon abgeholt werden. Ohne diese
+			// Zahl sieht eine gekappte Trefferliste wie eine unvollstaendige
+			// Datenbank aus.
+			if (data && data.meta && typeof data.meta.count === 'number') {
+				state.search.lastTotal = data.meta.count;
+			}
 			if (!rows.length) break;
 			allResults.push(...rows.map(mapOpenAlexResult).filter(x => x.eid || x.doi));
 			if (allResults.length >= maxResults) break;
@@ -1877,6 +1929,7 @@ window.SLRApp = (() => {
 		state.search.db = db || state.search.db || 'scopus';
 		state.search.error = null;
 		state.search.lastCount = null;
+		state.search.lastTotal = null;
 		state.search.isSearching = true;
 		state.search.abortController = new AbortController();
 		setSearchProgress(2, 'Preparing query...');
@@ -1928,7 +1981,11 @@ window.SLRApp = (() => {
 
 			setSearchProgress(100, 'Done.');
 			state.search.lastCount = results.length;
-			showToast(`Search saved: ${results.length} result${results.length !== 1 ? 's' : ''}.`, false);
+			const gesamt = state.search.lastTotal;
+			const gekappt = typeof gesamt === 'number' && gesamt > results.length;
+			showToast(gekappt
+				? `Search saved: ${results.length} of ${gesamt.toLocaleString()} matches retrieved (Max results = ${state.search.maxResults}).`
+				: `Search saved: ${results.length} result${results.length !== 1 ? 's' : ''}.`, false);
 			markOnboardingStep('search');
 		} catch (err) {
 			if (err && err.name === 'AbortError') {

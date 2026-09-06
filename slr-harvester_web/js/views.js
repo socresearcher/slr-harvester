@@ -5528,6 +5528,9 @@ window.SLRViews = (() => {
     const db       = (search && search.db) || 'scopus';
     const query    = (search && search.query) || '';
     const maxRes   = (search && search.maxResults) || 500;
+    const scopeVal    = (search && search.scope) || 'all';
+    const yearFromVal = (search && search.yearFrom) || '';
+    const yearToVal   = (search && search.yearTo)   || '';
     const isSearch = !!(search && search.isSearching);
     const progress = (search && search.progress) || 0;
     const progMsg  = (search && search.progressMsg) || '';
@@ -5661,6 +5664,29 @@ window.SLRViews = (() => {
               </label>
             </div>
 
+            <div class="search-scope-row">
+              <label class="search-scope-field" for="search-scope">
+                <span>Search in</span>
+                <select class="filter-select" id="search-scope" ${isSearch ? 'disabled' : ''}
+                        title="OpenAlex only. Everything also searches full texts and returns far more, but far less precise, hits.">
+                  <option value="all"${scopeVal === 'all' ? ' selected' : ''}>Everything</option>
+                  <option value="titleabs"${scopeVal === 'titleabs' ? ' selected' : ''}>Title &amp; abstract</option>
+                </select>
+              </label>
+              <label class="search-scope-field" for="search-year-from">
+                <span>Years</span>
+                <span class="search-year-pair">
+                  <input class="form-input" id="search-year-from" type="number" inputmode="numeric"
+                    min="1800" max="2100" placeholder="from" value="${esc(String(yearFromVal))}"
+                    ${isSearch ? 'disabled' : ''}>
+                  <span class="search-year-dash">&ndash;</span>
+                  <input class="form-input" id="search-year-to" type="number" inputmode="numeric"
+                    min="1800" max="2100" placeholder="to" value="${esc(String(yearToVal))}"
+                    ${isSearch ? 'disabled' : ''}>
+                </span>
+              </label>
+            </div>
+
             ${statusHTML}
           </div>
 
@@ -5687,7 +5713,10 @@ window.SLRViews = (() => {
               <span class="search-drawer-hint">from this project</span>
             </summary>
             <div class="search-drawer-body">
-              <div class="search-terms-list">${termsHTML}</div>
+              <input class="form-input search-fc-filter" id="search-term-filter" type="search"
+                     placeholder="Filter saved terms&hellip;" aria-label="Filter saved terms">
+              <div class="search-terms-list" id="search-terms-list">${termsHTML}</div>
+              <p class="search-fc-empty" id="search-term-empty" hidden>No saved term matches that filter.</p>
             </div>
           </details>
 
@@ -5719,6 +5748,26 @@ window.SLRViews = (() => {
     // Gruppen — ohne Filter findet man darin nichts, mit Filter ist die
     // Liste in zwei Anschlaegen auf das Gesuchte herunter. Eine Gruppe
     // verschwindet mit ihrer letzten sichtbaren Karte.
+    // Dieselbe Bedienung wie bei den Feldcodes: tippen, und die Liste bleibt
+    // auf dem, was passt. Bei ueber hundert gespeicherten Begriffen ist das
+    // Suchen von Hand sonst laestiger als das Neutippen des Begriffs.
+    const termFilter = container.querySelector('#search-term-filter');
+    if (termFilter) {
+      const zeilen = [...container.querySelectorAll('#search-terms-list .search-term-row')];
+      const leerHinweisT = container.querySelector('#search-term-empty');
+      termFilter.addEventListener('input', () => {
+        const q = termFilter.value.trim().toLowerCase();
+        let sichtbar = 0;
+        zeilen.forEach(z => {
+          const text = (z.querySelector('.search-term-item')?.textContent || '').toLowerCase();
+          const passt = !q || text.includes(q);
+          z.hidden = !passt;
+          if (passt) sichtbar++;
+        });
+        if (leerHinweisT) leerHinweisT.hidden = sichtbar !== 0;
+      });
+    }
+
     const fcFilter = container.querySelector('#search-fc-filter');
     if (fcFilter) {
       const gruppen = [...container.querySelectorAll('#search-fc-list .fc-group')];
@@ -5795,6 +5844,19 @@ window.SLRViews = (() => {
         const max = container.querySelector('#search-max');
         const q   = ta ? ta.value.trim() : '';
         if (!q) return;
+        // Feldbereich und Zeitraum stehen im Zustand, nicht in den Argumenten
+        // von executeSearch: Sie gelten nur fuer OpenAlex, und die Signatur
+        // waere sonst um zwei Werte laenger, die zwei von drei Quellen gar
+        // nicht kennen.
+        const jahr = (id) => {
+          const el = container.querySelector(id);
+          const v = el ? String(el.value).trim() : '';
+          return /^\d{4}$/.test(v) ? v : '';
+        };
+        const scopeSel = container.querySelector('#search-scope');
+        SLRApp.state.search.scope    = scopeSel ? scopeSel.value : 'all';
+        SLRApp.state.search.yearFrom = jahr('#search-year-from');
+        SLRApp.state.search.yearTo   = jahr('#search-year-to');
         SLRApp.executeSearch(q, max ? parseInt(max.value) || 500 : 500, SLRApp.state.search.db);
       });
     }
@@ -6660,7 +6722,7 @@ window.SLRViews = (() => {
         })}
         ${collapseSection({
           id: 'settings-openalex',
-          title: 'OpenAlex',
+          title: 'OpenAlex API',
           meta: openAlexMeta,
           metaSet: openAlexParts.length > 0,
           open: false,
@@ -6679,6 +6741,9 @@ window.SLRViews = (() => {
 
         <p class="settings-group-label">Reading</p>
         ${renderReadAloudSection()}
+
+        <p class="settings-group-label">Tags</p>
+        <div id="settings-tags-mount"></div>
 
       </div>`;
 
@@ -7199,9 +7264,13 @@ window.SLRViews = (() => {
     { key: 'meadow',    name: 'Meadow',     desc: 'Yellow-green to deep green' },
   ];
 
-  function renderTags(container, articles, projectData, autoTagRules, isAutoTagCustomized, folderName) {
+  // `optionen.eingebettet` zeichnet dieselbe Ansicht ohne eigenen Seitenkopf
+  // und ohne Aussenabstand — fuer den Einbau in die Einstellungen, wo der Kopf
+  // schon steht und die Gruppenueberschrift die Einordnung uebernimmt.
+  function renderTags(container, articles, projectData, autoTagRules, isAutoTagCustomized, folderName, optionen) {
+    const eingebettet = !!(optionen && optionen.eingebettet);
     if (!projectData) {
-      container.innerHTML = `<div class="tags-view" style="padding:0">${renderNoProjectNotice()}</div>`;
+      container.innerHTML = `<div class="tags-view${eingebettet ? ' is-embedded' : ''}" style="padding:0">${renderNoProjectNotice()}</div>`;
       return;
     }
 
@@ -7313,10 +7382,10 @@ window.SLRViews = (() => {
       <div class="scheme-grid">${schemeBtnsHTML}</div>`;
 
     container.innerHTML = `
-      <div class="tags-view">
-        <div class="view-head">
+      <div class="tags-view${eingebettet ? ' is-embedded' : ''}">
+        ${eingebettet ? '' : `<div class="view-head">
           <p class="view-subtitle">Colour schemes, tag names and the rules that assign them automatically.</p>
-        </div>
+        </div>`}
         <div class="tags-header">
           <div class="tags-summary">
             ${SLRIcons.tag}
@@ -8498,6 +8567,7 @@ window.SLRViews = (() => {
     renderPrivacy,
     renderTags,
     renderAutoTagRules,
+    rememberSectionOpen,
     renderNewProjectModal,
     renderSupabaseAuthModal,
     renderArticleNetworkModal,
