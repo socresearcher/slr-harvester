@@ -1181,7 +1181,7 @@ window.SLRViews = (() => {
     container.innerHTML = `
       <div class="articles-view">
 
-        <div class="list-header-collapsible"><div class="list-header-collapsible-inner">
+        
         ${buildQueryFilterBannerHTML(filter, projectData)}
         <div class="corpus-banner">
           <span class="corpus-banner-stat">
@@ -1201,6 +1201,8 @@ window.SLRViews = (() => {
             <span><strong>${totalTagged}</strong> tag${totalTagged !== 1 ? 's' : ''} used</span>
           </span>
         </div>
+
+        <div class="list-header-collapsible"><div class="list-header-collapsible-inner">
 
         ${buildListToolbarHTML({
           list: articles, projectData, activeTags: filter.tags,
@@ -3403,7 +3405,7 @@ window.SLRViews = (() => {
     container.innerHTML = `
       <div class="articles-view">
 
-        <div class="list-header-collapsible"><div class="list-header-collapsible-inner">
+        
         <div class="corpus-banner">
           <span class="corpus-banner-stat">
             ${SLRIcons.corpus}
@@ -3418,6 +3420,8 @@ window.SLRViews = (() => {
             <span><strong>${Object.keys(stats.byTag).filter(t => t !== 'None').length}</strong> tag${Object.keys(stats.byTag).filter(t => t !== 'None').length !== 1 ? 's' : ''} used</span>
           </span>
         </div>
+
+        <div class="list-header-collapsible"><div class="list-header-collapsible-inner">
 
         ${buildListToolbarHTML({
           list: corpusArticles, projectData, activeTags: filter.tags,
@@ -3480,7 +3484,7 @@ window.SLRViews = (() => {
 
     container.innerHTML = `
       <div class="articles-view">
-        <div class="list-header-collapsible"><div class="list-header-collapsible-inner">
+        
         <div class="corpus-banner" style="border-left-color:var(--accent)">
           <span class="corpus-banner-stat">
             ${SLRIcons.selected}
@@ -3499,6 +3503,8 @@ window.SLRViews = (() => {
             <span><strong>${Object.keys(stats.byTag).filter(t => t !== 'None').length}</strong> tag${Object.keys(stats.byTag).filter(t => t !== 'None').length !== 1 ? 's' : ''} used</span>
           </span>
         </div>
+
+        <div class="list-header-collapsible"><div class="list-header-collapsible-inner">
 
         ${buildListToolbarHTML({
           list: selectedArticles, projectData, activeTags: filter.tags,
@@ -5885,6 +5891,26 @@ window.SLRViews = (() => {
     // Wire: settings link
     const goSettings = container.querySelector('#search-go-settings');
     if (goSettings) goSettings.addEventListener('click', () => SLRApp.navigate('settings'));
+
+    // Das Eingabefeld waechst mit dem Inhalt — bis der Nutzer selbst eine
+    // Hoehe einstellt. Danach gilt seine.
+    //
+    // Woran das erkannt wird: Beide, das Mitwachsen und der Zug am Griff,
+    // schreiben in style.height. Gemerkt wird deshalb der zuletzt selbst
+    // gesetzte Wert; steht dort etwas anderes, war es die Hand des Nutzers.
+    const queryFeld = container.querySelector('#search-query');
+    if (queryFeld) {
+      let selbstGesetzt = '';
+      const mitwachsen = () => {
+        if (queryFeld.style.height && queryFeld.style.height !== selbstGesetzt) return;
+        queryFeld.style.height = 'auto';
+        queryFeld.style.height = queryFeld.scrollHeight + 'px';
+        selbstGesetzt = queryFeld.style.height;
+      };
+      queryFeld.addEventListener('input', mitwachsen);
+      // Auch beim Aufbau, damit eine gemerkte lange Abfrage gleich sichtbar ist.
+      mitwachsen();
+    }
 
     // Wire: Run
     const runBtn = container.querySelector('#search-run-btn');

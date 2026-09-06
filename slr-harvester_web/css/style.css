@@ -5884,12 +5884,39 @@ a.db-link:visited {
 }
 
 /* Unterhalb dieser Breite tragen drei Spalten nicht mehr — die Seitenspalten
-   wuerden schmaler als ihre eigenen Chips. Dann untereinander, Editor zuerst. */
+   wuerden schmaler als ihre eigenen Chips. Dann steht der Editor ueber die
+   volle Breite und die beiden Nachschlagewerke teilen sie sich darunter zur
+   Haelfte. Nebeneinander und nicht gestapelt, damit man beide zugleich sieht;
+   gestapelt liegt das zweite eine Bildschirmhoehe entfernt. */
 @media (max-width: 1180px) {
+  .search-page {
+    grid-template-columns: 1fr 1fr;
+    gap: 16px;
+  }
+
+  .search-main {
+    grid-column: 1 / -1;
+    grid-row: 1;
+  }
+
+  .search-page > .search-drawer[data-drawer="field-codes"] {
+    grid-column: 1;
+    grid-row: 2;
+  }
+
+  .search-page > .search-drawer[data-drawer="past-terms"] {
+    grid-column: 2;
+    grid-row: 2;
+  }
+}
+
+/* Am Telefon reicht auch das nicht mehr: zwei halbe Spalten sind schmaler
+   als ein einzelner Feldcode-Chip. Ab hier untereinander, Editor zuerst. */
+@media (max-width: 760px) {
   .search-page {
     display: flex;
     flex-direction: column;
-    gap: 16px;
+    gap: 14px;
   }
 }
 
@@ -6366,6 +6393,10 @@ a.db-link:visited {
 
 .search-textarea {
   width: 100%;
+  /* Obergrenze fuers automatische Mitwachsen (siehe wireQueryAutogrow in
+     views.js). Ohne sie schoebe eine sehr lange Abfrage den Suchknopf aus
+     dem Bild. */
+  max-height: 45vh;
   /* Zwei Zeilen als Ausgangshoehe (rows="2" in views.js). Die meisten Abfragen
      sind kurz; wer eine lange schreibt, zieht das Feld am Griff auf. Die
      frueheren 220px Mindesthoehe haben resize: vertical praktisch ausgehebelt,
