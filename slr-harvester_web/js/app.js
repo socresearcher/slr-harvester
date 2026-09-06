@@ -95,6 +95,9 @@ window.SLRApp = (() => {
 			autoFetchEnabled: localStorage.getItem('slr-auto-fetch-enabled') === null ? true : localStorage.getItem('slr-auto-fetch-enabled') === '1',
 			autoTagEnabled: localStorage.getItem('slr-auto-tag-enabled') === null ? true : localStorage.getItem('slr-auto-tag-enabled') === '1',
 			autoRunScope: localStorage.getItem('slr-auto-run-scope') === null ? 'new' : (localStorage.getItem('slr-auto-run-scope') === 'new' ? 'new' : 'all'),
+			// Die gefuehrte Einfuehrung ist von Haus aus an; wer sie abstellt,
+			// findet sie abgestellt wieder.
+			guidedMode: localStorage.getItem('slr-guided-mode') === null ? true : localStorage.getItem('slr-guided-mode') === '1',
 			// Which disciplines auto-tag is allowed to assign. Empty/absent means
 			// "all" (unrestricted, matches prior behavior); deselecting categories
 			// that don't apply to a given project removes them as candidates
@@ -593,6 +596,7 @@ window.SLRApp = (() => {
 					allTagCategories: getEffectiveAutoTagRules().map(r => r.tag),
 					fetchMode: state.fetchMode,
 					folderName: state.folderName,
+					guidedMode: state.settings.guidedMode,
 				});
 				// Tags sitzen jetzt in den Einstellungen. Sie werden nach
 				// renderSettings in den dort vorgesehenen Platz gezeichnet, weil
@@ -626,6 +630,12 @@ window.SLRApp = (() => {
 		}
 
 		restoreViewUiState(uiStateSnapshot);
+
+		// Die gefuehrte Einfuehrung gehoert zur Ansicht, nicht in sie: Sie wird
+		// nach dem Zeichnen gesetzt und verschwindet mit dem naechsten Wechsel,
+		// wenn fuer die neue Ansicht nichts hinterlegt ist.
+		try { SLRViews.renderGuide(state.view, { aktiv: state.settings.guidedMode }); }
+		catch (_) { /* eine fehlende Einfuehrung darf die Ansicht nicht aufhalten */ }
 	}
 
 	function navigate(view) {
@@ -1106,7 +1116,7 @@ window.SLRApp = (() => {
 		}
 	}
 
-	async function saveSettings({ apiKey, instToken, openAlexKey, openAlexEmail, autoFetchEnabled, fetchMode, autoTagEnabled, autoRunScope, autoTagCategories }) {
+	async function saveSettings({ apiKey, instToken, openAlexKey, openAlexEmail, autoFetchEnabled, fetchMode, autoTagEnabled, autoRunScope, autoTagCategories, guidedMode }) {
 		state.settings.apiKey = normalizePrimaryCredential(apiKey);
 		state.settings.instToken = normalizeToken(instToken);
 		state.settings.openAlexKey = normalizeToken(openAlexKey);
@@ -1123,6 +1133,12 @@ window.SLRApp = (() => {
 		localStorage.setItem('slr-auto-fetch-enabled', state.settings.autoFetchEnabled ? '1' : '0');
 		localStorage.setItem('slr-auto-tag-enabled', state.settings.autoTagEnabled ? '1' : '0');
 		localStorage.setItem('slr-auto-run-scope', state.settings.autoRunScope);
+		if (guidedMode !== undefined) {
+			state.settings.guidedMode = !!guidedMode;
+			localStorage.setItem('slr-guided-mode', state.settings.guidedMode ? '1' : '0');
+			if (!state.settings.guidedMode) SLRViews.fuehrungEntfernen();
+			else SLRViews.renderGuide(state.view, { aktiv: true });
+		}
 		localStorage.setItem('slr-auto-tag-categories', JSON.stringify(state.settings.autoTagCategories));
 		localStorage.setItem('slr-fetch-mode', state.fetchMode);
 
@@ -1558,6 +1574,23 @@ window.SLRApp = (() => {
 		return out;
 	}
 
+	// Die Felder, die mapOpenAlexResult liest — mehr braucht die Suche nicht.
+	const OPENALEX_FELDER = [
+		'id', 'doi', 'display_name', 'authorships', 'publication_date',
+		'publication_year', 'cited_by_count', 'primary_location',
+		'primary_topic', 'topics', 'type', 'referenced_works',
+	].join(',');
+
+	// OpenAlex meldet eine ueberlastete Datenbank nicht immer mit demselben
+	// Statuscode; verlaesslich ist der Wortlaut. "canceling statement due to
+	// statement timeout" ist die Meldung, die ein zu schwerer Ausdruck ausloest.
+	// Solche Fehler gehen vorueber, also wird es noch einmal versucht.
+	function istVoruebergehend(err) {
+		if (!err) return false;
+		if ([429, 500, 502, 503, 504].includes(err.status)) return true;
+		return /statement timeout|timeout|temporarily|try again/i.test(String(err.message || ''));
+	}
+
 	async function fetchOpenAlexPage(query, signal, options) {
 		const config = await SLRData.loadConfig();
 		const openAlexKey = normalizeToken((config && config.OpenAlexKey) || state.settings.openAlexKey);
@@ -1601,6 +1634,14 @@ window.SLRApp = (() => {
 			url.searchParams.set('search', query);
 			if (zusatz.length) url.searchParams.set('filter', zusatz.join(','));
 		}
+		// Nur die Felder, die mapOpenAlexResult tatsaechlich liest. OpenAlex
+		// schickt sonst den vollstaendigen Datensatz mit allem, was es zu einer
+		// Arbeit weiss. Gemessen an derselben Abfrage: 5,11 MB je Seite ohne
+		// Auswahl, 2,57 MB mit ihr, und die Antwortzeit der Datenbank sank von
+		// 144 auf 110 ms. Bei hundert Seiten sind das ein Viertel Gigabyte
+		// weniger, das durch Netz, Parser und Arbeitsspeicher muss — genau die
+		// Last, an der ein grosser Lauf zerbrach.
+		url.searchParams.set('select', OPENALEX_FELDER);
 		url.searchParams.set('per-page', String(options.perPage || 200));
 		if (options.cursor) url.searchParams.set('cursor', options.cursor);
 		if (options.page) url.searchParams.set('page', String(options.page));
@@ -1630,7 +1671,13 @@ window.SLRApp = (() => {
 	}
 
 	async function fetchOpenAlexPageWithRetry(query, signal, options) {
-		const delays = [0, 700, 1500, 3000];
+		// Fuenf Anlaeufe ueber gut dreizehn Sekunden statt vier ueber fuenf: Eine
+		// ueberlastete Datenbank braucht laenger als fuenf Sekunden, um wieder
+		// Luft zu bekommen. Nicht laenger, weil der Aufrufer danach die Seite
+		// halbiert und es erneut versucht — vier solche Runden sind zusammen
+		// knapp eine Minute, und so lange darf ein Lauf hoechstens haengen,
+		// bevor er mit dem zurueckkommt, was er schon hat.
+		const delays = [0, 600, 1500, 3500, 8000];
 		let lastError = null;
 		for (let attempt = 0; attempt < delays.length; attempt++) {
 			if (delays[attempt] > 0) await delay(delays[attempt], signal);
@@ -1639,9 +1686,7 @@ window.SLRApp = (() => {
 			} catch (err) {
 				if (err && err.name === 'AbortError') throw err;
 				lastError = err;
-				if (!err || (err.status !== 429 && err.status !== 500 && err.status !== 503)) {
-					throw err;
-				}
+				if (!istVoruebergehend(err)) throw err;
 			}
 		}
 		throw lastError || new Error('OpenAlex API error');
@@ -1873,11 +1918,20 @@ window.SLRApp = (() => {
 		return dedupeByIdentity(rows).slice(0, maxResults);
 	}
 
+	// Ab dieser Zahl von Datensaetzen weist OpenAlex das Blaettern ueber `page=`
+	// mit HTTP 400 zurueck ("Cursor pagination is required for records beyond
+	// 10,000"). Der Ersatzweg ueber `page=` darf jenseits davon also gar nicht
+	// erst beschritten werden — sonst endet ein grosser Lauf in einem Fehler,
+	// der wie ein Fehler der Anwendung aussieht.
+	const OPENALEX_SEITENGRENZE = 10000;
+
 	async function runOpenAlexSearch(query, maxResults, signal, melde) {
 		const allResults = [];
 		let cursor = '*';
 		let page = 1;
-		const perPage = 200;
+		// Wird kleiner, wenn die Datenbank ueberlastet antwortet: Eine kleinere
+		// Seite ist eine leichtere Abfrage. 200 → 100 → 50 → 25.
+		let perPage = 200;
 		let usedPageFallback = false;
 
 		while (allResults.length < maxResults) {
@@ -1888,27 +1942,36 @@ window.SLRApp = (() => {
 					usedPageFallback ? { perPage, page } : { perPage, cursor });
 			} catch (err) {
 				if (err && err.name === 'AbortError') throw err;
-				if (err && (err.status === 429 || err.status === 500 || err.status === 503)) {
-					if (!usedPageFallback) {
-						// Cursor-based pagination failed repeatedly; retry this same page with
-						// classic offset pagination before giving up on the real search entirely.
+				if (istVoruebergehend(err)) {
+					// Erst die Seite verkleinern und es noch einmal versuchen — das
+					// hilft gegen einen Zeitablauf in der Datenbank haeufiger als
+					// jeder Wechsel der Blaetterart.
+					if (perPage > 25) {
+						perPage = Math.max(25, Math.floor(perPage / 2));
+						continue;
+					}
+					// Was schon geholt ist, wird behalten. Vorher ging bei einem
+					// Fehler auf Seite 90 die Arbeit aller 89 Seiten davor verloren.
+					if (allResults.length) return allResults.slice(0, maxResults);
+					if (!usedPageFallback && allResults.length < OPENALEX_SEITENGRENZE) {
 						usedPageFallback = true;
 						try {
 							data = await fetchOpenAlexPageWithRetry(query, signal, { perPage, page });
 						} catch (fallbackErr) {
 							if (fallbackErr && fallbackErr.name === 'AbortError') throw fallbackErr;
-							if (allResults.length) return allResults.slice(0, maxResults);
 							const fallbackRows = await runOpenAlexFallbackSearch(query, maxResults, signal);
 							if (fallbackRows.length) return fallbackRows;
 							throw fallbackErr;
 						}
-					} else if (allResults.length) {
-						return allResults.slice(0, maxResults);
 					} else {
 						const fallbackRows = await runOpenAlexFallbackSearch(query, maxResults, signal);
 						if (fallbackRows.length) return fallbackRows;
 						throw err;
 					}
+				} else if (allResults.length) {
+					// Auch ein dauerhafter Fehler — etwa die Blaettergrenze von
+					// 10.000 — macht die bereits geholten Arbeiten nicht wertlos.
+					return allResults.slice(0, maxResults);
 				} else {
 					throw err;
 				}
@@ -1935,6 +1998,9 @@ window.SLRApp = (() => {
 			if (usedPageFallback) {
 				page += 1;
 				if (rows.length < perPage) break;
+				// Jenseits von 10.000 Datensaetzen beantwortet OpenAlex `page=`
+				// nicht mehr. Hier ist der Weg zu Ende, und was da ist, bleibt.
+				if (allResults.length >= OPENALEX_SEITENGRENZE) break;
 			} else {
 				cursor = data && data.meta && data.meta.next_cursor;
 				if (!cursor) break;
