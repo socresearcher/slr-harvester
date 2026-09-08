@@ -315,13 +315,30 @@ window.SLRViews = (() => {
 
   //  Citation network (intra-project)
   //
-  //  Built entirely from data already sitting in each OpenAlex-sourced
-  //  article's `referencedWorks` (captured for free from the normal search
-  //  response, see mapOpenAlexResult in app.js — no extra API calls). Two
-  //  articles in the SAME project link up when one's referencedWorks
-  //  contains the other's bare OpenAlex ID. Articles from Scopus/PubMed/etc.
-  //  simply never carry referencedWorks, so they can't participate — that's
-  //  an accepted scope limit, not a bug.
+  //  Zwei Arbeiten desselben Projekts sind verbunden, wenn die Verweisliste
+  //  der einen die OpenAlex-Kennung der anderen enthaelt. Treffer aus Scopus
+  //  oder PubMed fuehren keine solche Liste und koennen deshalb nicht
+  //  teilnehmen — eine hingenommene Grenze, kein Fehler.
+  //
+  //  Die Verweislisten kommen ueber „Fetch citation network" und gelten fuer
+  //  die laufende Sitzung. Frueher lagen sie in jedem Suchtreffer mit und
+  //  wurden mitgespeichert; an echten Daten gemessen waren das 62,5 % des
+  //  Speicherbedarfs — bei 160.000 Treffern rund 175 der 280 MB, fuer eine
+  //  Angabe, die nur eine einzige Ansicht braucht.
+
+  // Die Verweise liegen seit dem Umbau nicht mehr im gespeicherten Datensatz,
+  // sondern nur noch im Sitzungsspeicher (SLRApp.state.refsCache) — sie machten
+  // knapp zwei Drittel des Speicherbedarfs einer Trefferliste aus und werden
+  // ausschliesslich fuer das Zitationsnetz gebraucht. Aeltere Projekte haben
+  // sie noch im Datensatz stehen; deshalb wird beides gelesen, in dieser
+  // Reihenfolge.
+  function refsVon(a) {
+    if (!a) return [];
+    if (Array.isArray(a.referencedWorks) && a.referencedWorks.length) return a.referencedWorks;
+    const speicher = (window.SLRApp && SLRApp.state && SLRApp.state.refsCache) || null;
+    const r = speicher && a.eid ? speicher[a.eid] : null;
+    return Array.isArray(r) ? r : [];
+  }
 
   // Cache keyed by array identity: renderArticles/renderCorpus/renderSelected
   // all build this from the same full `articles` array on every re-render
@@ -344,8 +361,9 @@ window.SLRViews = (() => {
     const hasNetwork = new Set();
 
     for (const a of articles) {
-      if (!Array.isArray(a.referencedWorks) || !a.referencedWorks.length) continue;
-      for (const refId of a.referencedWorks) {
+      const refs = refsVon(a);
+      if (!refs.length) continue;
+      for (const refId of refs) {
         const target = byOAId.get(refId);
         if (!target || target === a) continue;
         if (!citesMap.has(a.eid)) citesMap.set(a.eid, []);
@@ -3930,7 +3948,7 @@ window.SLRViews = (() => {
 
     const zaehler = new Map();         // Name -> { count, works:Set }
     for (const zitierend of subset) {
-      const refs = Array.isArray(zitierend.referencedWorks) ? zitierend.referencedWorks : [];
+      const refs = refsVon(zitierend);
       for (const ref of refs) {
         const zitiert = nachId.get(ref);
         if (!zitiert) continue;                       // Referenz zeigt nach draussen
@@ -8201,7 +8219,7 @@ window.SLRViews = (() => {
     const citedBy = networkIndex.citedByMap.get(article.eid) || [];
 
     const isOpenAlex = article.source === 'openalex' && !!article.eid;
-    const canLoadRefs = isOpenAlex && Array.isArray(article.referencedWorks) && article.referencedWorks.length > 0;
+    const canLoadRefs = isOpenAlex && refsVon(article).length > 0;
     const canLoadCites = isOpenAlex && (parseInt(article.citedby, 10) || 0) > citedBy.length;
 
     // Mutable across re-draws of THIS modal instance only — reset whenever
@@ -8699,6 +8717,75 @@ window.SLRViews = (() => {
 
   //  New Project modal
 
+
+  // ── Rueckfrage bei sehr grossen Trefferzahlen ────────────────────────
+  //
+  // Sobald die Datenbank ihre Gesamttrefferzahl genannt hat — nach der ersten
+  // Seite — und diese ueber dem liegt, was der gewaehlte Arbeitsbereich
+  // vertraegt, haelt der Lauf an und fragt. Vorher lief er stundenlang weiter
+  // und liess sich am Ende nicht speichern; die ganze Arbeit war dann verloren,
+  // weil der Eintrag erst nach erfolgreichem Schreiben entsteht.
+  //
+  // Drei Antworten: eine Obergrenze nachtraeglich setzen, ohne Grenze
+  // weitermachen, oder abbrechen.
+  function renderSearchLimitModal(overlay, { gesamt, geholt, grenze, cloud }, entscheiden) {
+    const zahl = (n) => Number(n).toLocaleString('en');
+    // 713 Byte je Datensatz, an echten OpenAlex-Treffern gemessen — seit die
+    // Verweislisten nicht mehr mitgespeichert werden.
+    const mb = (n) => Math.round(n * 713 / 1048576);
+
+    overlay.classList.remove('hidden');
+    overlay.innerHTML = `
+      <div class="modal" role="dialog" aria-modal="true" aria-labelledby="search-limit-title">
+        <div class="modal-header">
+          <h3 id="search-limit-title">That is a very large result list</h3>
+        </div>
+        <div class="modal-body">
+          <p class="field-hint" style="margin-top:0">
+            The database reports <strong>${zahl(gesamt)} matches</strong> for this query.
+            Retrieving all of them comes to roughly <strong>${zahl(mb(gesamt))} MB</strong>
+            in this project.
+          </p>
+          <p class="field-hint">
+            ${cloud
+              ? `This workspace is <strong>Cloud Sync</strong>, where a project is one database
+                 row that is rewritten on every run. Past about
+                 <strong>${zahl(grenze)} records</strong> the write gets slow, then fails — and a
+                 failed write saves nothing at all.`
+              : `This workspace is a <strong>local folder</strong>, so the only limit is your own
+                 disk and memory. Past about <strong>${zahl(grenze)} records</strong> the browser
+                 starts to struggle with a list this size.`}
+          </p>
+          <div class="form-field" style="margin-top:14px">
+            <label for="search-limit-input">Stop after this many records</label>
+            <input class="form-input" id="search-limit-input" type="number" inputmode="numeric"
+                   min="${geholt || 1}" max="10000000" value="${grenze}">
+            <p class="field-hint">Already retrieved: ${zahl(geholt)}. A limit below that
+            simply ends the run and keeps what is there.</p>
+          </div>
+        </div>
+        <div class="modal-footer">
+          <button class="btn-secondary" id="search-limit-cancel">Cancel the run</button>
+          <button class="btn-secondary" id="search-limit-none">Continue without a limit</button>
+          <button class="btn-primary"   id="search-limit-set">Use this limit</button>
+        </div>
+      </div>`;
+
+    const schliessen = () => { overlay.classList.add('hidden'); overlay.innerHTML = ''; };
+    const antwort = (a) => { schliessen(); entscheiden(a); };
+
+    overlay.querySelector('#search-limit-cancel').addEventListener('click', () => antwort({ abbrechen: true }));
+    overlay.querySelector('#search-limit-none').addEventListener('click', () => antwort({ ohneGrenze: true }));
+    overlay.querySelector('#search-limit-set').addEventListener('click', () => {
+      const roh = parseInt(overlay.querySelector('#search-limit-input').value, 10);
+      antwort({ grenze: Number.isFinite(roh) && roh > 0 ? roh : grenze });
+    });
+    // Kein Schliessen durch Klick daneben und kein x: Der Lauf haengt an der
+    // Antwort, und „weggeklickt" waere keine.
+    const feld = overlay.querySelector('#search-limit-input');
+    if (feld) { feld.focus(); feld.select(); }
+  }
+
   function renderNewProjectModal(overlay) {
     overlay.classList.remove('hidden');
     overlay.innerHTML = `
@@ -8941,7 +9028,7 @@ window.SLRViews = (() => {
         'This is the starting point. Before anything else you need a <strong>workspace</strong>: a local folder on this device, or a Cloud Sync account that follows you across browsers.',
         'A <strong>workspace</strong> holds projects; a <strong>project</strong> holds one review — its searches, its articles, its screening decisions. Nothing is stored outside the workspace you pick.',
         '<strong>Two workspaces, two ceilings.</strong> A local folder is limited only by your own disk. Cloud Sync keeps each project as a single database row and rewrites that row on every search, so it is the wrong place for very large sweeps.',
-        'How large is large? One retrieved record costs about <strong>1.8 KB</strong> in this app. Ten thousand records is roughly 18 MB, a hundred and sixty thousand about 280 MB — the latter is more than Cloud Sync will take, and heavy even for the browser.',
+        'How large is large? One retrieved record costs about <strong>0.7 KB</strong> here. Ten thousand records is roughly 7 MB, a hundred and sixty thousand about 110 MB. Past that, a run pauses and asks whether to set a limit, continue, or stop.',
         '<strong>First time with a local folder?</strong> Click <strong>Continue with Local Folder</strong>, then create a new, empty folder in the picker (any name, e.g. <code>SLR-Harvester-Data</code>). Nothing is written until you create your first project.',
         '<strong>Already have local data?</strong> Pick the folder that holds <code>projects.json</code> and the <code>projects/</code> directory. Local folders and synced drives (OneDrive, Google Drive) both work.',
         '<strong>On mobile, or in Firefox / Safari?</strong> Local Folder needs the File System Access API, which those browsers lack. Use <strong>Sign Up</strong> or <strong>Log In</strong> instead — Cloud Sync works in any browser.',
@@ -8965,8 +9052,8 @@ window.SLRViews = (() => {
         'Click a <strong>field code</strong> to insert it at the cursor, and a <strong>saved term</strong> to insert it in quotes. Drag the bottom-right corner of the query box to make it taller.',
         '<strong>Narrow the question, not the list.</strong> Capping results is not a selection criterion: what falls away is whatever the database ranked lowest, which you cannot report or defend. <strong>Max results</strong> is empty by default — no limit — and that is the honest setting.',
         'Use criteria you can state instead: publication years, document type (article, review, book chapter), a narrower search field, language, or the topic itself. If you do set a limit, keep it above the total your query reports.',
-        '<strong>Very large result lists have a physical limit.</strong> Measured: 1.8 KB per record, so 160,000 records is about 280 MB in one project and roughly 450 MB of browser memory just to hold the list. In Cloud Sync a run that size will not be saved, and nothing appears under History.',
-        'If you genuinely need a sweep in the tens of thousands, switch the workspace to a <strong>local folder</strong> first. There the only limit is your own disk. Otherwise narrow the question — years, document type, search field, language — which is what a systematic review has to do anyway.',
+        '<strong>Very large result lists have a limit.</strong> Measured: 0.7 KB per record, so 160,000 records is about 110 MB in one project. Once the database reports more matches than the workspace comfortably takes, the run <strong>pauses and asks</strong>: set a limit now, carry on without one, or stop.',
+        'That question is worth taking seriously: a run that cannot be written saves nothing at all, not even what it already retrieved. For a genuinely large sweep, switch to a <strong>local folder</strong> first — there the only limit is your own disk.',
         'Results are saved to the open project and appear under <strong>Articles</strong>. Every run is recorded in <strong>History</strong> with its query, so it can be reported and repeated.',
       ],
     },
@@ -9029,8 +9116,8 @@ window.SLRViews = (() => {
       karten: [
         'Where this browser reads and writes your projects: a folder on this device, or your Cloud Sync account.',
         'These are <strong>separate</strong> workspaces, not two views of the same projects. Switching moves nothing; each side keeps what it has.',
-        '<strong>Local Folder</strong> writes plain files to your own disk. There is no size quota beyond the device itself, nothing is shared with anyone, and a large project only costs you disk space. This is the place for sweeps in the tens of thousands.',
-        '<strong>Cloud Sync</strong> keeps each project as one row in a shared database, and every new search run rewrites that whole row — over the network and again inside the database. Comfortable to roughly <strong>10,000–20,000 records</strong> per project; beyond that the write gets slow, then unreliable.',
+        '<strong>Local Folder</strong> writes plain files to your own disk. There is no size quota beyond the device itself, nothing is shared with anyone, and a large project only costs you disk space. This is the place for sweeps past fifty thousand records.',
+        '<strong>Cloud Sync</strong> keeps each project as one row in a shared database, and every new search run rewrites that whole row — over the network and again inside the database. Comfortable to roughly <strong>50,000 records</strong> per project; beyond that the write gets slow, then unreliable.',
         'Both are yours and both are safe. If a big query is refused or a run vanishes without appearing under History, that is the ceiling talking — open a local folder, run it there, and keep Cloud Sync for the projects you want on every device.',
       ],
     },
@@ -9185,6 +9272,7 @@ window.SLRViews = (() => {
     renderAutoTagRules,
     rememberSectionOpen,
     renderNewProjectModal,
+    renderSearchLimitModal,
     renderSupabaseAuthModal,
     renderArticleNetworkModal,
   };

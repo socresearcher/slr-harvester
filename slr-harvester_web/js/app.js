@@ -144,6 +144,11 @@ window.SLRApp = (() => {
 			} catch (_) { return {}; }
 		})(),
 
+		// Literaturverweise je Arbeit, nur fuer diese Sitzung. Sie werden nicht
+		// gespeichert (siehe OPENALEX_FELDER) und gehen beim Neuladen verloren;
+		// „Fetch citation network" holt sie wieder.
+		refsCache: {},
+
 		search: {
 			query: '',
 			// null heisst: keine Obergrenze. Das ist die Vorgabe, weil eine
@@ -417,6 +422,17 @@ window.SLRApp = (() => {
 	//
 	// Der Schluessel slr-onboarding-done bleibt in aelteren Browsern liegen;
 	// gelesen wird er nirgends mehr.
+
+	// Aeltere Projekte haben die Verweise noch im Datensatz stehen; neue nur
+	// noch im Sitzungsspeicher. Gelesen wird beides, in dieser Reihenfolge.
+	function refsVon(article) {
+		if (!article) return [];
+		if (Array.isArray(article.referencedWorks) && article.referencedWorks.length) {
+			return article.referencedWorks;
+		}
+		const r = article.eid ? state.refsCache[article.eid] : null;
+		return Array.isArray(r) ? r : [];
+	}
 
 	function stableStringList(values) {
 		if (!Array.isArray(values)) return [];
@@ -1187,14 +1203,15 @@ window.SLRApp = (() => {
 				if (subfieldName) openAlexSubfields.add(String(subfieldName).trim());
 			}
 		}
-		// OpenAlex includes each work's outgoing references in every normal
-		// /works response (no extra API call) as full URLs like
-		// "https://openalex.org/W123..." — stripped down to the bare ID here
-		// so the citation-network builder can match them against other
-		// articles' `openalex:W123...` eids directly.
+		// Verweise kommen nur noch aus dem gezielten Abruf des Zitationsnetzes
+		// (fetchExternalReferencedWorks), nicht mehr aus der Suche. Steht doch
+		// eine Liste in der Antwort — etwa aus einem Aufruf ohne Feldauswahl —,
+		// wird sie in den Sitzungsspeicher gelegt, aber nicht in den Datensatz.
 		const referencedWorks = Array.isArray(r.referenced_works)
 			? r.referenced_works.map(u => String(u).split('/').pop()).filter(Boolean)
 			: [];
+		const eid = r.id ? `openalex:${String(r.id).split('/').pop()}` : '';
+		if (eid && referencedWorks.length) state.refsCache[eid] = referencedWorks;
 		return {
 			source: 'openalex',
 			eid: r.id ? `openalex:${String(r.id).split('/').pop()}` : '',
@@ -1212,7 +1229,6 @@ window.SLRApp = (() => {
 			openAlexFields: [...openAlexFields],
 			openAlexSubfields: [...openAlexSubfields],
 			docType: mapOpenAlexType(r.type),
-			referencedWorks,
 		};
 	}
 
@@ -1372,7 +1388,57 @@ window.SLRApp = (() => {
 		return { hasKey: true, keyPreview: apiKey.slice(0, 6) + '…', std, complete };
 	}
 
+	// Ab wie vielen Treffern nachgefragt wird. Beide Zahlen kommen aus der
+	// gemessenen Groesse eines Datensatzes, und die ist seit dem Wegfall der
+	// Verweislisten 713 Byte statt 1.845: 50.000 Treffer sind rund 34 MB,
+	// 150.000 rund 102 MB. In Cloud Sync wird bei jedem Lauf die ganze
+	// Projektzeile neu geschrieben — und zwar ueber das Netz und noch einmal
+	// in der Datenbank —, deshalb liegt die Schwelle dort tiefer.
+	const NACHFRAGE_CLOUD = 50000;
+	const NACHFRAGE_LOKAL = 150000;
+
+	function nachfrageSchwelle() {
+		return SLRData.getBackend() === 'cloud' ? NACHFRAGE_CLOUD : NACHFRAGE_LOKAL;
+	}
+
+	// Haelt den Lauf an und fragt: Grenze setzen, ohne Grenze weiter, oder
+	// abbrechen. Gibt die neue Obergrenze zurueck (Infinity heisst: keine).
+	// Ein Abbruch wirft denselben AbortError wie der Abbrechen-Knopf, damit
+	// beide Wege in executeSearch gleich behandelt werden.
+	function frageNachGrenze(gesamt, geholt) {
+		return new Promise((erfuellen, ablehnen) => {
+			const overlay = document.getElementById('modal-overlay');
+			if (!overlay) { erfuellen(Infinity); return; }
+			SLRViews.renderSearchLimitModal(overlay, {
+				gesamt,
+				geholt,
+				grenze: nachfrageSchwelle(),
+				cloud: SLRData.getBackend() === 'cloud',
+			}, (antwort) => {
+				if (antwort && antwort.abbrechen) {
+					const fehler = new Error('Search cancelled.');
+					fehler.name = 'AbortError';
+					ablehnen(fehler);
+					return;
+				}
+				if (antwort && antwort.ohneGrenze) {
+					state.search.maxResults = null;
+					erfuellen(Infinity);
+					return;
+				}
+				const neu = antwort && antwort.grenze ? antwort.grenze : nachfrageSchwelle();
+				// Damit die Meldung am Ende und das Feld in der Maske dieselbe
+				// Zahl nennen wie der Lauf tatsaechlich verwendet hat.
+				state.search.maxResults = neu;
+				erfuellen(neu);
+			});
+		});
+	}
+
 	async function runScopusSearch(query, maxResults, signal, melde) {
+		// Veraenderlich, weil die Rueckfrage unten sie noch herabsetzen kann.
+		let grenze = maxResults;
+		let gefragt = false;
 		const config = await SLRData.loadConfig();
 		const apiKey = normalizePrimaryCredential((config && config.APIKey) || state.settings.apiKey);
 		const instToken = normalizeToken((config && config.InstToken) || state.settings.instToken);
@@ -1397,13 +1463,13 @@ window.SLRApp = (() => {
 		let totalResults = null;
 		const retryDelays = [0, 800, 2000, 4000, 8000];
 
-		while (allResults.length < maxResults) {
+		while (allResults.length < grenze) {
 			if (allResults.length > 0) await delay(200, signal);
 
 			const buildUrl = view => {
 				const url = new URL('https://api.elsevier.com/content/search/scopus');
 				url.searchParams.set('query', query);
-				url.searchParams.set('count', String(Math.min(batchSize, maxResults - allResults.length)));
+				url.searchParams.set('count', String(Math.min(batchSize, grenze - allResults.length)));
 				url.searchParams.set('start', String(start));
 				url.searchParams.set('view', view);
 				return url;
@@ -1461,14 +1527,21 @@ window.SLRApp = (() => {
 				const parsedTotal = parseInt(searchResults['opensearch:totalResults'], 10);
 				totalResults = Number.isFinite(parsedTotal) ? parsedTotal : 0;
 			}
+			// Sobald die Zahl feststeht und der Lauf darauf zulaeuft, einmal
+			// fragen — nicht erst, wenn nach einer Stunde nichts gespeichert
+			// werden kann.
+			if (!gefragt && totalResults > nachfrageSchwelle() && grenze > nachfrageSchwelle()) {
+				gefragt = true;
+				grenze = await frageNachGrenze(totalResults, allResults.length);
+			}
 			if (!entries.length) break;
 			allResults.push(...entries.map(mapScopusResult).filter(x => x.eid || x.doi));
 			// Wie weit es insgesamt geht: die Obergrenze, oder — wenn die
 			// Datenbank weniger kennt oder gar keine Grenze gesetzt ist — die
 			// Zahl der Treffer, die sie meldet.
 			if (typeof melde === 'function') {
-				const ziel = Number.isFinite(maxResults)
-					? Math.min(maxResults, totalResults || maxResults)
+				const ziel = Number.isFinite(grenze)
+					? Math.min(grenze, totalResults || grenze)
 					: (totalResults || 0);
 				melde(allResults.length, ziel);
 			}
@@ -1476,22 +1549,30 @@ window.SLRApp = (() => {
 			if (totalResults != null && start >= totalResults) break;
 		}
 
-		return allResults.slice(0, maxResults);
+		return allResults.slice(0, grenze);
 	}
 
 	async function runPubmedSearch(query, maxResults, signal, melde) {
+		let grenze = maxResults;
 		// NCBI accepts large retmax values in a single eSearch call (verified up to
 		// 9999); no artificial cap needed below the UI's own 10,000 max-results limit.
 		const esearch = new URL('https://eutils.ncbi.nlm.nih.gov/entrez/eutils/esearch.fcgi');
 		esearch.searchParams.set('db', 'pubmed');
 		esearch.searchParams.set('retmode', 'json');
-		esearch.searchParams.set('retmax', String(Math.min(maxResults, 10000)));
+		esearch.searchParams.set('retmax', String(Math.min(grenze, 10000)));
 		esearch.searchParams.set('term', query);
 		const r1 = await fetch(esearch.toString(), { signal });
 		if (!r1.ok) throw new Error(`PubMed eSearch error ${r1.status}`);
 		const d1 = await r1.json();
-		const ids = (((d1 || {}).esearchresult || {}).idlist) || [];
+		let ids = (((d1 || {}).esearchresult || {}).idlist) || [];
 		if (!ids.length) return [];
+		// Bei PubMed steht die Zahl schon nach der ersten Anfrage fest, noch
+		// bevor ein einziger Datensatz geholt ist — der guenstigste Zeitpunkt
+		// zu fragen.
+		if (ids.length > nachfrageSchwelle() && grenze > nachfrageSchwelle()) {
+			grenze = await frageNachGrenze(ids.length, 0);
+			if (Number.isFinite(grenze)) ids = ids.slice(0, grenze);
+		}
 
 		// Batch eSummary lookups (POST, to avoid multi-thousand-character GET URLs)
 		// and respect NCBI's ~3 req/s unauthenticated rate limit between batches.
@@ -1519,10 +1600,16 @@ window.SLRApp = (() => {
 	}
 
 	// Die Felder, die mapOpenAlexResult liest — mehr braucht die Suche nicht.
+	// `referenced_works` steht hier bewusst NICHT mehr drin. An 400 echten
+	// Treffern gemessen machte die Verweisliste 62,5 % des Speicherbedarfs aus
+	// (81 Verweise je Arbeit im Schnitt, 579 im Extremfall) — fuer eine Angabe,
+	// die nur das Zitationsnetz braucht. Sie wird jetzt ueber „Fetch citation
+	// network" abgerufen, wenn sie gebraucht wird, und gilt fuer die laufende
+	// Sitzung; gespeichert wird sie nicht mehr.
 	const OPENALEX_FELDER = [
 		'id', 'doi', 'display_name', 'authorships', 'publication_date',
 		'publication_year', 'cited_by_count', 'primary_location',
-		'primary_topic', 'topics', 'type', 'referenced_works',
+		'primary_topic', 'topics', 'type',
 	].join(',');
 
 	// OpenAlex meldet eine ueberlastete Datenbank nicht immer mit demselben
@@ -1716,7 +1803,18 @@ window.SLRApp = (() => {
 		if (!res.ok) throw new Error(`OpenAlex API error ${res.status}`);
 		const data = await res.json();
 		const results = Array.isArray(data && data.results) ? data.results : [];
-		return results.map(mapOpenAlexResult);
+		// Dieser Aufruf setzt kein `select`, bekommt also vollstaendige
+		// Datensaetze samt Verweisliste. mapOpenAlexResult haengt sie nicht mehr
+		// an den Artikel — hier wird sie ausdruecklich nachgetragen, weil genau
+		// das der Zweck dieses Abrufs ist. Gespeichert wird sie trotzdem nicht;
+		// der Aufrufer legt sie in den Sitzungsspeicher.
+		return results.map(r => {
+			const artikel = mapOpenAlexResult(r);
+			artikel.referencedWorks = Array.isArray(r.referenced_works)
+				? r.referenced_works.map(u => String(u).split('/').pop()).filter(Boolean)
+				: [];
+			return artikel;
+		});
 	}
 
 	// Autorenverteilung dessen, was eine Menge von Arbeiten zitiert.
@@ -1870,6 +1968,8 @@ window.SLRApp = (() => {
 	const OPENALEX_SEITENGRENZE = 10000;
 
 	async function runOpenAlexSearch(query, maxResults, signal, melde) {
+		let grenze = maxResults;
+		let gefragt = false;
 		const allResults = [];
 		let cursor = '*';
 		let page = 1;
@@ -1878,7 +1978,7 @@ window.SLRApp = (() => {
 		let perPage = 200;
 		let usedPageFallback = false;
 
-		while (allResults.length < maxResults) {
+		while (allResults.length < grenze) {
 			if (allResults.length > 0) await delay(150, signal);
 			let data;
 			try {
@@ -1896,26 +1996,26 @@ window.SLRApp = (() => {
 					}
 					// Was schon geholt ist, wird behalten. Vorher ging bei einem
 					// Fehler auf Seite 90 die Arbeit aller 89 Seiten davor verloren.
-					if (allResults.length) return allResults.slice(0, maxResults);
+					if (allResults.length) return allResults.slice(0, grenze);
 					if (!usedPageFallback && allResults.length < OPENALEX_SEITENGRENZE) {
 						usedPageFallback = true;
 						try {
 							data = await fetchOpenAlexPageWithRetry(query, signal, { perPage, page });
 						} catch (fallbackErr) {
 							if (fallbackErr && fallbackErr.name === 'AbortError') throw fallbackErr;
-							const fallbackRows = await runOpenAlexFallbackSearch(query, maxResults, signal);
+							const fallbackRows = await runOpenAlexFallbackSearch(query, grenze, signal);
 							if (fallbackRows.length) return fallbackRows;
 							throw fallbackErr;
 						}
 					} else {
-						const fallbackRows = await runOpenAlexFallbackSearch(query, maxResults, signal);
+						const fallbackRows = await runOpenAlexFallbackSearch(query, grenze, signal);
 						if (fallbackRows.length) return fallbackRows;
 						throw err;
 					}
 				} else if (allResults.length) {
 					// Auch ein dauerhafter Fehler — etwa die Blaettergrenze von
 					// 10.000 — macht die bereits geholten Arbeiten nicht wertlos.
-					return allResults.slice(0, maxResults);
+					return allResults.slice(0, grenze);
 				} else {
 					throw err;
 				}
@@ -1929,16 +2029,22 @@ window.SLRApp = (() => {
 			if (data && data.meta && typeof data.meta.count === 'number') {
 				state.search.lastTotal = data.meta.count;
 			}
+			// Nach der ersten Seite ist die Gesamtzahl bekannt. Genau hier
+			// entscheidet sich, ob der Lauf ueberhaupt speicherbar endet.
+			if (!gefragt && state.search.lastTotal > nachfrageSchwelle() && grenze > nachfrageSchwelle()) {
+				gefragt = true;
+				grenze = await frageNachGrenze(state.search.lastTotal, allResults.length);
+			}
 			if (!rows.length) break;
 			allResults.push(...rows.map(mapOpenAlexResult).filter(x => x.eid || x.doi));
 			if (typeof melde === 'function') {
 				const gesamt = state.search.lastTotal;
-				const ziel = Number.isFinite(maxResults)
-					? Math.min(maxResults, gesamt || maxResults)
+				const ziel = Number.isFinite(grenze)
+					? Math.min(grenze, gesamt || grenze)
 					: (gesamt || 0);
 				melde(allResults.length, ziel);
 			}
-			if (allResults.length >= maxResults) break;
+			if (allResults.length >= grenze) break;
 			if (usedPageFallback) {
 				page += 1;
 				if (rows.length < perPage) break;
@@ -1951,7 +2057,7 @@ window.SLRApp = (() => {
 			}
 		}
 
-		return allResults.slice(0, maxResults);
+		return allResults.slice(0, grenze);
 	}
 
 	// Alle Feldcodes aller drei Datenbanken in einer Menge. Aus views.js, damit
@@ -2796,7 +2902,7 @@ window.SLRApp = (() => {
 				stats.skipped.notOpenAlex += 1;
 				continue;
 			}
-			if (state.fetchMode === 'missing' && Array.isArray(article.referencedWorks)) {
+			if (state.fetchMode === 'missing' && refsVon(article).length) {
 				stats.skipped.alreadyComplete += 1;
 				continue;
 			}
@@ -2838,8 +2944,16 @@ window.SLRApp = (() => {
 		hideFetchProgress();
 		const changed = Object.keys(refsMap).length;
 		if (changed) {
-			await SLRData.patchSearchLogReferencedWorks(state.currentFolder, refsMap);
-			await hydrateProject(state.currentFolder);
+			// In den Sitzungsspeicher, nicht in das Projekt: Die Verweise sind
+			// wieder abrufbar, kosten aber keinen dauerhaften Platz. Ein
+			// Neuladen der Seite verliert sie, dieser Knopf holt sie zurueck.
+			Object.assign(state.refsCache, refsMap);
+			// Der Netz-Index in views.js merkt sich sein Ergebnis an der
+			// IDENTITAET des Artikel-Arrays, nicht an dessen Inhalt. Frueher kam
+			// nach dem Abruf ein hydrateProject und damit ohnehin ein neues
+			// Array; ohne das bliebe der alte, leere Index stehen und das Netz
+			// erschiene erst nach dem naechsten Ansichtswechsel.
+			state.articles = state.articles.map(a => a);
 			renderCurrentView();
 		}
 
@@ -3521,13 +3635,13 @@ window.SLRApp = (() => {
 	const EXTERNAL_REF_LIMIT = 40;
 	async function loadExternalReferences(eid, offset) {
 		const article = state.articles.find(a => (a.eid || a._id) === eid);
-		if (!article || !Array.isArray(article.referencedWorks) || !article.referencedWorks.length) {
+		if (!article || !refsVon(article).length) {
 			return { items: [], totalExternal: 0, nextOffset: null };
 		}
 		const inProjectIds = new Set(
 			state.articles.filter(a => a.source === 'openalex' && a.eid).map(a => a.eid.slice(9))
 		);
-		const externalIds = article.referencedWorks.filter(id => !inProjectIds.has(id));
+		const externalIds = refsVon(article).filter(id => !inProjectIds.has(id));
 		const off = offset || 0;
 		const batch = externalIds.slice(off, off + EXTERNAL_REF_LIMIT);
 		if (!batch.length) return { items: [], totalExternal: externalIds.length, nextOffset: null };
