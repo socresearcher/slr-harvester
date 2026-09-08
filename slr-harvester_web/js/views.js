@@ -8940,6 +8940,8 @@ window.SLRViews = (() => {
       karten: [
         'This is the starting point. Before anything else you need a <strong>workspace</strong>: a local folder on this device, or a Cloud Sync account that follows you across browsers.',
         'A <strong>workspace</strong> holds projects; a <strong>project</strong> holds one review — its searches, its articles, its screening decisions. Nothing is stored outside the workspace you pick.',
+        '<strong>Two workspaces, two ceilings.</strong> A local folder is limited only by your own disk. Cloud Sync keeps each project as a single database row and rewrites that row on every search, so it is the wrong place for very large sweeps.',
+        'How large is large? One retrieved record costs about <strong>1.8 KB</strong> in this app. Ten thousand records is roughly 18 MB, a hundred and sixty thousand about 280 MB — the latter is more than Cloud Sync will take, and heavy even for the browser.',
         '<strong>First time with a local folder?</strong> Click <strong>Continue with Local Folder</strong>, then create a new, empty folder in the picker (any name, e.g. <code>SLR-Harvester-Data</code>). Nothing is written until you create your first project.',
         '<strong>Already have local data?</strong> Pick the folder that holds <code>projects.json</code> and the <code>projects/</code> directory. Local folders and synced drives (OneDrive, Google Drive) both work.',
         '<strong>On mobile, or in Firefox / Safari?</strong> Local Folder needs the File System Access API, which those browsers lack. Use <strong>Sign Up</strong> or <strong>Log In</strong> instead — Cloud Sync works in any browser.',
@@ -8963,6 +8965,8 @@ window.SLRViews = (() => {
         'Click a <strong>field code</strong> to insert it at the cursor, and a <strong>saved term</strong> to insert it in quotes. Drag the bottom-right corner of the query box to make it taller.',
         '<strong>Narrow the question, not the list.</strong> Capping results is not a selection criterion: what falls away is whatever the database ranked lowest, which you cannot report or defend. <strong>Max results</strong> is empty by default — no limit — and that is the honest setting.',
         'Use criteria you can state instead: publication years, document type (article, review, book chapter), a narrower search field, language, or the topic itself. If you do set a limit, keep it above the total your query reports.',
+        '<strong>Very large result lists have a physical limit.</strong> Measured: 1.8 KB per record, so 160,000 records is about 280 MB in one project and roughly 450 MB of browser memory just to hold the list. In Cloud Sync a run that size will not be saved, and nothing appears under History.',
+        'If you genuinely need a sweep in the tens of thousands, switch the workspace to a <strong>local folder</strong> first. There the only limit is your own disk. Otherwise narrow the question — years, document type, search field, language — which is what a systematic review has to do anyway.',
         'Results are saved to the open project and appear under <strong>Articles</strong>. Every run is recorded in <strong>History</strong> with its query, so it can be reported and repeated.',
       ],
     },
@@ -9025,6 +9029,9 @@ window.SLRViews = (() => {
       karten: [
         'Where this browser reads and writes your projects: a folder on this device, or your Cloud Sync account.',
         'These are <strong>separate</strong> workspaces, not two views of the same projects. Switching moves nothing; each side keeps what it has.',
+        '<strong>Local Folder</strong> writes plain files to your own disk. There is no size quota beyond the device itself, nothing is shared with anyone, and a large project only costs you disk space. This is the place for sweeps in the tens of thousands.',
+        '<strong>Cloud Sync</strong> keeps each project as one row in a shared database, and every new search run rewrites that whole row — over the network and again inside the database. Comfortable to roughly <strong>10,000–20,000 records</strong> per project; beyond that the write gets slow, then unreliable.',
+        'Both are yours and both are safe. If a big query is refused or a run vanishes without appearing under History, that is the ceiling talking — open a local folder, run it there, and keep Cloud Sync for the projects you want on every device.',
       ],
     },
     account: {
