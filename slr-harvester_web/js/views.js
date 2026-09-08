@@ -400,7 +400,6 @@ window.SLRViews = (() => {
     // text — now it's a dedicated section in About so it's one tap away
     // instead of permanently taking up Home's layout. This hint is the
     // pointer left in its place; dismissing it is remembered for good.
-    const firsttimeDismissed = localStorage.getItem('slr-firsttime-hint-dismissed') === '1';
 
     container.innerHTML = `
       <div class="welcome-view" id="home">
@@ -456,17 +455,6 @@ window.SLRViews = (() => {
           <span>2026 Gregor Hobersdorfer</span>
         </div>
 
-        ${firsttimeDismissed ? '' : `
-          <div class="welcome-firsttime-hint" id="welcome-firsttime-hint">
-            <button type="button" class="welcome-firsttime-btn" id="welcome-firsttime-btn"
-                    title="Go to the &quot;First time here?&quot; section in About">
-              ${SLRIcons.chevronLeft}
-              <span>First time here?</span>
-            </button>
-            <button type="button" class="welcome-firsttime-close" id="welcome-firsttime-close"
-                    title="Dismiss" aria-label="Dismiss">${SLRIcons.close}</button>
-          </div>
-        `}
       </div>`;
 
     container.querySelector('#welcome-open-btn').addEventListener('click', () => {
@@ -477,30 +465,6 @@ window.SLRViews = (() => {
         if (notice) notice.hidden = false;
       }
     });
-
-    if (!firsttimeDismissed) {
-      const hintEl = container.querySelector('#welcome-firsttime-hint');
-      const welcomeEl = container.querySelector('.welcome-view');
-      const positionFirsttimeHint = () => {
-        if (!hintEl.isConnected) { window.removeEventListener('resize', positionFirsttimeHint); return; }
-        const aboutBtn = document.querySelector('.sidebar .nav-item[data-view="about"]');
-        if (!aboutBtn) return;
-        const aboutRect   = aboutBtn.getBoundingClientRect();
-        const welcomeRect = welcomeEl.getBoundingClientRect();
-        const top = (aboutRect.top - welcomeRect.top) + aboutRect.height / 2 - hintEl.offsetHeight / 2;
-        hintEl.style.top = `${Math.max(8, top)}px`;
-      };
-      positionFirsttimeHint();
-      window.addEventListener('resize', positionFirsttimeHint);
-
-      container.querySelector('#welcome-firsttime-btn').addEventListener('click', () => {
-        SLRApp.gotoAboutFirstTime();
-      });
-      container.querySelector('#welcome-firsttime-close').addEventListener('click', () => {
-        localStorage.setItem('slr-firsttime-hint-dismissed', '1');
-        hintEl.remove();
-      });
-    }
 
     if (cloudUser) {
       container.querySelector('#welcome-goto-projects-btn').addEventListener('click', () => {
@@ -1078,7 +1042,6 @@ window.SLRViews = (() => {
     container.innerHTML = `
       <div class="projects-view">
         <div class="view-head">
-          <p class="view-subtitle">Each project keeps its own searches, articles, tags and settings.</p>
         </div>
         <div class="projects-header">
           <div>
@@ -2891,11 +2854,9 @@ window.SLRViews = (() => {
 
         <div class="list-toolbar-row">
           <div class="filter-year-wrap">
-            <input class="year-input" id="${yearFromId}" type="number"
-                   placeholder="1900" min="1900" max="2100" value="${esc(yearFromValue)}">
-                 <span>-</span>
-            <input class="year-input" id="${yearToId}" type="number"
-                   placeholder="${new Date().getFullYear()}" min="1900" max="2100" value="${esc(yearToValue)}">
+            ${buildYearFieldHTML(yearFromId, yearFromValue, 1900, 'Earliest publication year')}
+            <span class="year-dash">–</span>
+            ${buildYearFieldHTML(yearToId, yearToValue, new Date().getFullYear(), 'Latest publication year')}
           </div>
           <select class="filter-select" id="${sortId}" title="Sort order">
             <option value="newest" ${sortValue==='newest'?'selected':''}>Newest first</option>
@@ -2994,6 +2955,7 @@ window.SLRViews = (() => {
     const sortSelect = container.querySelector('#list-sort');
     if (sortSelect) sortSelect.addEventListener('change', e => onFilter({ sort: e.target.value }));
 
+    wireYearSteppers(container);
     const yearFrom = container.querySelector('#list-year-from');
     const yearTo   = container.querySelector('#list-year-to');
     if (yearFrom && yearTo) {
@@ -3203,7 +3165,6 @@ window.SLRViews = (() => {
 
     const historyHead = `
       <div class="view-head">
-        <p class="view-subtitle">Every search run in this project, with what it returned.</p>
       </div>`;
     container.innerHTML = `<div class="history-view">${historyHead}${tabsHTML}${bodyHTML}</div>`;
 
@@ -4434,7 +4395,6 @@ window.SLRViews = (() => {
     container.innerHTML = `
       <div class="viz-view">
         <div class="view-head">
-          <p class="view-subtitle">Charts, the world map and the citation network for this project.</p>
         </div>
 
         <div class="viz-section">
@@ -5315,7 +5275,6 @@ window.SLRViews = (() => {
     container.innerHTML = `
       <div class="databases-view">
         <div class="view-head">
-          <p class="view-subtitle">Which sources this app searches itself, and which ones you open in their own interface.</p>
         </div>
 
         ${groupSections}
@@ -5624,18 +5583,61 @@ window.SLRViews = (() => {
   };
 
   // Hints per database (shown below the query textarea)
-  const DB_HINTS = {
-    scopus:   'Use Scopus Boolean syntax: TITLE-ABS-KEY("machine learning") AND PUBYEAR > 2019',
-    pubmed:   'Use PubMed query syntax, e.g.: machine learning[Title] AND 2019:2024[PDAT]',
-    openalex: 'Keyword search across title, abstract & full text. Use filter syntax for precision: title.search:"deep learning",publication_year:>2019 (comma = AND).',
+  // Was in der jeweiligen Datenbank in das Abfragefeld gehoert — als
+  // ausgegrauter Vorschlag IM Feld, nicht als Hinweiskasten darunter. Der
+  // Kasten sagte dasselbe, brauchte aber eine eigene Zeile und einen eigenen
+  // Schliessknopf, und der Blick musste vom Eingabefeld weg.
+  const DB_PLACEHOLDERS = {
+    scopus:   'Scopus Boolean syntax — e.g. TITLE-ABS-KEY("machine learning") AND PUBYEAR > 2019',
+    pubmed:   'PubMed query syntax — e.g. machine learning[Title] AND 2019:2024[PDAT]',
+    openalex: 'Keyword search across title, abstract & full text — or filter syntax for precision, e.g. title.search:"deep learning",publication_year:>2019 (comma = AND)',
   };
 
-  // Placeholders per database
-  const DB_PLACEHOLDERS = {
-    scopus:   'TITLE-ABS-KEY("machine learning") AND PUBYEAR > 2019',
-    pubmed:   'machine learning[Title] AND 2019:2024[PDAT]',
-    openalex: 'machine learning education systematic review',
-  };
+
+  // Ein Jahresfeld mit eigenen Auf-/Ab-Knoepfen.
+  //
+  // Die Pfeilchen, die ein <input type="number"> selbst mitbringt, zeichnet
+  // der Browser — sie folgen dem hellen Farbschema des Betriebssystems und
+  // bleiben im dunklen Fenster hell. Ausserdem sehen sie in jedem Browser
+  // anders aus. Diese hier sind zwei gewoehnliche Knoepfe und nehmen deshalb
+  // die Farben der Anwendung an.
+  function buildYearFieldHTML(id, wert, platzhalter, beschriftung) {
+    return `
+      <div class="year-field">
+        <input class="year-input" id="${id}" type="number" inputmode="numeric"
+               placeholder="${esc(String(platzhalter))}" min="1800" max="2100"
+               aria-label="${esc(beschriftung)}" value="${esc(String(wert == null ? '' : wert))}">
+        <span class="year-steps" aria-hidden="true">
+          <button type="button" class="year-step" data-year-step="1" tabindex="-1">&#9650;</button>
+          <button type="button" class="year-step" data-year-step="-1" tabindex="-1">&#9660;</button>
+        </span>
+      </div>`;
+  }
+
+  // Die Knoepfe zaehlen um eins; ein leeres Feld faengt beim Platzhalter an,
+  // damit der erste Klick nicht im Jahr 1801 landet.
+  function wireYearSteppers(container) {
+    container.querySelectorAll('.year-field').forEach(feld => {
+      const eingabe = feld.querySelector('.year-input');
+      if (!eingabe) return;
+      feld.querySelectorAll('[data-year-step]').forEach(knopf => {
+        knopf.addEventListener('click', () => {
+          if (eingabe.disabled) return;
+          const schritt = parseInt(knopf.dataset.yearStep, 10) || 1;
+          const start = parseInt(eingabe.value, 10);
+          const grund = Number.isFinite(start)
+            ? start
+            : (parseInt(eingabe.placeholder, 10) || new Date().getFullYear());
+          const min = parseInt(eingabe.min, 10) || 1800;
+          const max = parseInt(eingabe.max, 10) || 2100;
+          const neu = Math.max(min, Math.min(max, Number.isFinite(start) ? grund + schritt : grund));
+          eingabe.value = String(neu);
+          eingabe.dispatchEvent(new Event('input', { bubbles: true }));
+          eingabe.dispatchEvent(new Event('change', { bubbles: true }));
+        });
+      });
+    });
+  }
 
   function renderSearch(container, projectData, settings, search) {
     const db       = (search && search.db) || 'scopus';
@@ -5691,21 +5693,6 @@ window.SLRViews = (() => {
     ).join('');
 
     // Hint box
-    const hint = DB_HINTS[db] || '';
-    // Beide Hinweise haengen am selben i-Knopf und merken sich getrennt, ob
-    // sie weggeklickt wurden.
-    const versteckt = (schluessel) => {
-      try { return localStorage.getItem(schluessel) === '1'; } catch (_) { return false; }
-    };
-    const syntaxWeg = versteckt('slr-search-hint-syntax');
-    const hintHTML = hint
-      ? `<div class="search-db-hint" id="search-hint-syntax"${syntaxWeg ? ' hidden' : ''}>
-           ${SLRIcons.info}<span>${esc(hint)}</span>
-           <button type="button" class="search-hint-close" data-hint-close="slr-search-hint-syntax"
-                   aria-label="Hide this note" title="Hide — the i button brings it back">${SLRIcons.close}</button>
-         </div>`
-      : '';
-
     // Scopus key warning
     const keyWarnHTML = (db === 'scopus' && noKey)
       ? `<div class="search-notice search-notice-warn">${SLRIcons.warning}
@@ -5732,26 +5719,6 @@ window.SLRViews = (() => {
     }
 
     const placeholder = DB_PLACEHOLDERS[db] || '';
-
-    // Steht bewusst in der Suchansicht und nicht in der Hilfe: Die Versuchung,
-    // eine zu grosse Trefferliste ueber „Max results" zu kuerzen, entsteht
-    // genau hier, und was dabei wegfaellt, ist nicht begruendbar.
-    const rechercheWeg = versteckt('slr-search-hint-hidden');
-    const rechercheHinweis = `
-      <div class="search-notice search-notice-info" id="search-hint"${rechercheWeg ? ' hidden' : ''}>
-        ${SLRIcons.info}
-        <span><strong>Narrow the question, not the list.</strong> For a systematic review,
-        capping results is not a selection criterion — the records that fall away are
-        whichever the database happened to rank lowest, which you cannot report or defend.
-        Use criteria you can state instead: publication years, document type (article,
-        review, book chapter), a narrower search field, language, or the topic itself.
-        Keep <em>Max results</em> above the total your query reports.</span>
-        <button type="button" class="search-hint-close" data-hint-close="slr-search-hint-hidden"
-                aria-label="Hide this note" title="Hide — the i button brings it back">${SLRIcons.close}</button>
-      </div>`;
-    // Der i-Knopf zeigt sich als „an", solange wenigstens einer der beiden
-    // Kaesten offen ist.
-    const hinweisWeg = syntaxWeg && rechercheWeg;
 
     // Die beiden Schubladen merken sich ihre Stellung selbst. Vorgabe haengt
     // an der Bildschirmbreite — am Telefon zu, am Desktop offen —, aber nur
@@ -5825,13 +5792,9 @@ window.SLRViews = (() => {
               <div class="search-field">
                 <label class="search-field-label" for="search-year-from">Years</label>
                 <div class="search-year-pair">
-                  <input class="form-input search-year-input" id="search-year-from" type="number" inputmode="numeric"
-                    min="1800" max="2100" placeholder="1900" value="${esc(String(yearFromVal))}"
-                    ${isSearch ? 'disabled' : ''}>
-                  <span class="search-year-dash">&ndash;</span>
-                  <input class="form-input search-year-input" id="search-year-to" type="number" inputmode="numeric"
-                    min="1800" max="2100" placeholder="${new Date().getFullYear()}" value="${esc(String(yearToVal))}"
-                    ${isSearch ? 'disabled' : ''}>
+                  ${buildYearFieldHTML('search-year-from', yearFromVal, 1900, 'Earliest publication year')}
+                  <span class="year-dash">–</span>
+                  ${buildYearFieldHTML('search-year-to', yearToVal, new Date().getFullYear(), 'Latest publication year')}
                 </div>
               </div>
 
@@ -5847,19 +5810,10 @@ window.SLRViews = (() => {
                     ${isSearch ? 'disabled' : ''}>
                   <button type="button" class="search-step-btn" data-step="1"
                           aria-label="Raise the result limit" ${isSearch ? 'disabled' : ''}>+</button>
-                  <button type="button" class="search-hint-btn" id="search-hint-btn"
-                          aria-expanded="${hinweisWeg ? 'false' : 'true'}"
-                          aria-controls="search-hint"
-                          aria-label="Show or hide the note on result limits"
-                          title="Show or hide the note on result limits">i</button>
                 </div>
               </div>
             </div>
 
-            <div class="search-hints" id="search-hints">
-              ${hintHTML}
-              ${rechercheHinweis}
-            </div>
             ${statusHTML}
           </div>
           </div>
@@ -6151,6 +6105,8 @@ window.SLRViews = (() => {
     // eigene Pfeilchen mit, die sind aber winzig und in manchen Browsern erst
     // beim Ueberfahren da; ausserdem dreht ein Mausrad ueber einem
     // Zahlenfeld von sich aus gar nichts.
+    wireYearSteppers(container);
+
     const maxFeld = container.querySelector('#search-max');
     if (maxFeld) {
       const SCHRITT = 50, MIN = 1, MAX = 10000, VORGABE = 500;
@@ -6190,46 +6146,25 @@ window.SLRViews = (() => {
       }, { passive: false });
     }
 
-    // Beide Erlaeuterungen: jedes x schliesst seinen eigenen Kasten, der
-    // i-Knopf schaltet beide zugleich.
-    const merke = (schluessel, weg) => {
-      try { localStorage.setItem(schluessel, weg ? '1' : '0'); }
-      catch (_) { /* privates Fenster — dann gilt es nur fuer diese Sitzung */ }
-    };
-    const hinweisKaesten = () => [
-      { el: container.querySelector('#search-hint-syntax'), key: 'slr-search-hint-syntax' },
-      { el: container.querySelector('#search-hint'),        key: 'slr-search-hint-hidden' },
-    ].filter(k => k.el);
-
-    container.querySelectorAll('[data-hint-close]').forEach(btn => {
-      btn.addEventListener('click', () => {
-        const kasten = btn.closest('.search-notice, .search-db-hint');
-        if (!kasten) return;
-        kasten.hidden = true;
-        merke(btn.dataset.hintClose, true);
-        aktualisiereHinweisKnopf();
+    // Field codes und Saved terms sind Nachschlagewerke, keine Ablagen: Ist
+    // Platz fuer drei Spalten — am Schreibtisch und auf dem Tablet quer —,
+    // stehen sie offen und lassen sich nicht zuklappen. Erst wenn der Platz
+    // fehlt, wird das Zuklappen wieder gebraucht und wieder erlaubt.
+    const breitGenug = () => window.matchMedia('(min-width: 1024px)').matches;
+    const schubladen = [...container.querySelectorAll('.search-drawer')];
+    function schubladenNachPlatz() {
+      const fest = breitGenug();
+      schubladen.forEach(d => {
+        d.classList.toggle('is-locked-open', fest);
+        if (fest) d.open = true;
       });
+    }
+    schubladen.forEach(d => {
+      const kopf = d.querySelector('summary');
+      if (kopf) kopf.addEventListener('click', ev => { if (breitGenug()) ev.preventDefault(); });
     });
-
-    const hinweisKnopf = container.querySelector('#search-hint-btn');
-    function aktualisiereHinweisKnopf() {
-      if (!hinweisKnopf) return;
-      const offen = hinweisKaesten().some(k => !k.el.hidden);
-      hinweisKnopf.setAttribute('aria-expanded', offen ? 'true' : 'false');
-      hinweisKnopf.classList.toggle('is-active', offen);
-    }
-    if (hinweisKnopf) {
-      hinweisKnopf.addEventListener('click', () => {
-        const kaesten = hinweisKaesten();
-        if (!kaesten.length) return;
-        // Ist noch irgendetwas offen, wird zugemacht; sonst alles auf.
-        const zumachen = kaesten.some(k => !k.el.hidden);
-        kaesten.forEach(k => { k.el.hidden = zumachen; merke(k.key, zumachen); });
-        aktualisiereHinweisKnopf();
-        if (!zumachen) kaesten[0].el.scrollIntoView({ block: 'nearest' });
-      });
-      aktualisiereHinweisKnopf();
-    }
+    schubladenNachPlatz();
+    window.addEventListener('resize', schubladenNachPlatz);
 
     // Wire: Run
     const runBtn = container.querySelector('#search-run-btn');
@@ -6748,7 +6683,6 @@ window.SLRViews = (() => {
     container.innerHTML = `
       <div class="settings-view">
         <div class="view-head">
-          <p class="view-subtitle">Where this browser reads and writes your projects.</p>
         </div>
 
         <div class="workspace-active-card ${usingCloud ? 'is-cloud' : 'is-local'}">
@@ -6843,7 +6777,6 @@ window.SLRViews = (() => {
     container.innerHTML = `
       <div class="settings-view">
         <div class="view-head">
-          <p class="view-subtitle">Your Cloud Sync sign-in &mdash; email address, password, and deletion.</p>
         </div>
 
         ${cloudUser ? `
@@ -7115,7 +7048,7 @@ window.SLRViews = (() => {
     container.innerHTML = `
       <div class="settings-view">
         <div class="view-head">
-          <p class="view-subtitle">How this app reaches the databases, and what it does on its own.
+          <p class="view-subtitle">
             <button type="button" class="link-btn" id="settings-privacy-link">See what's stored and why</button>
           </p>
         </div>
@@ -7366,7 +7299,7 @@ window.SLRViews = (() => {
           <ul class="about-feature-list">
             <li><span class="about-li-icon" aria-hidden="true">${SLRIcons.sun}</span><span><strong>Theme</strong> (<code>slr-theme</code>) &mdash; remembers dark/light mode. Optional; resets to dark if cleared.</span></li>
             <li><span class="about-li-icon" aria-hidden="true">${SLRIcons.projects}</span><span><strong>Layout preferences</strong> (<code>slr-sidebar-collapsed</code>, <code>slr-actions-visible</code>, <code>slr-projects-sort</code>, <code>slr-pinned-projects</code>) &mdash; sidebar collapsed state, toolbar visibility, project sort order, pinned projects. Optional convenience only.</span></li>
-            <li><span class="about-li-icon" aria-hidden="true">${SLRIcons.check}</span><span><strong>Onboarding progress</strong> (<code>slr-onboarding-done</code>) &mdash; which first-time hints you've already seen, so they don't repeat. Optional.</span></li>
+            <li><span class="about-li-icon" aria-hidden="true">${SLRIcons.check}</span><span><strong>Guide state</strong> (<code>slr-guided-mode</code>, <code>slr-guided-muted</code>) &mdash; whether the guided cards are on, and which views you silenced. Optional.</span></li>
             <li><span class="about-li-icon" aria-hidden="true">${SLRIcons.folder}</span><span><strong>Active workspace backend</strong> (<code>slr-backend</code>) &mdash; whether Local Folder or Cloud Sync is currently selected. Needed so the app knows which one to reconnect to on your next visit.</span></li>
             <li><span class="about-li-icon" aria-hidden="true">${SLRIcons.refresh}</span><span><strong>Automation preferences</strong> (<code>slr-auto-fetch-enabled</code>, <code>slr-auto-tag-enabled</code>, <code>slr-auto-run-scope</code>, <code>slr-auto-tag-categories</code>, <code>slr-fetch-mode</code>) &mdash; your chosen auto-enrichment/auto-tagging settings. Optional.</span></li>
             <li><span class="about-li-icon" aria-hidden="true">${SLRIcons.settings}</span><span><strong>API credentials you enter</strong> (<code>slr-apikey</code>, <code>slr-insttoken</code>, <code>slr-openalex-key</code>, <code>slr-openalex-email</code>) &mdash; only stored if you type them into Settings, so you don't have to retype them. Optional &mdash; the app works without them, just with lower rate limits on Scopus/OpenAlex. In Local Folder mode, the same values are also written into that folder's own <code>slr_config.json</code> on your device (nowhere else), so the desktop app version can share them.</span></li>
@@ -7612,25 +7545,10 @@ window.SLRViews = (() => {
         </ul>
       </div>`;
 
-    const firstTimeBody = `
-      <p><strong>On mobile, or in Firefox/Safari?</strong> Local Folder needs the File System
-        Access API, which isn't available there — use <strong>Sign Up</strong> or
-        <strong>Log In</strong> on the Home screen instead: it syncs your projects through the
-        cloud and works in any browser.</p>
-      <p><strong>First time with Local Folder?</strong> Click <strong>Continue with Local
-        Folder</strong> on the Home screen, then create a new, empty folder in the picker dialog
-        (any name works, e.g. <code>SLR-Harvester-Data</code>) and select it. The app sets
-        everything up the moment you create your first project — nothing is written until then.</p>
-      <p><strong>Already have local data?</strong> Select the folder that contains
-        <code>projects.json</code> and the <code>projects/</code> directory — your existing SLR
-        Harvester workspace. Local folders and cloud-synced drives (OneDrive, Google Drive) both
-        work.</p>`;
-
     container.innerHTML = `
       <div class="settings-view">
         <div class="view-head">
           <h2 class="view-title">About SLR Harvester <span class="title-web">Web</span></h2>
-          <p class="view-subtitle">A project-based workflow tool for conducting Systematic Literature Reviews.</p>
         </div>
 
         <div class="about-links-row">
@@ -7652,24 +7570,6 @@ window.SLRViews = (() => {
           </button>
         </div>
 
-        ${collapseSection({
-          id: 'about-first-time',
-          title: 'First time here?',
-          meta: 'Getting started',
-          body: `<div class="qa-answer">${firstTimeBody}</div>`,
-          open: true,
-        })}
-
-        <p class="settings-group-label">Questions &amp; Answers</p>
-        <div class="qa-list">
-          ${qa.map(item => collapseSection({
-            id: item.id,
-            title: esc(item.q),
-            body: item.a,
-            open: false,
-          })).join('')}
-        </div>
-
         <p class="settings-group-label">More</p>
         ${collapseSection({
           id: 'about-features',
@@ -7685,6 +7585,16 @@ window.SLRViews = (() => {
           body: versionsBody,
           open: false,
         })}
+
+        <p class="settings-group-label">Questions &amp; Answers</p>
+        <div class="qa-list">
+          ${qa.map(item => collapseSection({
+            id: item.id,
+            title: esc(item.q),
+            body: item.a,
+            open: false,
+          })).join('')}
+        </div>
 
         <div class="about-colophon">
           <p>SLR Harvester Web &mdash; 2026</p>
@@ -9030,6 +8940,9 @@ window.SLRViews = (() => {
       karten: [
         'This is the starting point. Before anything else you need a <strong>workspace</strong>: a local folder on this device, or a Cloud Sync account that follows you across browsers.',
         'A <strong>workspace</strong> holds projects; a <strong>project</strong> holds one review — its searches, its articles, its screening decisions. Nothing is stored outside the workspace you pick.',
+        '<strong>First time with a local folder?</strong> Click <strong>Continue with Local Folder</strong>, then create a new, empty folder in the picker (any name, e.g. <code>SLR-Harvester-Data</code>). Nothing is written until you create your first project.',
+        '<strong>Already have local data?</strong> Pick the folder that holds <code>projects.json</code> and the <code>projects/</code> directory. Local folders and synced drives (OneDrive, Google Drive) both work.',
+        '<strong>On mobile, or in Firefox / Safari?</strong> Local Folder needs the File System Access API, which those browsers lack. Use <strong>Sign Up</strong> or <strong>Log In</strong> instead — Cloud Sync works in any browser.',
         'Once a workspace is open, go to <strong>Projects</strong> and create your first project. Everything else in the sidebar works on the project that is currently open.',
       ],
     },
@@ -9044,9 +8957,12 @@ window.SLRViews = (() => {
     search: {
       titel: 'Search',
       karten: [
-        'Pick a <strong>source</strong> first — Scopus, PubMed or OpenAlex. Each has its own query syntax, and the field codes on the left change with it.',
-        'Write the query in the middle. Click a <strong>field code</strong> to insert it at the cursor, and a <strong>saved term</strong> to insert it in quotes. Drag the bottom-right corner to make the box taller.',
-        '<strong>Max results</strong> caps how much is retrieved. Leave it empty for no limit — but read the note behind the <strong>i</strong>: for a systematic review, capping the list is not a selection criterion.',
+        'Pick a <strong>source</strong> first — Scopus, PubMed or OpenAlex. Each has its own query syntax; the grey text in the query box shows what that source expects, and the field codes on the left change with it.',
+        '<strong>Scopus</strong> takes Boolean syntax with field codes: <code>TITLE-ABS-KEY(&quot;machine learning&quot;) AND PUBYEAR &gt; 2019</code>. <strong>PubMed</strong> takes bracket tags: <code>machine learning[Title] AND 2019:2024[PDAT]</code>.',
+        '<strong>OpenAlex</strong> searches title, abstract and full text from plain keywords. For precision it also takes filter syntax: <code>title.search:&quot;deep learning&quot;,publication_year:&gt;2019</code> — a comma means AND.',
+        'Click a <strong>field code</strong> to insert it at the cursor, and a <strong>saved term</strong> to insert it in quotes. Drag the bottom-right corner of the query box to make it taller.',
+        '<strong>Narrow the question, not the list.</strong> Capping results is not a selection criterion: what falls away is whatever the database ranked lowest, which you cannot report or defend. <strong>Max results</strong> is empty by default — no limit — and that is the honest setting.',
+        'Use criteria you can state instead: publication years, document type (article, review, book chapter), a narrower search field, language, or the topic itself. If you do set a limit, keep it above the total your query reports.',
         'Results are saved to the open project and appear under <strong>Articles</strong>. Every run is recorded in <strong>History</strong> with its query, so it can be reported and repeated.',
       ],
     },
