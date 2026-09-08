@@ -418,16 +418,6 @@ a:hover {
   border-radius: 0 2px 2px 0;
 }
 
-/* Onboarding hint: flashes the suggested "next step" nav item twice */
-@keyframes navHintPulse {
-  0%, 100% { background: transparent; color: var(--text-muted); }
-  50%      { background: var(--accent-subtle); color: var(--accent-hover); }
-}
-
-.nav-item.nav-hint-pulse {
-  animation: navHintPulse .7s ease-in-out 2;
-}
-
 .nav-icon {
   display: flex;
   align-items: center;
@@ -833,6 +823,7 @@ a:hover {
   .list-toolbar .search-input,
   .list-toolbar .filter-select,
   .list-toolbar .year-input,
+  .list-toolbar .year-field,
   .list-toolbar .articles-action-btn,
   .list-filter-toggle {
     height: 32px;
@@ -1104,86 +1095,6 @@ a:hover {
   margin-top: 1px;
 }
 
-/* Points at the sidebar's About nav-item, where the onboarding walkthrough
-   that used to live here as static text now lives instead (see
-   #about-first-time in renderAbout). Vertically aligned to that button by
-   JS (renderWelcome); horizontal tracking is free — this is positioned
-   relative to .welcome-view, whose own left edge already sits flush
-   against the sidebar regardless of collapsed/expanded width. */
-.welcome-firsttime-hint {
-  position: absolute;
-  left: 14px;
-  top: 50%;
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  z-index: 5;
-}
-
-@media (prefers-reduced-motion: no-preference) {
-  .welcome-firsttime-hint {
-    animation: firsttimeHintNudge 2.4s ease-in-out infinite;
-  }
-}
-
-@keyframes firsttimeHintNudge {
-  0%, 100% { transform: translateX(0); }
-  50%      { transform: translateX(-4px); }
-}
-
-.welcome-firsttime-btn {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  padding: 8px 14px 8px 10px;
-  background: var(--accent-subtle);
-  border: 1px solid color-mix(in srgb, var(--accent) 45%, transparent);
-  border-radius: 20px;
-  color: var(--accent);
-  font-size: 13px;
-  font-weight: 500;
-  white-space: nowrap;
-  box-shadow: var(--shadow);
-}
-
-.welcome-firsttime-btn:hover {
-  background: color-mix(in srgb, var(--accent) 20%, transparent);
-  color: var(--accent-hover);
-}
-
-.welcome-firsttime-btn svg {
-  width: 15px;
-  height: 15px;
-  flex-shrink: 0;
-}
-
-.welcome-firsttime-close {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  width: 22px;
-  height: 22px;
-  border-radius: 50%;
-  background: var(--surface-2);
-  border: 1px solid var(--border);
-  color: var(--text-faint);
-  flex-shrink: 0;
-}
-
-.welcome-firsttime-close:hover {
-  background: var(--surface-3);
-  color: var(--text-muted);
-}
-
-.welcome-firsttime-close svg {
-  width: 11px;
-  height: 11px;
-}
-
-/* Bottom-center of the Home view, independent of the (vertically centered)
-   content group above it — absolute rather than a flex child so it stays
-   pinned to the viewport edge regardless of how tall the content above it
-   gets. */
 .welcome-copyright {
   position: absolute;
   left: 0;
@@ -1777,23 +1688,88 @@ a:hover {
   flex-shrink: 0;
 }
 
+/* Eingabefeld und Pfeile bilden ein Bauteil: Das Feld traegt den Rahmen, die
+   Pfeile sitzen darin. */
+.year-field {
+  position: relative;
+  display: inline-flex;
+  align-items: stretch;
+  flex-shrink: 0;
+}
+
 .year-input {
-  width: 60px;
+  width: 74px;
   height: 32px;
   box-sizing: border-box;
   background: var(--surface-2);
   border: 1px solid var(--border);
   border-radius: var(--radius);
-  padding: 0 7px;
+  padding: 0 20px 0 8px;   /* rechts Platz fuer die Pfeile */
   line-height: 1;
   font-size: 13px;
   color: var(--text);
   outline: none;
-  text-align: center;
+  text-align: left;
 }
 
 .year-input:focus {
   border-color: var(--accent);
+}
+
+/* Die Pfeilchen, die ein Zahlenfeld selbst mitbringt, zeichnet der Browser
+   nach dem Farbschema des Betriebssystems: Im dunklen Fenster blieben sie
+   hell, und in jedem Browser sahen sie anders aus. Deshalb ausgeblendet und
+   durch zwei gewoehnliche Knoepfe ersetzt, die die Farben der Anwendung
+   annehmen. */
+.year-input::-webkit-outer-spin-button,
+.year-input::-webkit-inner-spin-button {
+  -webkit-appearance: none;
+  margin: 0;
+}
+
+.year-input {
+  -moz-appearance: textfield;
+  appearance: textfield;
+}
+
+.year-steps {
+  position: absolute;
+  top: 1px;
+  bottom: 1px;
+  right: 1px;
+  width: 16px;
+  display: flex;
+  flex-direction: column;
+  border-radius: 0 var(--radius) var(--radius) 0;
+  overflow: hidden;
+}
+
+.year-step {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  border: none;
+  background: transparent;
+  color: var(--text-faint);
+  font-size: 7px;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.year-step:hover {
+  background: var(--surface);
+  color: var(--accent);
+}
+
+.year-step:active {
+  color: var(--accent-hover, var(--accent));
+}
+
+.year-dash {
+  color: var(--text-faint);
+  padding: 0 2px;
 }
 
 /* Stats row */
@@ -4426,19 +4402,6 @@ a.db-link:visited {
   border-bottom: 1px solid var(--border);
 }
 
-/* Landing flash for a section reached via a jump-link (currently just
-   #about-first-time, via Home's "First time here?" hint) — box-shadow/
-   background only, so it never shifts layout the way padding would. */
-@keyframes sectionHintPulse {
-  0%, 100% { background-color: transparent; box-shadow: none; }
-  25%, 75% { background-color: var(--accent-subtle); box-shadow: 0 0 0 8px var(--accent-subtle); }
-}
-
-.section-hint-pulse {
-  border-radius: var(--radius);
-  animation: sectionHintPulse 1.6s ease-in-out 1;
-}
-
 .scopus-api-notice > div {
   min-width: 0;
 }
@@ -6481,32 +6444,12 @@ a.db-link:visited {
   gap: 6px;
 }
 
-/* Gleicher Abstand links wie rechts — vorher stand die Zahl trotz
-   text-align: center sichtbar zu weit rechts, weil links 8px und rechts 4px
-   Innenabstand standen. */
-.search-year-input {
-  width: 7.5ch;
-  padding-left: 4px;
-  padding-right: 4px;
-  text-align: center;
-}
-
-/* Die Pfeilchen des Zahlenfelds nehmen bei vier Ziffern mehr Platz weg als
-   sie einbringen; hoch- und runterzaehlen laesst sich hier ueber die
-   Tastatur oder das Mausrad. */
-.search-year-input::-webkit-outer-spin-button,
-.search-year-input::-webkit-inner-spin-button {
-  -webkit-appearance: none;
-  margin: 0;
-}
-
-.search-year-input {
-  -moz-appearance: textfield;
-  appearance: textfield;
-}
-
-.search-year-dash {
-  color: var(--text-faint);
+/* Die Suchmaske benutzt dasselbe Jahresfeld wie die Artikellisten — gleiche
+   Breite, gleiche Ausrichtung, dieselben Pfeile. Vorher war es hier ein
+   mittig gesetztes Feld ohne Pfeile und dort ein linksbuendiges mit den
+   Pfeilen des Browsers. */
+.search-year-pair .year-input {
+  height: 36px;
 }
 
 /* Die Gruppenueberschrift klebte an der Karte darunter — sie hatte nur den
@@ -8975,5 +8918,25 @@ body.has-progress-footer .slr-guide {
     left: 12px;
     bottom: 12px;
     width: auto;
+  }
+}
+
+
+/* Field codes und Saved terms sind Nachschlagewerke. Ist Platz fuer drei
+   Spalten — am Schreibtisch und auf dem Tablet quer —, stehen sie offen und
+   lassen sich nicht zuklappen; der Pfeil daran waere ein Knopf, der nichts
+   tut. Erst wenn der Platz fehlt, wird das Zuklappen wieder gebraucht. */
+@media (min-width: 1024px) {
+  .search-drawer.is-locked-open > summary {
+    cursor: default;
+  }
+
+  /* Der Aufklapppfeil wird als ::after an der Kopfzeile gezeichnet. */
+  .search-drawer.is-locked-open > .search-drawer-summary::after {
+    display: none;
+  }
+
+  .search-drawer.is-locked-open > .search-drawer-summary:hover {
+    background: none;
   }
 }

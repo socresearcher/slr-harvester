@@ -146,7 +146,11 @@ window.SLRApp = (() => {
 
 		search: {
 			query: '',
-			maxResults: 500,
+			// null heisst: keine Obergrenze. Das ist die Vorgabe, weil eine
+			// gekappte Trefferliste fuer eine systematische Recherche nicht
+			// begruendbar ist — was wegfaellt, waehlt die Datenbank aus, nicht
+			// der Forscher. Wer eine Grenze will, traegt sie ein.
+			maxResults: null,
 			// Gesamttreffer laut Datenbank, unabhaengig von maxResults. null,
 			// solange keine Suche lief oder die Quelle keine Zahl liefert.
 			lastTotal: null,
@@ -406,48 +410,13 @@ window.SLRApp = (() => {
 		document.body.classList.remove('has-progress-footer');
 	}
 
-	// ── First-run onboarding hints ──────────────────────────────────────────
-	// Guides a new user through the sidebar in the logical order things
-	// unlock: once a step is reached, whichever nav item(s) make sense next
-	// flash turquoise twice. Some steps fan out to more than one next step
-	// (e.g. after running a Search, History/Articles/Tags are all sensible
-	// next stops). Progress is remembered per-browser so a step is only ever
-	// hinted once, lifetime.
-	const ONBOARDING_NEXT = {
-		welcome: ['databases'],
-		databases: ['projects'],
-		projects: ['search'],
-		search: ['history', 'articles', 'tags'],
-		history: [],
-		articles: ['selected'],
-		selected: ['corpus'],
-		corpus: [],
-		tags: ['visualizations'],
-		visualizations: [],
-	};
-	let onboardingDone;
-	try {
-		onboardingDone = new Set(JSON.parse(localStorage.getItem('slr-onboarding-done') || '[]'));
-	} catch (_) {
-		onboardingDone = new Set();
-	}
-
-	function pulseNavHint(view) {
-		const btn = document.querySelector(`.nav-item[data-view="${view}"]`);
-		if (!btn) return;
-		if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) return;
-		btn.classList.remove('nav-hint-pulse');
-		void btn.offsetWidth; // restart the animation if it's already mid-pulse
-		btn.classList.add('nav-hint-pulse');
-		btn.addEventListener('animationend', () => btn.classList.remove('nav-hint-pulse'), { once: true });
-	}
-
-	function markOnboardingStep(step) {
-		if (!(step in ONBOARDING_NEXT) || onboardingDone.has(step)) return;
-		onboardingDone.add(step);
-		localStorage.setItem('slr-onboarding-done', JSON.stringify([...onboardingDone]));
-		ONBOARDING_NEXT[step].forEach(pulseNavHint);
-	}
+	// Die Seitenleiste blinkte einem den naechsten sinnvollen Schritt vor. Das
+	// ist entfallen: Was hier zu tun ist, sagt jetzt die gefuehrte Einfuehrung
+	// unten rechts in ganzen Saetzen. Zwei Wegweiser nebeneinander, von denen
+	// einer nur blinken kann, sind einer zu viel.
+	//
+	// Der Schluessel slr-onboarding-done bleibt in aelteren Browsern liegen;
+	// gelesen wird er nirgends mehr.
 
 	function stableStringList(values) {
 		if (!Array.isArray(values)) return [];
@@ -557,7 +526,6 @@ window.SLRApp = (() => {
 		switch (state.view) {
 			case 'welcome':
 				SLRViews.renderWelcome(_container);
-				markOnboardingStep('welcome');
 				break;
 			case 'projects':
 				SLRViews.renderProjects(_container, state.projects, state.currentFolder, state.allProjectData, state.projectsSort, state.projectsDetailFolder);
@@ -652,9 +620,6 @@ window.SLRApp = (() => {
 		state.view = view;
 		renderCurrentView();
 		persistActiveProjectView();
-		// 'projects' and 'search' complete on a meaningful action (opening a
-		// project / running a search), not merely on visiting the tab.
-		if (view !== 'projects' && view !== 'search') markOnboardingStep(view);
 	}
 
 	// Opens a project's info panel inline within the Projects tab (replaces
@@ -671,26 +636,6 @@ window.SLRApp = (() => {
 	function closeProjectDetail() {
 		state.projectsDetailFolder = null;
 		renderCurrentView();
-	}
-
-	// Entry point for Home's "First time here?" hint: jumps to About and
-	// scrolls/flashes the section that used to be static text on Home itself.
-	function gotoAboutFirstTime() {
-		navigate('about');
-		pulseNavHint('about');
-		// renderCurrentView() above already ran synchronously, so the section
-		// is live in the DOM here — no need to defer to a frame callback.
-		const section = document.getElementById('about-first-time');
-		if (!section) return;
-		// The section is a <details> now — a jump to a collapsed header would
-		// show the user a title and nothing else.
-		if ('open' in section) section.open = true;
-		section.scrollIntoView({ behavior: 'smooth', block: 'start' });
-		if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) return;
-		section.classList.remove('section-hint-pulse');
-		void section.offsetWidth;
-		section.classList.add('section-hint-pulse');
-		section.addEventListener('animationend', () => section.classList.remove('section-hint-pulse'), { once: true });
 	}
 
 	// Remembers which project (and which view within it) was open, purely so
@@ -772,7 +717,6 @@ window.SLRApp = (() => {
 			}
 			renderCurrentView();
 			persistActiveProjectView();
-			markOnboardingStep('projects');
 		} catch (err) {
 			SLRViews.renderError(_container, err.message || String(err));
 		}
@@ -2186,7 +2130,6 @@ window.SLRApp = (() => {
 			showToast(gekappt
 				? `Search saved: ${results.length} of ${gesamt.toLocaleString('en')} matches retrieved${state.search.maxResults === null ? '' : ` (Max results = ${state.search.maxResults})`}.`
 				: `Search saved: ${results.length} result${results.length !== 1 ? 's' : ''}.`, false);
-			markOnboardingStep('search');
 		} catch (err) {
 			if (err && err.name === 'AbortError') {
 				state.search.error = 'Search cancelled.';
@@ -3668,7 +3611,6 @@ window.SLRApp = (() => {
 	return {
 		state,
 		navigate,
-		gotoAboutFirstTime,
 		openProjectDetail,
 		closeProjectDetail,
 		openFolder,
