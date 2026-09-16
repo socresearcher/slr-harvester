@@ -30,6 +30,18 @@ jobs:
       - name: Configure Pages
         uses: actions/configure-pages@v6
 
+      # Stop before publishing if an internal working file was committed
+      # (task lists, suggestions, assistant instructions, planning notes,
+      # the paper, logs). Same list as the bottom of .gitignore.
+      - name: Refuse internal files
+        run: |
+          set -euo pipefail
+          verboten='(^|/)(TASKS|SUGGESTIONS|CLAUDE|AGENTS|SKILL|TODO|SECURITY_PLAN|INFRASTRUKTUR|SUPABASE|PAPER)\.md$|^\.github/(copilot-instructions\.md|instructions/|prompts/)|\.prompt\.md$|(^|/)paper/|\.(log|bak)$'
+          if git ls-files | grep -E "$verboten"; then
+            echo "::error::Internal files are tracked (listed above). Remove them before deploying."
+            exit 1
+          fi
+
       # Allowlist, not the whole folder: only what the app loads at run time
       # is published. Dev server, backup scripts, the Supabase schema and any
       # Markdown (planning notes, vendor README) stay out of the site even if

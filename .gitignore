@@ -90,3 +90,23 @@ PAPER.md
 # Windows-Ordnersymbol (lokale Darstellung, nichts fuer das Repo)
 desktop.ini
 *.ico
+
+# Interne Entwicklungsunterlagen, ueberall im Baum (Historienbereinigung
+# 16.09.2026). Die Eintraege weiter oben sind auf feste Pfade verankert; diese
+# hier fangen dieselben Dateien auch nach einem Umbenennen des Ordners ab —
+# genau so waren TASKS.md und SUGGESTIONS.md unter slr-harvester-web/ einmal
+# in die Historie geraten. Der Workflow prueft zusaetzlich vor jeder
+# Veroeffentlichung, dass keine dieser Dateien versioniert ist.
+**/TASKS.md
+**/SUGGESTIONS.md
+**/CLAUDE.md
+**/SECURITY_PLAN.md
+**/INFRASTRUKTUR.md
+**/SUPABASE.md
+**/PAPER.md
+.github/copilot-instructions.md
+.github/instructions/
+.github/prompts/
+*.prompt.md
+*.log
+*.bak
