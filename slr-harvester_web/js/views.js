@@ -7496,7 +7496,8 @@ window.SLRViews = (() => {
             <summary>Voice licences</summary>
             <p class="privacy-lead">Each natural voice is trained on a speech dataset with its own terms (from the voice's
               model card at rhasspy/piper-voices). The app does not redistribute the models; your browser fetches them
-              from Hugging Face. <em>NC</em> voices are for non-commercial use only.</p>
+              from Hugging Face. Only voices whose whole training lineage is openly licensed are offered &mdash; most
+              other Piper voices are fine-tuned from a voice whose recordings are licensed for research only.</p>
             <ul class="about-feature-list">
               ${['de', 'en'].flatMap(lang => SLRTts.PIPER_VOICES[lang])
                 .map(v => `<li><span><strong>${esc(v.label.split(' — ')[0])}</strong> (${esc(v.id)}${v.speaker != null ? ', speaker ' + esc(String(v.speaker)) : ''}) &mdash; ${esc(v.licence)}, ${esc(v.dataset)}</span></li>`)

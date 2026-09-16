@@ -61,17 +61,22 @@ mirror of `rhasspy/piper-voices`. The app does not redistribute them; the
 user's browser downloads them. Terms follow each model's training dataset as
 stated in its MODEL_CARD (checked 2026-09-16):
 
-| Voice | Model | Dataset | Licence |
-|---|---|---|---|
-| Thorsten, Thorsten Expressive, Thorsten HD | de_DE-thorsten-medium, -thorsten_emotional-medium, -thorsten-high | Thorsten-Voice | CC0 |
-| Marlene, Ines, Rieke, Susanne | de_DE-mls-medium (speakers 2, 4, 5, 10) | Multilingual LibriSpeech, OpenSLR 94 | CC BY 4.0 |
-| HFC female, HFC male | en_US-hfc_female-medium, en_US-hfc_male-medium | Hi-Fi CAPTAIN (NICT) | CC BY-NC-SA 4.0 |
-| Amy | en_US-amy-medium | Mycroft mimic3 voices | not stated in the model card |
-| Alba | en_GB-alba-medium | Edinburgh DataShare 10283/3270 | CC BY 4.0 |
-| Ryan | en_US-ryan-medium | RyanSpeech | CC BY-NC-SA 4.0 |
-| Northern English male | en_GB-northern_english_male-medium | OpenSLR 83 | CC BY-SA 4.0 |
+| Voice | Model | Dataset | Training | Licence |
+|---|---|---|---|---|
+| Konrad, Lukas, Marlene, Ines, Rieke, Susanne | de_DE-mls-medium (speakers 0, 1, 2, 4, 5, 10) | Multilingual LibriSpeech, OpenSLR 94 | from scratch | CC BY 4.0 |
+| LJ | en_US-ljspeech-medium | LJ Speech (LibriVox) | from scratch | public domain |
+| Kristin | en_US-kristin-medium | LibriVox | from scratch | public domain |
+| Cori | en_GB-cori-medium | LibriVox | from scratch | public domain |
+| Norman | en_US-norman-medium | LibriVox | from scratch | public domain |
+| John | en_US-john-medium | LibriVox | fine-tuned from Kristin | public domain |
 
-NC voices are for non-commercial use only. `en_US-lessac-medium` was removed
-on 2026-09-16: its dataset (Blizzard 2013) is licensed for research to named
-licensees only.
+Rule: a voice is offered only if its whole lineage is openly licensed — its
+own dataset and the dataset of every model it was fine-tuned from.
+
+Most Piper voices are fine-tuned from `en_US-lessac`, whose dataset
+(Blizzard 2013, Lessac Technologies / Voice Factory) is licensed for research
+purposes only, to a named licensee, non-transferable and not for use by third
+parties. Voices derived from it were removed on 2026-09-16: lessac, amy,
+hfc_female, hfc_male, ryan (medium), alba, northern_english_male and the
+Thorsten voices (medium, high, emotional).
 

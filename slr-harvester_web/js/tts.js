@@ -43,7 +43,7 @@ window.SLRTts = (() => {
     engine: 'system',
     rate: 1,
     voices: { de: '', en: '' },                                  // system voice URIs
-    piper: { de: 'de_DE-thorsten-medium', en: 'en_US-hfc_female-medium' },
+    piper: { de: 'de_DE-mls-medium#0', en: 'en_US-ljspeech-medium' },
   };
 
   function loadSettings() {
@@ -334,41 +334,46 @@ window.SLRTts = (() => {
   // bounds". Rule for additions: "medium" or "high" only, and speak once
   // before shipping it.
   //
-  // The German female voices come from de_DE-mls-medium, a model trained on
-  // 236 speakers; the voice is chosen by speaker id, not by a separate model,
-  // so one download covers all of them. Ids come from the model's own
-  // speaker map, gender and training volume from the MLS dataset metadata —
-  // these four are the female speakers with the most material.
+  // All German voices come from de_DE-mls-medium, a model trained on 236
+  // speakers; the voice is chosen by speaker id, not by a separate model, so
+  // one download covers all of them. Ids come from the model's own speaker
+  // map, gender and training volume from the MLS metainfo.txt
+  // (facebook/multilingual_librispeech) — the speakers with the most
+  // material of each gender.
   //
-  // Licences: each voice is trained on a speech dataset with its own terms,
-  // taken from the voice's MODEL_CARD (rhasspy/piper-voices, checked
-  // 2026-09-16). The app does not redistribute the models — the browser
-  // fetches them from Hugging Face — but the terms still apply to their use
-  // and are shown in the privacy view. "NC" voices are non-commercial only,
-  // which fits this free research tool.
+  // Licence rule (2026-09-16): a voice ships only if its WHOLE lineage is
+  // openly licensed — the dataset it was trained on and, for a fine-tuned
+  // voice, the dataset of every model it was fine-tuned from. Source: the
+  // voice's MODEL_CARD at rhasspy/piper-voices.
   //
-  // Removed 2026-09-16: en_US-lessac-medium. Its dataset (Blizzard 2013,
-  // Lessac/Voice Factory) is released under a research licence granted to a
-  // named person or lab after manual approval; offering a model trained on it
-  // to every visitor is not covered by that. A stored choice of "lessac"
-  // falls back to the first voice of the list.
+  // Most Piper voices fail that rule. They are fine-tuned from en_US-lessac,
+  // whose dataset (Blizzard 2013, Lessac/Voice Factory) is licensed for
+  // research only, to a named person or lab, non-transferable, and not for
+  // use by third parties. A model derived from it inherits that problem, so
+  // offering it to every visitor is not covered. Removed for this reason:
+  // lessac, amy, hfc_female, hfc_male, ryan-medium, alba,
+  // northern_english_male, thorsten-medium, thorsten-high and
+  // thorsten_emotional (fine-tuned from thorsten-medium).
+  //
+  // What remains is trained from scratch on public-domain LibriVox or
+  // LJ Speech recordings, or fine-tuned only from such a voice (john from
+  // kristin), plus the MLS model (CC BY 4.0, trained from scratch). A stored
+  // choice of a removed voice falls back to the first voice of its list.
   const PIPER_VOICES = {
     de: [
-      { id: 'de_DE-thorsten-medium',           label: 'Thorsten — male, clear (recommended)', licence: 'CC0', dataset: 'Thorsten-Voice' },
-      { id: 'de_DE-mls-medium', speaker: 2,    label: 'Marlene — female, most training data', licence: 'CC BY 4.0', dataset: 'Multilingual LibriSpeech (OpenSLR 94)' },
-      { id: 'de_DE-mls-medium', speaker: 4,    label: 'Ines — female',                        licence: 'CC BY 4.0', dataset: 'Multilingual LibriSpeech (OpenSLR 94)' },
-      { id: 'de_DE-mls-medium', speaker: 5,    label: 'Rieke — female',                       licence: 'CC BY 4.0', dataset: 'Multilingual LibriSpeech (OpenSLR 94)' },
-      { id: 'de_DE-mls-medium', speaker: 10,   label: 'Susanne — female',                     licence: 'CC BY 4.0', dataset: 'Multilingual LibriSpeech (OpenSLR 94)' },
-      { id: 'de_DE-thorsten_emotional-medium', label: 'Thorsten Expressive — male, livelier', licence: 'CC0', dataset: 'Thorsten-Voice' },
-      { id: 'de_DE-thorsten-high',             label: 'Thorsten HD — male, finest detail',    licence: 'CC0', dataset: 'Thorsten-Voice' },
+      { id: 'de_DE-mls-medium', speaker: 0,  label: 'Konrad — male, most training data (recommended)', licence: 'CC BY 4.0', dataset: 'Multilingual LibriSpeech (OpenSLR 94)' },
+      { id: 'de_DE-mls-medium', speaker: 2,  label: 'Marlene — female, clear',          licence: 'CC BY 4.0', dataset: 'Multilingual LibriSpeech (OpenSLR 94)' },
+      { id: 'de_DE-mls-medium', speaker: 1,  label: 'Lukas — male',                     licence: 'CC BY 4.0', dataset: 'Multilingual LibriSpeech (OpenSLR 94)' },
+      { id: 'de_DE-mls-medium', speaker: 4,  label: 'Ines — female',                    licence: 'CC BY 4.0', dataset: 'Multilingual LibriSpeech (OpenSLR 94)' },
+      { id: 'de_DE-mls-medium', speaker: 5,  label: 'Rieke — female',                   licence: 'CC BY 4.0', dataset: 'Multilingual LibriSpeech (OpenSLR 94)' },
+      { id: 'de_DE-mls-medium', speaker: 10, label: 'Susanne — female',                 licence: 'CC BY 4.0', dataset: 'Multilingual LibriSpeech (OpenSLR 94)' },
     ],
     en: [
-      { id: 'en_US-hfc_female-medium',            label: 'HFC — female, clear (recommended)', licence: 'CC BY-NC-SA 4.0', dataset: 'Hi-Fi CAPTAIN (NICT)' },
-      { id: 'en_US-amy-medium',                   label: 'Amy — female',                      licence: 'not stated in the model card', dataset: 'Mycroft mimic3 voices' },
-      { id: 'en_GB-alba-medium',                  label: 'Alba — female, British',            licence: 'CC BY 4.0', dataset: 'Edinburgh DataShare 10283/3270' },
-      { id: 'en_US-hfc_male-medium',              label: 'HFC — male',                        licence: 'CC BY-NC-SA 4.0', dataset: 'Hi-Fi CAPTAIN (NICT)' },
-      { id: 'en_US-ryan-medium',                  label: 'Ryan — male',                       licence: 'CC BY-NC-SA 4.0', dataset: 'RyanSpeech' },
-      { id: 'en_GB-northern_english_male-medium', label: 'Northern English — male, British',  licence: 'CC BY-SA 4.0', dataset: 'OpenSLR 83' },
+      { id: 'en_US-ljspeech-medium', label: 'LJ — female, clear (recommended)', licence: 'public domain', dataset: 'LJ Speech (LibriVox), trained from scratch' },
+      { id: 'en_US-kristin-medium',  label: 'Kristin — female',                 licence: 'public domain', dataset: 'LibriVox, trained from scratch' },
+      { id: 'en_GB-cori-medium',     label: 'Cori — female, British',           licence: 'public domain', dataset: 'LibriVox, trained from scratch' },
+      { id: 'en_US-norman-medium',   label: 'Norman — male',                    licence: 'public domain', dataset: 'LibriVox, trained from scratch' },
+      { id: 'en_US-john-medium',     label: 'John — male',                      licence: 'public domain', dataset: 'LibriVox, fine-tuned from Kristin' },
     ],
   };
 
