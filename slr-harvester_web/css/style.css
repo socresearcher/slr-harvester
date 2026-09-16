@@ -25,6 +25,10 @@
   --accent-hover: #5ff0e0;
   --accent-subtle:#123330;
   --accent-ink:   #06231f;
+  /* Schrift auf farbigen Datenbank-Plaketten; in beiden Themen weiss, weil
+     die Plakettenfarbe die Markenfarbe der Datenbank ist und nicht vom
+     Thema abhaengt. */
+  --on-brand:     #ffffff;
   --green:        #3fb950;
   --green-subtle: #1a2e1a;
   --danger:       #f85149;
@@ -2037,6 +2041,18 @@ a:hover {
   border: 1px solid rgba(58, 176, 158, .35);
 }
 
+.badge-source-crossref {
+  background: rgba(62, 177, 200, .12);
+  color: #3eb1c8;
+  border: 1px solid rgba(62, 177, 200, .35);
+}
+
+.badge-source-doaj {
+  background: rgba(245, 130, 32, .12);
+  color: #f58220;
+  border: 1px solid rgba(245, 130, 32, .35);
+}
+
 /* Document-type pills must be content-sized, not forced into square icon badges. */
 .badge-doctype {
   display: inline-flex;
@@ -3555,8 +3571,8 @@ a.db-link:visited {
 
 /* Small colored letter badge instead of SVG icon */
 .nav-icon.db-badge {
-  background: var(--db-color, #888);
-  color: #fff;
+  background: var(--db-color, var(--text-faint));
+  color: var(--on-brand);
   border-radius: 4px;
   font-size: 9px;
   font-weight: 700;
@@ -5013,6 +5029,7 @@ a.db-link:visited {
 .databases-grid {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+  grid-auto-rows: 1fr;
   gap: 10px;
   margin-bottom: 8px;
 }
@@ -5045,8 +5062,8 @@ a.db-link:visited {
 }
 
 .db-card-badge {
-  background: var(--db-color, #888);
-  color: #fff;
+  background: var(--db-color, var(--text-faint));
+  color: var(--on-brand);
   border-radius: 6px;
   width: 40px;
   height: 40px;
@@ -5082,14 +5099,23 @@ a.db-link:visited {
   text-overflow: ellipsis;
 }
 
+/* Die Beschreibung war auf genau zwei Zeilen Hoehe festgelegt, liess den
+   Text aber sichtbar ueberlaufen (overflow: visible). Auf schmalen
+   Bildschirmen brach sie in eine dritte Zeile um, und diese hing ueber den
+   unteren Kartenrand. Jetzt waechst die Karte mit dem Text; erst ab der
+   vierten Zeile wird gekuerzt, und der volle Text steht im Tooltip. */
 .db-card-desc {
   font-size: 12px;
   color: var(--text-muted);
   margin-top: 2px;
   line-height: 1.4;
   min-height: calc(1.4em * 2);
-  max-height: calc(1.4em * 2);
-  overflow: visible;
+  overflow: hidden;
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 3;
+  line-clamp: 3;
+  overflow-wrap: anywhere;
 }
 
 .db-card-arrow {
@@ -5123,7 +5149,7 @@ a.db-link:visited {
   text-transform: uppercase;
   letter-spacing: .07em;
   color: var(--text-muted);
-  margin-bottom: 6px;
+  margin-bottom: 10px;
 }
 
 .databases-section-note {
@@ -5132,18 +5158,7 @@ a.db-link:visited {
   margin: 0 0 10px;
 }
 
-.databases-grid {
-  grid-auto-rows: 1fr;
-}
 
-.databases-section h3 {
-  font-size: 11px;
-  font-weight: 700;
-  text-transform: uppercase;
-  letter-spacing: .07em;
-  color: var(--text-muted);
-  margin-bottom: 10px;
-}
 
 .db-card--integrated {
   border-left-width: 4px;
@@ -5155,9 +5170,9 @@ a.db-link:visited {
   font-weight: 700;
   padding: 1px 6px;
   border-radius: 999px;
-  background: rgba(100, 168, 255, .15);
+  background: var(--accent-subtle);
   color: var(--accent);
-  border: 1px solid rgba(100, 168, 255, .35);
+  border: 1px solid var(--accent);
   vertical-align: middle;
   margin-left: 5px;
   letter-spacing: .02em;
@@ -6655,8 +6670,8 @@ a.db-link:visited {
   width: 20px;
   height: 20px;
   border-radius: 5px;
-  background: var(--db-color, #888);
-  color: #fff;
+  background: var(--db-color, var(--text-faint));
+  color: var(--on-brand);
   font-size: 9px;
   font-weight: 800;
   letter-spacing: -.2px;
@@ -8940,3 +8955,65 @@ body.has-progress-footer .slr-guide {
     background: none;
   }
 }
+
+/* Datenschutzansicht: aufklappbare Liste der Stimmlizenzen (2026-09-16). */
+.privacy-voice-licences {
+  margin-top: 12px;
+}
+
+.privacy-voice-licences summary {
+  cursor: pointer;
+  font-weight: 600;
+  color: var(--text);
+  padding: 4px 0;
+}
+
+.privacy-voice-licences[open] summary {
+  margin-bottom: 6px;
+}
+
+/* Tastenkuerzel: markierter Artikel (2026-09-16). Ein Umriss statt einer
+   Hintergrundfarbe, damit die Tag-Farbe der Karte sichtbar bleibt. */
+.article-item.kbd-focus {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+.kbd-help-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 13px;
+}
+
+.kbd-help-table td {
+  padding: 5px 0;
+  border-bottom: 1px solid var(--border);
+  color: var(--text);
+}
+
+.kbd-help-table td:first-child {
+  width: 34%;
+  white-space: nowrap;
+}
+
+.kbd-help-table kbd {
+  font-family: ui-monospace, SFMono-Regular, Consolas, monospace;
+  font-size: 12px;
+  padding: 1px 6px;
+  border: 1px solid var(--border);
+  border-bottom-width: 2px;
+  border-radius: 4px;
+  background: var(--surface-2);
+  color: var(--text);
+}
+
+/* Eigener Bestaetigungsdialog liegt ueber allem, auch ueber einem offenen
+   Modal. */
+.confirm-dialog-overlay {
+  z-index: 1100;
+}
+
+.confirm-dialog-text {
+  line-height: 1.5;
+}
+

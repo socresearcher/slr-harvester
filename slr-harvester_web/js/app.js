@@ -454,7 +454,11 @@ window.SLRApp = (() => {
 	// null/undefined means the full project, preserving existing manual-button behavior.
 	function scopedArticles(scopeIds) {
 		if (!scopeIds) return state.articles;
-		return state.articles.filter(a => scopeIds.has(a.eid || a._id || a.doi));
+		// Nebenkennungen zaehlen mit: Ein neuer Treffer, der einer schon
+		// bekannten Arbeit zugeschlagen wurde, ist unter seiner eigenen Kennung
+		// in scopeIds eingetragen, nicht unter der Hauptkennung.
+		return state.articles.filter(a => scopeIds.has(a.eid || a._id || a.doi)
+			|| (Array.isArray(a._aliases) && a._aliases.some(al => scopeIds.has(al))));
 	}
 
 	function hasCompleteAuthorList(article) {
@@ -1043,9 +1047,37 @@ window.SLRApp = (() => {
 		renderCurrentView();
 	}
 
+	// Eine Arbeit, die unter mehreren Kennungen gefunden wurde (gleiche DOI),
+	// fuehrt ihre Nebenkennungen in _aliases (siehe SLRData.getArticles).
+	// Jede Aenderung geht auf alle Kennungen, sonst liesse sich eine unter der
+	// Nebenkennung gespeicherte Auswahl nie abwaehlen.
+	function mitAliasen(updates) {
+		const out = { ...updates };
+		const nachId = new Map();
+		for (const a of state.articles || []) {
+			if (Array.isArray(a._aliases) && a._aliases.length) {
+				nachId.set(a._id, a._aliases);
+				if (a.eid) nachId.set(a.eid, a._aliases);
+			}
+		}
+		for (const [id, felder] of Object.entries(updates)) {
+			for (const alias of nachId.get(id) || []) {
+				out[alias] = { ...(out[alias] || {}), ...felder };
+			}
+		}
+		return out;
+	}
+
 	async function updateAnnotation(eid, fields) {
 		if (!state.currentFolder || !eid) return;
 		try {
+			const alle = mitAliasen({ [eid]: fields });
+			if (Object.keys(alle).length > 1) {
+				state.projectData.globalTags = await SLRData.bulkUpdateAnnotations(state.currentFolder, alle);
+				state.articles = SLRData.getArticles(state.projectData);
+				renderCurrentView();
+				return;
+			}
 			const saved = await SLRData.updateArticleAnnotation(state.currentFolder, eid, fields);
 			if (!state.projectData.globalTags) state.projectData.globalTags = {};
 			state.projectData.globalTags[eid] = {
@@ -1595,6 +1627,186 @@ window.SLRApp = (() => {
 				if (row) out.push(mapPubmedResult(row));
 			}
 			if (typeof melde === 'function') melde(out.length, ids.length);
+		}
+		return out;
+	}
+
+	// ── Crossref als Suchquelle ──────────────────────────────────────────────
+	// Crossref ist ein Metadatenverzeichnis der DOI-Registrierung, keine
+	// Fachdatenbank: `query` ist eine Relevanzsuche ohne Boolesche Logik.
+	// Gemessen am 16.09.2026: "artificial intelligence labour market" liefert
+	// 327.498 Treffer, darunter Arbeiten, die nur eines der Woerter enthalten.
+	// Taugt deshalb vor allem als Vollstaendigkeitsprobe und fuer bekannte
+	// Titel; die Suchmaske sagt das.
+	// Abgerufen wird mit Cursor-Paging (bis 1000 Datensaetze je Seite) und mit
+	// derselben festen Platzhalter-Adresse wie bei der Anreicherung — nie mit
+	// der Adresse der Nutzerin.
+	const CROSSREF_MAILTO = 'slr-harvester-web@example.invalid';
+	const CROSSREF_FELDER = [
+		'DOI', 'title', 'author', 'issued', 'container-title',
+		'is-referenced-by-count', 'abstract', 'type',
+	].join(',');
+
+	// Crossref liefert Abstracts als JATS-XML. Fuer Anzeige und Vorlesen zaehlt
+	// nur der Text.
+	function jatsZuText(roh) {
+		if (!roh) return '';
+		return String(roh)
+			.replace(/<jats:title>[^<]*<\/jats:title>/gi, ' ')
+			.replace(/<[^>]+>/g, ' ')
+			.replace(/\s+/g, ' ')
+			.trim();
+	}
+
+	function mapCrossrefSource(item) {
+		const row = mapCrossrefSearchResult(item);
+		row.source = 'crossref';
+		row.abstract = jatsZuText(row.abstract);
+		return row;
+	}
+
+	async function runCrossrefSearch(query, maxResults, signal, melde) {
+		let grenze = maxResults;
+		const filter = [];
+		const vonJahr = String(state.search.yearFrom || '').trim();
+		const bisJahr = String(state.search.yearTo || '').trim();
+		if (/^\d{4}$/.test(vonJahr)) filter.push(`from-pub-date:${vonJahr}`);
+		if (/^\d{4}$/.test(bisJahr)) filter.push(`until-pub-date:${bisJahr}`);
+
+		const out = [];
+		let cursor = '*';
+		let gesamt = null;
+		let gefragt = false;
+		while (out.length < grenze) {
+			const url = new URL('https://api.crossref.org/works');
+			url.searchParams.set('query', query);
+			if (filter.length) url.searchParams.set('filter', filter.join(','));
+			url.searchParams.set('select', CROSSREF_FELDER);
+			url.searchParams.set('rows', String(Math.min(1000, grenze - out.length)));
+			url.searchParams.set('cursor', cursor);
+			// Mit Cursor sortiert Crossref ohne diese Angabe nach interner
+			// Reihenfolge, nicht nach Relevanz (am 16.09.2026 nachgeprueft:
+			// die ersten Treffer hatten mit der Anfrage nichts zu tun).
+			url.searchParams.set('sort', 'relevance');
+			url.searchParams.set('order', 'desc');
+			url.searchParams.set('mailto', CROSSREF_MAILTO);
+			let res = null;
+			for (const warte of [0, 1000, 3000, 8000]) {
+				if (warte) await delay(warte, signal);
+				res = await fetch(url.toString(), { signal });
+				if (![429, 500, 502, 503, 504].includes(res.status)) break;
+			}
+			if (!res.ok) {
+				const fehler = new Error(res.status === 429
+					? 'Crossref is limiting requests right now (HTTP 429). Wait a minute and try again.'
+					: `Crossref API error ${res.status}`);
+				fehler.status = res.status;
+				throw fehler;
+			}
+			const daten = (await res.json()).message || {};
+			if (gesamt === null) {
+				gesamt = Number(daten['total-results']) || 0;
+				state.search.lastTotal = gesamt;
+			}
+			if (!gefragt && gesamt > nachfrageSchwelle() && grenze > nachfrageSchwelle()) {
+				gefragt = true;
+				grenze = await frageNachGrenze(gesamt, out.length);
+			}
+			const items = Array.isArray(daten.items) ? daten.items : [];
+			items.forEach(it => { if (out.length < grenze) out.push(mapCrossrefSource(it)); });
+			if (typeof melde === 'function') melde(out.length, Math.min(grenze, gesamt));
+			cursor = daten['next-cursor'];
+			if (!items.length || !cursor || out.length >= gesamt) break;
+			await delay(200, signal);
+		}
+		return dedupeByIdentity(out);
+	}
+
+	// ── DOAJ als Suchquelle ──────────────────────────────────────────────────
+	// Directory of Open Access Journals. Die Abfrage ist eine
+	// Elasticsearch-Query-String-Syntax: AND/OR/NOT, Phrasen in
+	// Anfuehrungszeichen, Felder wie bibjson.title:. Zeitraum ueber
+	// bibjson.year:[von TO bis].
+	// Harte Grenze der Schnittstelle: hoechstens 1000 Datensaetze je Abfrage
+	// (HTTP 400 darueber, am 16.09.2026 nachgeprueft). Mehr gibt es nur ueber
+	// den Datenabzug von doaj.org — die Meldung am Ende sagt das.
+	const DOAJ_GRENZE = 1000;
+
+	function mapDoajResult(r) {
+		const b = (r && r.bibjson) || {};
+		const doi = ((Array.isArray(b.identifier) ? b.identifier : [])
+			.find(i => String(i.type || '').toLowerCase() === 'doi') || {}).id || '';
+		const jahr = b.year ? String(b.year) : '';
+		const monat = b.month ? String(b.month).padStart(2, '0') : '01';
+		return {
+			source: 'doaj',
+			eid: r && r.id ? `doaj:${r.id}` : '',
+			title: b.title || '',
+			authors: (Array.isArray(b.author) ? b.author : []).map(a => a.name).filter(Boolean).join(', '),
+			date: jahr ? `${jahr}-${monat}-01` : '',
+			// DOAJ fuehrt keine Zitationszahlen. '0' ist dieselbe Setzung wie
+			// bei PubMed; die Anreicherung kann sie spaeter ueberschreiben.
+			citedby: '0',
+			doi: String(doi).replace(/^https?:\/\/(dx\.)?doi\.org\//i, ''),
+			publicationName: (b.journal && b.journal.title) || '',
+			abstract: b.abstract || '',
+			affiliationCountries: [],
+			affiliations: [],
+			openAlexFields: [],
+			openAlexSubfields: [],
+			docType: 'article',
+		};
+	}
+
+	async function runDoajSearch(query, maxResults, signal, melde) {
+		let grenze = Math.min(maxResults, DOAJ_GRENZE);
+		let ausdruck = query;
+		const vonJahr = String(state.search.yearFrom || '').trim();
+		const bisJahr = String(state.search.yearTo || '').trim();
+		// Offene Bereiche mit * lehnt DOAJ ab ("disallowed Lucene features",
+		// am 16.09.2026 nachgeprueft); >= und <= sind erlaubt.
+		const hatVon = /^\d{4}$/.test(vonJahr);
+		const hatBis = /^\d{4}$/.test(bisJahr);
+		if (hatVon && hatBis) ausdruck = `(${query}) AND bibjson.year:[${vonJahr} TO ${bisJahr}]`;
+		else if (hatVon) ausdruck = `(${query}) AND bibjson.year:>=${vonJahr}`;
+		else if (hatBis) ausdruck = `(${query}) AND bibjson.year:<=${bisJahr}`;
+		const out = [];
+		let seite = 1;
+		let gesamt = null;
+		let gefragt = false;
+		while (out.length < grenze) {
+			const url = `https://doaj.org/api/search/articles/${encodeURIComponent(ausdruck)}?page=${seite}&pageSize=100`;
+			let res = null;
+			for (const warte of [0, 1000, 3000]) {
+				if (warte) await delay(warte, signal);
+				res = await fetch(url, { signal });
+				if (![429, 500, 502, 503, 504].includes(res.status)) break;
+			}
+			if (!res.ok) {
+				let detail = '';
+				try { detail = (await res.json()).error || ''; } catch (_) { /* kein JSON */ }
+				const fehler = new Error(`DOAJ API error ${res.status}${detail ? `: ${String(detail).split('\n')[0].slice(0, 200)}` : ''}`);
+				fehler.status = res.status;
+				throw fehler;
+			}
+			const daten = await res.json();
+			if (gesamt === null) {
+				gesamt = Number(daten.total) || 0;
+				state.search.lastTotal = gesamt;
+			}
+			if (!gefragt && Math.min(gesamt, DOAJ_GRENZE) > nachfrageSchwelle() && grenze > nachfrageSchwelle()) {
+				gefragt = true;
+				grenze = Math.min(await frageNachGrenze(gesamt, out.length), DOAJ_GRENZE);
+			}
+			const items = Array.isArray(daten.results) ? daten.results : [];
+			items.forEach(it => { if (out.length < grenze) out.push(mapDoajResult(it)); });
+			if (typeof melde === 'function') melde(out.length, Math.min(grenze, gesamt));
+			if (!items.length || out.length >= gesamt || !daten.next) break;
+			seite += 1;
+			await delay(250, signal);
+		}
+		if (gesamt > DOAJ_GRENZE && out.length >= DOAJ_GRENZE) {
+			showToast(`DOAJ returns at most ${DOAJ_GRENZE.toLocaleString('en')} records per query (${gesamt.toLocaleString('en')} matched). Narrow the query, or use the DOAJ data dump for the full set.`, true);
 		}
 		return out;
 	}
@@ -2192,6 +2404,12 @@ window.SLRApp = (() => {
 			} else if (state.search.db === 'pubmed') {
 				setSearchProgress(15, 'Retrieving from PubMed\u2026');
 				results = await runPubmedSearch(query, grenze, signal, melde);
+			} else if (state.search.db === 'crossref') {
+				setSearchProgress(15, 'Retrieving from Crossref\u2026');
+				results = await runCrossrefSearch(query, grenze, signal, melde);
+			} else if (state.search.db === 'doaj') {
+				setSearchProgress(15, 'Retrieving from DOAJ\u2026');
+				results = await runDoajSearch(query, grenze, signal, melde);
 			} else {
 				setSearchProgress(15, 'Retrieving from OpenAlex\u2026');
 				results = await runOpenAlexSearch(query, grenze, signal, melde);
@@ -3231,7 +3449,7 @@ window.SLRApp = (() => {
 
 		try {
 			showFetchProgress('Saving tags', toProcess.length, toProcess.length);
-			const allTags = await SLRData.bulkUpdateAnnotations(state.currentFolder, updates);
+			const allTags = await SLRData.bulkUpdateAnnotations(state.currentFolder, mitAliasen(updates));
 			state.projectData.globalTags = allTags;
 
 			// Keep aliases in sync for all assigned colors.
@@ -3377,7 +3595,13 @@ window.SLRApp = (() => {
 		const rule = rules.find(r => r.color === color);
 		if (!rule) return;
 		const n = rule.keywords.length;
-		if (!confirm(`Delete the "${rule.tag}" auto-tag category${n ? ` and its ${n} keyword${n !== 1 ? 's' : ''}` : ''}? Auto-tag will never assign this category again until you re-add it. This cannot be undone.`)) return;
+		const ok = await SLRViews.confirmDialog({
+			title: `Delete the "${rule.tag}" category?`,
+			message: `${n ? `Its ${n} keyword${n !== 1 ? 's' : ''} go with it. ` : ''}Auto-tag will never assign this category again until you re-add it.\nThis cannot be undone.`,
+			confirmLabel: 'Delete category',
+			danger: true,
+		});
+		if (!ok) return;
 		state.autoTagRules = rules.filter(r => r.color !== color);
 		renderCurrentView();
 		await persistAutoTagRules();
@@ -3414,7 +3638,13 @@ window.SLRApp = (() => {
 			showToast('Auto-tag rules are already at their defaults.', false);
 			return;
 		}
-		if (!confirm('Reset every auto-tag category and keyword to the built-in defaults? Everything you added, renamed, recolored, or deleted here will be lost. This cannot be undone.')) return;
+		const ok = await SLRViews.confirmDialog({
+			title: 'Reset auto-tag rules?',
+			message: 'Every category and keyword returns to the built-in defaults. Everything you added, renamed, recolored or deleted here is lost.\nThis cannot be undone.',
+			confirmLabel: 'Reset to defaults',
+			danger: true,
+		});
+		if (!ok) return;
 		state.autoTagRules = null;
 		renderCurrentView();
 		await persistAutoTagRules();
@@ -3480,7 +3710,7 @@ window.SLRApp = (() => {
 		await SLRData.saveTagsConfig(state.currentFolder, config);
 		await SLRData.saveTagAliases(state.currentFolder, aliases);
 		if (Object.keys(updates).length) {
-			state.projectData.globalTags = await SLRData.bulkUpdateAnnotations(state.currentFolder, updates);
+			state.projectData.globalTags = await SLRData.bulkUpdateAnnotations(state.currentFolder, mitAliasen(updates));
 		}
 
 		state.projectData.tagsConfig = config;
@@ -3664,7 +3894,14 @@ window.SLRApp = (() => {
 	}
 
 	function bindEvents() {
-		$('theme-toggle')?.addEventListener('click', () => SLRAppUI.toggleTheme(state, $));
+		$('theme-toggle')?.addEventListener('click', () => {
+			SLRAppUI.toggleTheme(state, $);
+			// Die Diagramme lesen die Themenfarben beim Zeichnen aus und backen
+			// sie in ihr SVG ein. Ohne Neuzeichnen blieben sie nach dem Wechsel
+			// in den alten Farben stehen, bis man die Ansicht verliess. Nur diese
+			// Ansicht: Anderswo wuerde ein Neuzeichnen offene Eingaben verwerfen.
+			if (state.view === 'visualizations') renderCurrentView();
+		});
 		$('fullscreen-toggle')?.addEventListener('click', () => SLRAppUI.toggleFullscreen(showToast, $));
 		$('project-badge')?.addEventListener('click', () => openProjectDetail(state.currentFolder));
 		$('sidebar-toggle')?.addEventListener('click', () => SLRAppUI.toggleSidebar(state, _sidebar, $));
@@ -3693,6 +3930,16 @@ window.SLRApp = (() => {
 		});
 	}
 
+	// Offline-Betrieb (sw.js). Nur ueber http(s) — ein Service Worker laesst
+	// sich unter file:// nicht registrieren, und die App soll dort weiterhin
+	// ohne Fehlermeldung starten.
+	function registerServiceWorker() {
+		if (!('serviceWorker' in navigator) || !/^https?:$/.test(location.protocol)) return;
+		navigator.serviceWorker.register('sw.js').catch(err => {
+			console.warn('Service worker not registered:', err);
+		});
+	}
+
 	async function init() {
 		_container = $('view-container');
 		_sidebar = $('sidebar');
@@ -3707,6 +3954,8 @@ window.SLRApp = (() => {
 		SLRAppUI.setSidebarCollapsed(state, _sidebar, $);
 		SLRAppUI.updateFullscreenButton($);
 		bindEvents();
+
+		registerServiceWorker();
 
 		SLRViews.renderLoading(_container, 'Initializing...');
 		try {

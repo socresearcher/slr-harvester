@@ -56,11 +56,62 @@ window.SLRData = (() => {
    * @param {Object} projectData  result of loadProjectData()
    * @returns {Array} deduplicated, annotated article objects
    */
+  // Normalform einer DOI fuer den Abgleich: klein, ohne Aufloeser-Praefix.
+  function normDoi(doi) {
+    return String(doi || '')
+      .trim()
+      .toLowerCase()
+      .replace(/^(https?:\/\/(dx\.)?doi\.org\/|doi:\s*)/, '');
+  }
+
+  // Annotationen einer zusammengefuehrten Arbeit.
+  //
+  //   selected, corpus  verodert ueber alle Kennungen. Eine positive
+  //                     Screening-Entscheidung darf durch das Zusammenfuehren
+  //                     nicht verschwinden. Am echten Projekt 20260702_085449
+  //                     nachgewiesen: Hauptkennung selected:false/corpus:false,
+  //                     Nebenkennung true/true — ohne Veroderung waere der
+  //                     Artikel stillschweigend aus Auswahl und Korpus
+  //                     gefallen. Abwaehlen bleibt moeglich, weil app.js jede
+  //                     Aenderung auf Haupt- UND Nebenkennungen schreibt
+  //                     (mitAliasen).
+  //   alle anderen      feldweise die Hauptkennung; die Nebenkennung nur, wo
+  //                     die Hauptkennung das Feld nicht kennt oder auf 'None'
+  //                     steht (ein nicht gesetzter Tag).
+  const ODER_FELDER = ['selected', 'corpus'];
+  function mergedAnnotation(globalTags, id, aliases) {
+    const haupt = globalTags[id] || {};
+    if (!aliases || !aliases.length) return haupt;
+    const out = Object.assign({}, haupt);
+    for (const alias of aliases) {
+      const neben = globalTags[alias];
+      if (!neben) continue;
+      for (const feld of Object.keys(neben)) {
+        if (ODER_FELDER.includes(feld)) {
+          out[feld] = !!(out[feld] || neben[feld]);
+        } else if (!(feld in out) || ((feld === 'color' || feld === 'tag') && out[feld] === 'None')) {
+          out[feld] = neben[feld];
+        }
+      }
+    }
+    return out;
+  }
+
   function getArticles(projectData) {
     const { searchLog, globalTags } = projectData;
 
     const seen   = new Map();   // id → article
     const order  = [];          // insertion order of ids
+    // Dieselbe Arbeit kann unter zwei Kennungen auftauchen: als Scopus-EID
+    // und als OpenAlex-, Crossref- oder DOAJ-Kennung. Ohne Abgleich stand sie
+    // dann zweimal in der Liste. Abgeglichen wird ueber die DOI — aber OHNE
+    // die Kennung einer schon bekannten Arbeit zu wechseln: Die spaetere
+    // Zeile wird der zuerst gesehenen zugeschlagen, deren Kennung bleibt
+    // Hauptkennung. So bleiben Tags, Auswahl und Korpus, die in
+    // slr_global_tags.json unter dieser Kennung stehen, erhalten; was unter
+    // der Nebenkennung stand, wird feldweise mit angezeigt
+    // (mergedAnnotation). Gespeichert wird weiterhin unter der Hauptkennung.
+    const doiToId = new Map();  // normalisierte DOI → Hauptkennung
 
     // Index-based rather than for-of: the position in the raw searchLog array
     // is the same handle the History view and every backend mutation use, so
@@ -70,8 +121,15 @@ window.SLRData = (() => {
       const run = searchLog[runIndex];
       if (!run || !Array.isArray(run.results)) continue;
       for (const r of run.results) {
-        const id = r.eid || r.doi || null;
+        let id = r.eid || r.doi || null;
         if (!id) continue;
+        const doiKey = normDoi(r.doi);
+        if (!seen.has(id) && doiKey && doiToId.has(doiKey) && doiToId.get(doiKey) !== id) {
+          const haupt = seen.get(doiToId.get(doiKey));
+          if (!Array.isArray(haupt._aliases)) haupt._aliases = [];
+          if (!haupt._aliases.includes(id)) haupt._aliases.push(id);
+          id = haupt._id;
+        }
         const countryCodes = Array.isArray(r.affiliationCountries)
           ? [...new Set(r.affiliationCountries.filter(Boolean).map(code => String(code).trim().toUpperCase()))]
           : [];
@@ -100,12 +158,17 @@ window.SLRData = (() => {
             _runs: [runIndex],
           }));
           order.push(id);
+          if (doiKey && !doiToId.has(doiKey)) doiToId.set(doiKey, id);
         } else {
           // Merge: prefer non-empty abstract; keep higher cited count
           const existing = seen.get(id);
           if (!Array.isArray(existing._runs)) existing._runs = [];
           if (!existing._runs.includes(runIndex)) existing._runs.push(runIndex);
           if (!existing.abstract && r.abstract) existing.abstract = r.abstract;
+          if (!existing.doi && r.doi) {
+            existing.doi = r.doi;
+            if (doiKey && !doiToId.has(doiKey)) doiToId.set(doiKey, id);
+          }
           const nc = parseInt(r.citedby, 10) || 0;
           if (nc > existing.citedby) existing.citedby = nc;
           if (countryCodes.length) {
@@ -139,7 +202,7 @@ window.SLRData = (() => {
     const tagAliases = projectData.tagAliases || {};
     for (const id of order) {
       const art  = seen.get(id);
-      const ann  = globalTags[id] || {};
+      const ann  = mergedAnnotation(globalTags, id, art._aliases);
       art.color    = ann.color    || 'None';
       // Use canonical alias from tag_aliases.json if available; fallback to stored tag
       art.tag      = tagAliases[art.color] || ann.tag || art.color || 'None';
@@ -179,6 +242,7 @@ window.SLRData = (() => {
     get DEFAULT_TAGS_CONFIG() { return backendModule().DEFAULT_TAGS_CONFIG; },
     getArticles,
     getStats,
+    normDoi,
   };
 
   for (const name of FORWARDED_METHODS) {

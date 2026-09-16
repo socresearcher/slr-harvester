@@ -23,8 +23,9 @@ Either way, your project data never leaves your device — the app only ever rea
    - **First time?** Create a new, empty folder (any name, e.g. `SLR-Harvester-Data`) in the picker dialog and select it. Nothing is written until you create your first project.
    - **Already have data** (e.g. from the desktop app)? Select that folder instead — it's read and used as-is.
 3. Click **New Project**, give it a name and description.
-4. Go to **Search**, pick a database (Scopus, PubMed, or OpenAlex), enter a query, and run it.
-   - Scopus needs a free API key from the [Elsevier Developer Portal](https://dev.elsevier.com/) — add it under **Settings**. PubMed and OpenAlex need no key.
+4. Go to **Search**, pick a database (Scopus, PubMed, OpenAlex, Crossref or DOAJ), enter a query, and run it.
+   - Scopus needs a free API key from the [Elsevier Developer Portal](https://dev.elsevier.com/) — add it under **Settings**. The other four need no key.
+   - Crossref ranks by relevance and has no Boolean logic; DOAJ returns at most 1,000 records per query.
    - Use **Settings → Test API Key** to verify a Scopus key before relying on it.
 5. Review results in **Articles** — tag them, mark **Selected** (candidates) and **Corpus** (final inclusion) as you screen.
    - **Auto-tag** applies discipline tags from journal-name keywords in one click.

@@ -84,6 +84,20 @@ Search queries reach the bibliographic databases directly from the browser.
 API keys entered in Settings are stored in the browser and sent only to the
 provider they belong to.
 
+Read aloud: with *natural voices*, speech is computed in the browser and the
+text is not sent anywhere, but the engine's WebAssembly files and the voice
+models are downloaded from `cdnjs.cloudflare.com`, `cdn.jsdelivr.net` and
+`huggingface.co`, which see the visitor's IP address. All JavaScript the app
+executes is served from its own origin (`js/vendor/`). *Device voices* are
+provided by the browser; some of them (Edge "Online (Natural)", Chrome
+"Google") are synthesised on the browser vendor's servers, which then
+receive the text being read. The app marks those voices as *online*.
+
+The page carries a Content Security Policy (a `<meta>` tag, since GitHub
+Pages cannot set response headers). It limits scripts to the app's own
+origin and network connections to the hosts named above and in the Privacy
+view.
+
 The in-app *Privacy* view describes this in detail and is the authoritative
 description for users.
 

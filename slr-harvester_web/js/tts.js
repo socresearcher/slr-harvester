@@ -7,9 +7,14 @@
  *              download, works everywhere including iPhone. Quality depends
  *              entirely on what the device ships.
  *   'neural' — Piper, a neural TTS model running fully inside the browser
- *              (ONNX/WASM). Markedly more natural; costs a one-time ~63 MB
- *              download per language, then kept offline. No account, no
- *              server, nothing leaves the device.
+ *              (ONNX/WASM). Markedly more natural. The text being read never
+ *              leaves the device, but the engine's WebAssembly and speech
+ *              data and the voice models (~63 MB per language, then stored
+ *              in OPFS) come from remote hosts — so the first use needs a
+ *              connection. After that the service worker (sw.js) keeps the
+ *              engine files, and the voice works offline too. Otherwise, or
+ *              when a host is blocked, speak() falls back to engine 1.
+ *              The engine's JavaScript is vendored (js/vendor/piper/).
  *
  * Two things matter more than the engine choice and are handled here:
  *
@@ -296,10 +301,32 @@ window.SLRTts = (() => {
   }
 
   // ── Engine 2: Piper (neural, in-browser) ──────────────────────────
-  const PIPER_MODULE_URL = 'https://cdn.jsdelivr.net/npm/@mintplex-labs/piper-tts-web@1.0.5/dist/piper-tts-web.js';
+  // Split by kind, deliberately (see js/vendor/README.md):
+  //   JavaScript  — served from this origin (js/vendor/piper/). Code from a
+  //                 CDN would run with the app's own rights, next to the
+  //                 Cloud Sync session; same-origin also cannot be blocked
+  //                 by tracking prevention.
+  //   Binaries    — ONNX runtime WASM (cdnjs), phonemizer WASM + speech
+  //   and models    data (jsdelivr), voice models (huggingface) stay remote:
+  //                 ~90 MB that do not belong in a Pages repository. Hence
+  //                 natural voices need a connection; without one, speak()
+  //                 falls back to a device voice.
+  // Resolved against this script's own URL, so the app works from any
+  // sub-path (GitHub Pages serves it under /slr-harvester/).
+  const VENDOR_BASE = new URL('vendor/piper/',
+    (document.currentScript && document.currentScript.src) || location.href).href;
+  const PIPER_MODULE_URL = VENDOR_BASE + 'piper-tts-web.js';
   // The phonemizer is not under WASM_BASE (only .wasm/.data live there) — it
   // is a bundle chunk of the package, the same one the library imports.
-  const PHONEMIZE_URL = 'https://cdn.jsdelivr.net/npm/@mintplex-labs/piper-tts-web@1.0.5/dist/piper-o91UDS6e.js';
+  const PHONEMIZE_URL = VENDOR_BASE + 'piper-o91UDS6e.js';
+
+  // Hosts the neural engine still needs. Listed once so the settings panel
+  // and the privacy view can name them from the same source.
+  const NEURAL_REMOTE_HOSTS = [
+    { host: 'huggingface.co',        what: 'voice model files' },
+    { host: 'cdn.jsdelivr.net',      what: 'speech-sound data and phonemizer (WebAssembly)' },
+    { host: 'cdnjs.cloudflare.com',  what: 'speech-engine runtime (WebAssembly)' },
+  ];
 
   // Only voices with the 256-symbol phoneme table. Piper widened that table
   // at some point and the bundled phonemizer emits ids from the new one, so
@@ -312,24 +339,36 @@ window.SLRTts = (() => {
   // so one download covers all of them. Ids come from the model's own
   // speaker map, gender and training volume from the MLS dataset metadata —
   // these four are the female speakers with the most material.
+  //
+  // Licences: each voice is trained on a speech dataset with its own terms,
+  // taken from the voice's MODEL_CARD (rhasspy/piper-voices, checked
+  // 2026-09-16). The app does not redistribute the models — the browser
+  // fetches them from Hugging Face — but the terms still apply to their use
+  // and are shown in the privacy view. "NC" voices are non-commercial only,
+  // which fits this free research tool.
+  //
+  // Removed 2026-09-16: en_US-lessac-medium. Its dataset (Blizzard 2013,
+  // Lessac/Voice Factory) is released under a research licence granted to a
+  // named person or lab after manual approval; offering a model trained on it
+  // to every visitor is not covered by that. A stored choice of "lessac"
+  // falls back to the first voice of the list.
   const PIPER_VOICES = {
     de: [
-      { id: 'de_DE-thorsten-medium',           label: 'Thorsten — male, clear (recommended)' },
-      { id: 'de_DE-mls-medium', speaker: 2,    label: 'Marlene — female, most training data' },
-      { id: 'de_DE-mls-medium', speaker: 4,    label: 'Ines — female' },
-      { id: 'de_DE-mls-medium', speaker: 5,    label: 'Rieke — female' },
-      { id: 'de_DE-mls-medium', speaker: 10,   label: 'Susanne — female' },
-      { id: 'de_DE-thorsten_emotional-medium', label: 'Thorsten Expressive — male, livelier' },
-      { id: 'de_DE-thorsten-high',             label: 'Thorsten HD — male, finest detail' },
+      { id: 'de_DE-thorsten-medium',           label: 'Thorsten — male, clear (recommended)', licence: 'CC0', dataset: 'Thorsten-Voice' },
+      { id: 'de_DE-mls-medium', speaker: 2,    label: 'Marlene — female, most training data', licence: 'CC BY 4.0', dataset: 'Multilingual LibriSpeech (OpenSLR 94)' },
+      { id: 'de_DE-mls-medium', speaker: 4,    label: 'Ines — female',                        licence: 'CC BY 4.0', dataset: 'Multilingual LibriSpeech (OpenSLR 94)' },
+      { id: 'de_DE-mls-medium', speaker: 5,    label: 'Rieke — female',                       licence: 'CC BY 4.0', dataset: 'Multilingual LibriSpeech (OpenSLR 94)' },
+      { id: 'de_DE-mls-medium', speaker: 10,   label: 'Susanne — female',                     licence: 'CC BY 4.0', dataset: 'Multilingual LibriSpeech (OpenSLR 94)' },
+      { id: 'de_DE-thorsten_emotional-medium', label: 'Thorsten Expressive — male, livelier', licence: 'CC0', dataset: 'Thorsten-Voice' },
+      { id: 'de_DE-thorsten-high',             label: 'Thorsten HD — male, finest detail',    licence: 'CC0', dataset: 'Thorsten-Voice' },
     ],
     en: [
-      { id: 'en_US-hfc_female-medium',            label: 'HFC — female, clear (recommended)' },
-      { id: 'en_US-amy-medium',                   label: 'Amy — female' },
-      { id: 'en_US-lessac-medium',                label: 'Lessac — female, neutral' },
-      { id: 'en_GB-alba-medium',                  label: 'Alba — female, British' },
-      { id: 'en_US-hfc_male-medium',              label: 'HFC — male' },
-      { id: 'en_US-ryan-medium',                  label: 'Ryan — male' },
-      { id: 'en_GB-northern_english_male-medium', label: 'Northern English — male, British' },
+      { id: 'en_US-hfc_female-medium',            label: 'HFC — female, clear (recommended)', licence: 'CC BY-NC-SA 4.0', dataset: 'Hi-Fi CAPTAIN (NICT)' },
+      { id: 'en_US-amy-medium',                   label: 'Amy — female',                      licence: 'not stated in the model card', dataset: 'Mycroft mimic3 voices' },
+      { id: 'en_GB-alba-medium',                  label: 'Alba — female, British',            licence: 'CC BY 4.0', dataset: 'Edinburgh DataShare 10283/3270' },
+      { id: 'en_US-hfc_male-medium',              label: 'HFC — male',                        licence: 'CC BY-NC-SA 4.0', dataset: 'Hi-Fi CAPTAIN (NICT)' },
+      { id: 'en_US-ryan-medium',                  label: 'Ryan — male',                       licence: 'CC BY-NC-SA 4.0', dataset: 'RyanSpeech' },
+      { id: 'en_GB-northern_english_male-medium', label: 'Northern English — male, British',  licence: 'CC BY-SA 4.0', dataset: 'OpenSLR 83' },
     ],
   };
 
@@ -622,18 +661,62 @@ window.SLRTts = (() => {
     setSpeaking(true);
     const done = () => setSpeaking(false);
 
-    if (settings.engine === 'neural') {
+    const readWithDeviceVoice = () =>
+      speakSystem(splitIntoChunks(text, systemChunkLimit()), lang, done, speakToken);
+
+    const tryNeural = () =>
       speakPiper(chunks, lang, done, options.onProgress).catch(async err => {
-        // Model could not be loaded (offline, CDN blocked, no WASM): read it
-        // with a device voice rather than not at all.
+        // Engine or model could not be loaded (connection dropped, a host
+        // blocked by a filter, no WebAssembly): read it with a device voice
+        // rather than not at all.
         console.warn('Neural voice unavailable, falling back to a device voice:', err);
         await resetSession();
-        if (options.onFallback) options.onFallback(err);
-        speakSystem(splitIntoChunks(text, systemChunkLimit()), lang, done, speakToken);
+        if (options.onFallback) options.onFallback({ reason: 'unavailable', error: err });
+        readWithDeviceVoice();
       });
+
+    if (settings.engine !== 'neural') {
+      readWithDeviceVoice();
+    } else if (navigator.onLine !== false) {
+      tryNeural();
     } else {
-      speakSystem(splitIntoChunks(text, systemChunkLimit()), lang, done, speakToken);
+      // No connection. Natural voices still work if everything they need is
+      // already on this device: the voice model (OPFS) and the engine files
+      // (service-worker cache, see sw.js). Otherwise trying would only end in
+      // a timeout — say so and use a device voice straight away.
+      const token = speakToken;
+      neuralReadyOffline(piperVoice(lang).id).then(ready => {
+        if (token !== speakToken) return;
+        if (ready) { tryNeural(); return; }
+        if (options.onFallback) options.onFallback({ reason: 'offline' });
+        readWithDeviceVoice();
+      });
     }
+  }
+
+  // Must match ENGINE_CACHE in sw.js.
+  const ENGINE_CACHE = 'slr-voice-engine-v1';
+
+  async function neuralReadyOffline(voiceId) {
+    try {
+      if (!window.caches) return false;
+      const stored = await storedVoices();
+      if (!stored.includes(voiceId)) return false;
+      const keys = await (await caches.open(ENGINE_CACHE)).keys();
+      const urls = keys.map(k => k.url);
+      return urls.some(u => /ort-wasm[^/]*\.wasm$/.test(u))
+        && urls.some(u => /piper_phonemize\.wasm$/.test(u))
+        && urls.some(u => /piper_phonemize\.data$/.test(u));
+    } catch (e) {
+      return false;
+    }
+  }
+
+  // Toast text for a fallback, shared by every caller.
+  function fallbackMessage(info) {
+    return info && info.reason === 'offline'
+      ? 'Offline — this natural voice has not been used online yet. Reading with a device voice.'
+      : 'Natural voice could not be loaded — reading with a device voice.';
   }
 
   function toggle(text, opts) {
@@ -690,6 +773,7 @@ window.SLRTts = (() => {
     detectLang, splitIntoChunks,
     loadVoices, voicesForLang, voiceQualityScore, pickSystemVoice,
     PIPER_VOICES, voiceKey, piperVoice, voiceLabel,
+    NEURAL_REMOTE_HOSTS, fallbackMessage,
     speak, toggle, stop, isSpeaking, onStateChange, resetSession,
     storedVoices, downloadVoices, removeVoices,
   };

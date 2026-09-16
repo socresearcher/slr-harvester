@@ -30,10 +30,25 @@ jobs:
       - name: Configure Pages
         uses: actions/configure-pages@v6
 
+      # Allowlist, not the whole folder: only what the app loads at run time
+      # is published. Dev server, backup scripts, the Supabase schema and any
+      # Markdown (planning notes, vendor README) stay out of the site even if
+      # they are tracked. A new top-level file the app needs must be added here.
+      - name: Assemble site
+        run: |
+          set -euo pipefail
+          src=slr-harvester_web
+          mkdir -p _site
+          cp "$src/index.html" "$src/favicon.svg" "$src/manifest.webmanifest" "$src/sw.js" _site/
+          cp -r "$src/css" "$src/js" _site/
+          find _site -type f \( -name '*.md' -o -name '*.py' -o -name '*.ps1' -o -name '*.cmd' -o -name '*.bat' -o -name '*.sql' -o -name '*.log' -o -name '*.bak' \) -print -delete
+          echo "Published files:"
+          find _site -type f | sort
+
       - name: Upload artifact
         uses: actions/upload-pages-artifact@v5
         with:
-          path: slr-harvester_web
+          path: _site
 
       - name: Deploy to GitHub Pages
         id: deployment

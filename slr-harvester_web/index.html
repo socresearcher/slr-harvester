@@ -4,17 +4,29 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
   <meta name="theme-color" id="theme-color-meta" content="#0d1117">
+  <!-- Content Security Policy. GitHub Pages cannot set response headers, so it
+       lives here. connect-src lists every host the app talks to: the search
+       APIs, Supabase (*.supabase.co also covers a Cloud Sync override), and the
+       read-aloud hosts from SLRTts.NEURAL_REMOTE_HOSTS (Hugging Face redirects
+       to *.hf.co). A new host must be added here AND shown in the Privacy view.
+       The sha256 source is the inline import map below — change the map, and
+       this hash must be recomputed (SHA-256 of the text between the tags).
+       'wasm-unsafe-eval' lets the voice engine compile WebAssembly; it does
+       not allow eval(). style-src needs 'unsafe-inline' for style attributes. -->
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'wasm-unsafe-eval' 'sha256-YLs+T+FgxcIei7NqLvaWJAs+9cC27eorwbW1makPliw='; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self'; media-src 'self' blob: data:; connect-src 'self' https://api.elsevier.com https://eutils.ncbi.nlm.nih.gov https://api.openalex.org https://api.crossref.org https://doaj.org https://*.supabase.co wss://*.supabase.co https://cdn.jsdelivr.net https://cdnjs.cloudflare.com https://huggingface.co https://*.huggingface.co https://*.hf.co; worker-src 'self' blob:; frame-src zotero: citavi:; object-src 'none'; base-uri 'self'; form-action 'self'">
   <title>SLR Harvester Web</title>
-  <link rel="icon" type="image/svg+xml" href="favicon.svg?v=20260908c">
-  <link rel="stylesheet" href="css/style.css?v=20260908c">
+  <link rel="icon" type="image/svg+xml" href="favicon.svg?v=20260916f">
+  <link rel="manifest" href="manifest.webmanifest">
+  <link rel="stylesheet" href="css/style.css?v=20260916f">
   <!-- Read-aloud: the neural voice engine (Piper) imports "onnxruntime-web/wasm"
        as a bare module specifier, which a browser cannot resolve without a
-       bundler. This map supplies it. Nothing is fetched until the neural
+       bundler. This map supplies it — from the vendored copy, not a CDN
+       (see js/vendor/README.md). Nothing is fetched until the neural
        engine is actually used — js/tts.js imports it dynamically. -->
   <script type="importmap">
   {
     "imports": {
-      "onnxruntime-web/wasm": "https://cdn.jsdelivr.net/npm/onnxruntime-web@1.18.0/dist/esm/ort.wasm.min.js"
+      "onnxruntime-web/wasm": "./js/vendor/onnxruntime/ort.wasm.min.js"
     }
   }
   </script>
@@ -148,7 +160,7 @@
   <!-- Modal overlay (rendered dynamically) -->
   <div id="modal-overlay" class="modal-overlay hidden" role="dialog" aria-modal="true"></div>
 
-  <script src="js/icons.js?v=20260908c"></script>
+  <script src="js/icons.js?v=20260916f"></script>
   <!-- Cloud sync (optional): Supabase JS SDK v2.112.3, vendored locally
        (js/vendor/supabase.js) rather than loaded from a CDN. This used to
        be cdn.jsdelivr.net, which browser tracking-prevention features
@@ -159,18 +171,18 @@
        Same-origin now, so that entire class of blocking can't happen.
        To update: download a newer dist/umd/supabase.js build and replace
        the vendored file; nothing else needs to change. -->
-  <script src="js/vendor/supabase.js?v=20260908c"></script>
-  <script src="js/data-local.js?v=20260908c"></script>
-  <script src="js/data-supabase.js?v=20260908c"></script>
-  <script src="js/data.js?v=20260908c"></script>
-  <script src="js/world-map-data.js?v=20260908c"></script>
-  <script src="js/world-map-outline-data.js?v=20260908c"></script>
-  <script src="js/world-map-paths-data.js?v=20260908c"></script>
-  <script src="js/world-map.js?v=20260908c"></script>
-  <script src="js/tts.js?v=20260908c"></script>
-  <script src="js/views.js?v=20260908c"></script>
-  <script src="js/app-ui.js?v=20260908c"></script>
-  <script src="js/app.js?v=20260908c"></script>
+  <script src="js/vendor/supabase.js?v=20260916f"></script>
+  <script src="js/data-local.js?v=20260916f"></script>
+  <script src="js/data-supabase.js?v=20260916f"></script>
+  <script src="js/data.js?v=20260916f"></script>
+  <script src="js/world-map-data.js?v=20260916f"></script>
+  <script src="js/world-map-outline-data.js?v=20260916f"></script>
+  <script src="js/world-map-paths-data.js?v=20260916f"></script>
+  <script src="js/world-map.js?v=20260916f"></script>
+  <script src="js/tts.js?v=20260916f"></script>
+  <script src="js/views.js?v=20260916f"></script>
+  <script src="js/app-ui.js?v=20260916f"></script>
+  <script src="js/app.js?v=20260916f"></script>
 
 </body>
 </html>

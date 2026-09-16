@@ -176,6 +176,7 @@ window.SLRViews = (() => {
   const DB_LABELS = {
     scopus: 'Scopus', standard: 'Scopus', complete: 'Scopus', refexpanded: 'Scopus',
     pubmed: 'PubMed', arxiv: 'arXiv', s2: 'Semantic Scholar', openalex: 'OpenAlex',
+    crossref: 'Crossref', doaj: 'DOAJ',
     SCOPUS: 'Scopus', PUBMED: 'PubMed', ARXIV: 'arXiv', S2: 'Semantic Scholar', OPENALEX: 'OpenAlex',
     // Not a database. It gets an entry here anyway so an imported list is
     // labelled by where it came from instead of falling back to 'Scopus',
@@ -185,6 +186,7 @@ window.SLRViews = (() => {
   const DB_SOURCE_KEY = {
     scopus: 'scopus', standard: 'scopus', complete: 'scopus', refexpanded: 'scopus',
     pubmed: 'pubmed', arxiv: 'arxiv', s2: 's2', openalex: 'openalex',
+    crossref: 'crossref', doaj: 'doaj',
     SCOPUS: 'scopus', PUBMED: 'pubmed', ARXIV: 'arxiv', S2: 's2', OPENALEX: 'openalex',
     import: 'import',
   };
@@ -192,6 +194,7 @@ window.SLRViews = (() => {
   // Identification source boxes so a database reads as the same color everywhere.
   const DB_COLORS = {
     scopus: '#e07020', arxiv: '#e05555', pubmed: '#6faad4', s2: '#7aaee8', openalex: '#3ab09e',
+    crossref: '#3eb1c8', doaj: '#f58220',
   };
 
   // Deterministic string -> color, for grouping dimensions (document type,
@@ -1240,6 +1243,7 @@ window.SLRViews = (() => {
       item.classList.toggle('expanded');
     });
     wireArticleActions(container.querySelector('#article-list'), projectData);
+    restoreKbdFocus(container.querySelector('#article-list'));
     wireArticleSwipeGestures(container.querySelector('#article-list'), projectData, 'all');
     wireListHeaderCollapse(container, container.querySelector('#article-list'));
     wireInfiniteScroll(container.querySelector('#article-list'), hasMore, () => SLRApp.bumpArticlesRenderLimit());
@@ -1312,6 +1316,12 @@ window.SLRViews = (() => {
         const oaId = eidId.slice(9);
         eidHref  = `https://openalex.org/${oaId}`;
         eidLabel = eidId;
+      } else if (eidId.startsWith('crossref:')) {
+        eidHref  = `https://doi.org/${eidId.slice(9)}`;
+        eidLabel = eidId;
+      } else if (eidId.startsWith('doaj:')) {
+        eidHref  = `https://doaj.org/article/${encodeURIComponent(eidId.slice(5))}`;
+        eidLabel = eidId;
       } else {
         eidHref = `https://www.scopus.com/record/display.uri?eid=${esc(eidId)}&origin=resultslist`;
       }
@@ -1321,7 +1331,7 @@ window.SLRViews = (() => {
       : null;
 
     // Source badge and optional doc-type badge
-    const SOURCE_LABELS = { scopus: 'Scopus', arxiv: 'arXiv', pubmed: 'PubMed', s2: 'S2', openalex: 'OpenAlex', import: 'Imported' };
+    const SOURCE_LABELS = { scopus: 'Scopus', arxiv: 'arXiv', pubmed: 'PubMed', s2: 'S2', openalex: 'OpenAlex', crossref: 'Crossref', doaj: 'DOAJ', import: 'Imported' };
     // Infer source from EID prefix for legacy entries that predate the source field
     const _eid = a._id || a.eid || '';
     const source = a.source
@@ -1329,6 +1339,8 @@ window.SLRViews = (() => {
       || (_eid.startsWith('openalex:') ? 'openalex' : null)
       || (_eid.startsWith('pubmed:')   ? 'pubmed'   : null)
       || (_eid.startsWith('s2:')       ? 's2'       : null)
+      || (_eid.startsWith('crossref:') ? 'crossref' : null)
+      || (_eid.startsWith('doaj:')     ? 'doaj'     : null)
       || 'scopus';
     const sourceBadge = `<span class="badge badge-source badge-source-${esc(source)}" title="Source: ${esc(SOURCE_LABELS[source] || source)}">${esc(SOURCE_LABELS[source] || source)}</span>`;
     const docType = normalizeDocTypeKey(a.docType, source);
@@ -1805,7 +1817,7 @@ window.SLRViews = (() => {
         const textEl = detail ? detail.querySelector('.article-abstract') : null;
         if (!textEl) return;
         setSpeakBtnState(btn, SLRTts.toggle(textEl.textContent, {
-          onFallback: () => showToastSafe('Neural voice unavailable — using a device voice'),
+          onFallback: info => showToastSafe(SLRTts.fallbackMessage(info)),
         }));
         return;
       }
@@ -1889,14 +1901,14 @@ window.SLRViews = (() => {
         return true;
       }
       if (action === 'deselect') {
-        if (listMode === 'selected' && !confirm('Remove this article from Selected?')) return false;
-        SLRApp.updateAnnotation(eid, { selected: false });
-        return true;
+        if (listMode !== 'selected') { SLRApp.updateAnnotation(eid, { selected: false }); return true; }
+        return confirmDialog({ title: 'Remove from Selected?', message: 'The article disappears from this list. You can select it again from Articles.', confirmLabel: 'Remove' })
+          .then(ok => { if (ok) SLRApp.updateAnnotation(eid, { selected: false }); return ok; });
       }
       if (action === 'remove-corpus') {
-        if (listMode === 'corpus' && !confirm('Remove this article from the Corpus?')) return false;
-        SLRApp.updateAnnotation(eid, { corpus: false });
-        return true;
+        if (listMode !== 'corpus') { SLRApp.updateAnnotation(eid, { corpus: false }); return true; }
+        return confirmDialog({ title: 'Remove from Corpus?', message: 'The article disappears from this list. You can add it again from Articles or Selected.', confirmLabel: 'Remove' })
+          .then(ok => { if (ok) SLRApp.updateAnnotation(eid, { corpus: false }); return ok; });
       }
       return false;
     };
@@ -1908,10 +1920,12 @@ window.SLRViews = (() => {
       const swipeEl = swipeAction.closest('.article-item-swipe');
       const card = swipeEl ? swipeEl.querySelector('.article-item') : null;
       if (!card) return;
-      if (!runSwipeAction(swipeAction.dataset.swipeAction, swipeAction.dataset.eid)) {
-        card.style.transition = 'transform .2s ease';
-        card.style.transform = '';
-      }
+      Promise.resolve(runSwipeAction(swipeAction.dataset.swipeAction, swipeAction.dataset.eid)).then(ok => {
+        if (!ok) {
+          card.style.transition = 'transform .2s ease';
+          card.style.transform = '';
+        }
+      });
     });
 
     // Delegated to listEl itself instead of one set of listeners per
@@ -3272,13 +3286,16 @@ window.SLRViews = (() => {
 
     if (filtered.length === 0) return;
 
+    const HISTORY_CONFIRM = {
+      trash:            { title: 'Move to Trash?', message: 'You can restore the query from the Trash tab later.', confirmLabel: 'Move to Trash', run: i => SLRApp.trashHistoryQuery(i) },
+      archive:          { title: 'Archive this query?', message: 'You can find it later in the Archived tab.', confirmLabel: 'Archive', run: i => SLRApp.archiveHistoryQuery(i) },
+      restore:          { title: 'Restore to Active?', message: 'The query and its results count as active again.', confirmLabel: 'Restore', run: i => SLRApp.restoreHistoryQuery(i) },
+      'delete-forever': { title: 'Delete permanently?', message: 'The query and its saved results are removed.\nThis cannot be undone.', confirmLabel: 'Delete permanently', danger: true, run: i => SLRApp.permanentlyDeleteHistoryQuery(i) },
+    };
     const runHistoryAction = (action, idx) => {
-      if (action === 'trash' && confirm('Move this query to Trash? You can restore it later.')) SLRApp.trashHistoryQuery(idx);
-      else if (action === 'archive' && confirm('Archive this query? You can find it later in the Archived tab.')) SLRApp.archiveHistoryQuery(idx);
-      else if (action === 'restore' && confirm('Restore this query to Active?')) SLRApp.restoreHistoryQuery(idx);
-      else if (action === 'delete-forever' && confirm('Permanently delete this query? This cannot be undone.')) SLRApp.permanentlyDeleteHistoryQuery(idx);
-      else return false;
-      return true;
+      const def = HISTORY_CONFIRM[action];
+      if (!def) return Promise.resolve(false);
+      return confirmDialog(def).then(ok => { if (ok) def.run(idx); return ok; });
     };
 
     container.querySelector('.history-list').addEventListener('click', e => {
@@ -3287,10 +3304,12 @@ window.SLRViews = (() => {
         e.stopPropagation();
         const idx = parseInt(swipeAction.dataset.index, 10);
         const card = swipeAction.closest('.history-item-swipe').querySelector('.history-item');
-        if (!runHistoryAction(swipeAction.dataset.action, idx)) {
-          card.style.transition = 'transform .2s ease';
-          card.style.transform = '';
-        }
+        runHistoryAction(swipeAction.dataset.action, idx).then(ok => {
+          if (!ok) {
+            card.style.transition = 'transform .2s ease';
+            card.style.transform = '';
+          }
+        });
         return;
       }
 
@@ -3478,6 +3497,7 @@ window.SLRViews = (() => {
       item.classList.toggle('expanded');
     });
     wireArticleActions(container.querySelector('#corpus-list'), projectData);
+    restoreKbdFocus(container.querySelector('#corpus-list'));
     wireArticleSwipeGestures(container.querySelector('#corpus-list'), projectData, 'corpus');
     wireListHeaderCollapse(container, container.querySelector('#corpus-list'));
     wireInfiniteScroll(container.querySelector('#corpus-list'), hasMore, () => SLRApp.bumpCorpusRenderLimit());
@@ -3559,6 +3579,7 @@ window.SLRViews = (() => {
       item.classList.toggle('expanded');
     });
     wireArticleActions(container.querySelector('#selected-list'), projectData);
+    restoreKbdFocus(container.querySelector('#selected-list'));
     wireArticleSwipeGestures(container.querySelector('#selected-list'), projectData, 'selected');
     wireListHeaderCollapse(container, container.querySelector('#selected-list'));
     wireInfiniteScroll(container.querySelector('#selected-list'), hasMore, () => SLRApp.bumpSelectedRenderLimit());
@@ -5227,6 +5248,8 @@ window.SLRViews = (() => {
         { label: 'Scopus',           abbr: 'Sc', color: '#E47025', url: 'https://www.scopus.com',               desc: 'Elsevier citation and abstract index (API key required)', integrated: true },
         { label: 'PubMed',           abbr: 'PM', color: '#326599', url: 'https://pubmed.ncbi.nlm.nih.gov',      desc: 'MEDLINE biomedical literature database',                   integrated: true },
         { label: 'OpenAlex',         abbr: 'OA', color: '#3ab09e', url: 'https://openalex.org',                 desc: 'Open index of scholarly works',                            integrated: true },
+        { label: 'Crossref',         abbr: 'CR', color: '#3EB1C8', url: 'https://search.crossref.org',          desc: 'DOI metadata, relevance search (no Boolean logic)',        integrated: true },
+        { label: 'DOAJ',             abbr: 'DJ', color: '#F58220', url: 'https://doaj.org',                     desc: 'Open-access journals, up to 1,000 records per query',      integrated: true },
       ],
     },
     {
@@ -5245,15 +5268,58 @@ window.SLRViews = (() => {
         { label: 'Google Scholar',   abbr: 'GS', color: '#4285F4', url: 'https://scholar.google.com',           desc: 'Free scholarly search across sources' },
         { label: 'JSTOR',            abbr: 'JS', color: '#9B2020', url: 'https://www.jstor.org',                desc: 'Journal and primary-source archive' },
         { label: 'ProQuest',         abbr: 'PQ', color: '#4E2587', url: 'https://www.proquest.com',             desc: 'Databases for dissertations and news' },
+        { label: 'Dimensions',       abbr: 'Di', color: '#5B6BD5', url: 'https://app.dimensions.ai',            desc: 'Publications, grants and patents, linked (free tier)' },
+      ],
+    },
+    {
+      heading: 'Subject databases — social sciences & economics',
+      note: 'Discipline-specific indexes and working-paper series. Several are licensed through your library — sign in via your institution.',
+      items: [
+        { label: 'EBSCOhost',        abbr: 'EB', color: '#1B5E91', url: 'https://research.ebsco.com',           desc: 'SocINDEX, Business Source and more (institutional login)' },
+        { label: 'APA PsycInfo',     abbr: 'Ps', color: '#2C4D8E', url: 'https://www.apa.org/pubs/databases/psycinfo', desc: 'Behavioural and social science literature' },
+        { label: 'ERIC',             abbr: 'ER', color: '#0D6E6E', url: 'https://eric.ed.gov/',                 desc: 'Education research, open access' },
+        { label: 'SSOAR',            abbr: 'SO', color: '#A5143C', url: 'https://www.ssoar.info',               desc: 'Social Science Open Access Repository (GESIS)' },
+        { label: 'EconBiz',          abbr: 'EZ', color: '#E2001A', url: 'https://www.econbiz.de',               desc: 'Economics and business literature (ZBW)' },
+        { label: 'RePEc / IDEAS',    abbr: 'Re', color: '#3E6D9C', url: 'https://ideas.repec.org',              desc: 'Economics working papers and articles' },
+        { label: 'SSRN',             abbr: 'SR', color: '#0060A9', url: 'https://www.ssrn.com',                 desc: 'Preprints in social sciences and law' },
+        { label: 'NBER',             abbr: 'NB', color: '#1F3A60', url: 'https://www.nber.org/papers',          desc: 'US economics working papers' },
+        { label: 'IZA',              abbr: 'IZ', color: '#00508C', url: 'https://www.iza.org/publications/dp',  desc: 'Labour economics discussion papers' },
+      ],
+    },
+    {
+      heading: 'Open access & open indexes',
+      note: 'Free to search without an account. Useful for locating full texts and for cross-checking coverage.',
+      items: [
+        { label: 'CORE',             abbr: 'CO', color: '#B75400', url: 'https://core.ac.uk',                   desc: 'Aggregated open-access full texts' },
+        { label: 'BASE',             abbr: 'BA', color: '#2A6F97', url: 'https://www.base-search.net',          desc: 'Institutional repositories worldwide' },
+        { label: 'The Lens',         abbr: 'Le', color: '#1A7F8E', url: 'https://www.lens.org',                 desc: 'Open scholarly and patent search' },
+        { label: 'Europe PMC',       abbr: 'EP', color: '#20699C', url: 'https://europepmc.org',                desc: 'Life-science literature, many full texts' },
+      ],
+    },
+    {
+      heading: 'Publisher platforms',
+      note: 'Full-text platforms of major publishers — useful once a record is found; not a substitute for a cross-publisher index.',
+      items: [
+        { label: 'ScienceDirect',    abbr: 'SD', color: '#EB6500', url: 'https://www.sciencedirect.com',        desc: 'Elsevier journals and books' },
+        { label: 'SpringerLink',     abbr: 'SL', color: '#0F4C81', url: 'https://link.springer.com',            desc: 'Springer Nature journals and books' },
+        { label: 'Wiley Online Library', abbr: 'Wi', color: '#1B3F6B', url: 'https://onlinelibrary.wiley.com',  desc: 'Wiley journals and books' },
+        { label: 'Taylor & Francis', abbr: 'TF', color: '#1E4E79', url: 'https://www.tandfonline.com',          desc: 'Taylor & Francis Online journals' },
+        { label: 'SAGE Journals',    abbr: 'SG', color: '#2F5597', url: 'https://journals.sagepub.com',         desc: 'Social science and humanities journals' },
+        { label: 'IEEE Xplore',      abbr: 'IE', color: '#00629B', url: 'https://ieeexplore.ieee.org',          desc: 'Engineering and computer science' },
+        { label: 'ACM Digital Library', abbr: 'AC', color: '#0085CA', url: 'https://dl.acm.org',               desc: 'Computing literature' },
       ],
     },
     {
       heading: 'Discovery & AI tools',
-      note: 'Literature discovery, citation mapping, and AI-assisted research tools.',
+      note: 'Literature discovery, citation mapping, and AI-assisted research tools. Treat their output as a lead, not as a search result for your PRISMA count.',
       items: [
         { label: 'Elicit',           abbr: 'El', color: '#7C4DFF', url: 'https://elicit.com',                   desc: 'AI assistant for research workflows' },
+        { label: 'Consensus',        abbr: 'Cs', color: '#2B6CB0', url: 'https://consensus.app',                desc: 'AI search that summarises study findings' },
+        { label: 'scite',            abbr: 'Si', color: '#E0457B', url: 'https://scite.ai',                     desc: 'Shows whether citations support or dispute' },
         { label: 'Litmaps',          abbr: 'Lm', color: '#00897B', url: 'https://www.litmaps.com',              desc: 'Citation-network visualisation tool' },
         { label: 'Connected Papers', abbr: 'CP', color: '#2D7DD2', url: 'https://www.connectedpapers.com',      desc: 'Graph view of related papers' },
+        { label: 'ResearchRabbit',   abbr: 'RR', color: '#16A34A', url: 'https://www.researchrabbit.ai',        desc: 'Follow citation trails from seed papers' },
+        { label: 'Inciteful',        abbr: 'In', color: '#6B46C1', url: 'https://inciteful.xyz',                desc: 'Citation-graph search from a paper set' },
       ],
     },
     {
@@ -5272,12 +5338,12 @@ window.SLRViews = (() => {
 
     function makeCard(db) {
       return `
-      <a class="db-card${db.integrated ? ' db-card--integrated' : ''}" href="${esc(db.url)}" target="_blank" rel="noopener"
+      <a class="db-card${db.integrated ? ' db-card--integrated' : ''}" href="${esc(db.url)}" target="_blank" rel="noopener noreferrer"
          style="--db-color:${esc(db.color)}">
         <div class="db-card-badge" title="${esc(db.label)}" aria-label="${esc(db.label)}">${renderDbLogo(db)}</div>
         <div class="db-card-body">
           <div class="db-card-name">${esc(db.label)}${db.integrated ? ' <span class="db-integrated-pill">In-app</span>' : ''}</div>
-          <div class="db-card-desc">${esc(db.desc)}</div>
+          <div class="db-card-desc" title="${esc(db.desc)}">${esc(db.desc)}</div>
         </div>
         <div class="db-card-arrow">${SLRIcons.externalLink}</div>
       </a>`;
@@ -5301,19 +5367,19 @@ window.SLRViews = (() => {
           <h3 class="databases-section-heading">Reference Managers</h3>
           <p class="databases-section-note">Use your preferred reference manager to import the final corpus and manage citations for your research paper.</p>
           <div class="databases-grid">
-            <button class="db-card" id="db-zotero-btn" style="--db-color:#CC2936">
+            <button class="db-card" id="db-zotero-btn" style="--db-color:#CC2936" title="Opens Zotero if it is installed on this device — otherwise nothing happens">
               <div class="db-card-badge" title="Zotero" aria-label="Zotero">${renderDbLogo({ label: 'Zotero', abbr: 'Zo' })}</div>
               <div class="db-card-body">
                 <div class="db-card-name">Zotero</div>
-                <div class="db-card-desc">Open Zotero desktop app</div>
+                <div class="db-card-desc">Opens the desktop app, if installed</div>
               </div>
               <div class="db-card-arrow">${SLRIcons.externalLink}</div>
             </button>
-            <button class="db-card" id="db-citavi-btn" style="--db-color:#005A9E">
+            <button class="db-card" id="db-citavi-btn" style="--db-color:#005A9E" title="Opens Citavi if it is installed on this device (Windows only) — otherwise nothing happens">
               <div class="db-card-badge" title="Citavi" aria-label="Citavi">${renderDbLogo({ label: 'Citavi', abbr: 'Ci' })}</div>
               <div class="db-card-body">
                 <div class="db-card-name">Citavi</div>
-                <div class="db-card-desc">Open Citavi desktop app</div>
+                <div class="db-card-desc">Opens the desktop app, if installed (Windows)</div>
               </div>
               <div class="db-card-arrow">${SLRIcons.externalLink}</div>
             </button>
@@ -5580,6 +5646,40 @@ window.SLRViews = (() => {
       ]},
     ],
 
+    //  Crossref
+    // Relevance search over bibliographic metadata. No Boolean logic and no
+    // field codes in the query itself — words are matched loosely.
+    crossref: [
+      { group: 'Phrases', mode: 'insert', fields: [
+        { code: '""', desc: 'Keep words together. Crossref still ranks by relevance; this is not a strict phrase filter.' },
+      ]},
+    ],
+
+    //  DOAJ
+    // Elasticsearch query-string syntax on the article records.
+    doaj: [
+      { group: 'Operators', mode: 'insert', fields: [
+        { code: 'AND', desc: 'Both terms required' },
+        { code: 'OR',  desc: 'Either term' },
+        { code: 'NOT', desc: 'Exclude term' },
+        { code: '(',   desc: 'Group terms' },
+        { code: ')',   desc: 'Close group' },
+      ]},
+      { group: 'Wildcards', mode: 'insert', fields: [
+        { code: '""', desc: 'Exact phrase' },
+        { code: '*',  desc: 'Truncation, e.g. automat*' },
+      ]},
+      { group: 'Fields', mode: 'insert', fields: [
+        { code: 'bibjson.title:',            desc: 'Title' },
+        { code: 'bibjson.abstract:',         desc: 'Abstract' },
+        { code: 'bibjson.keywords:',         desc: 'Author keywords' },
+        { code: 'bibjson.author.name:',      desc: 'Author name' },
+        { code: 'bibjson.journal.title:',    desc: 'Journal title' },
+        { code: 'bibjson.subject.term:',     desc: 'Subject classification term' },
+        { code: 'bibjson.journal.language:', desc: 'Language code, e.g. EN' },
+      ]},
+    ],
+
   };
 
   // Database tab definitions  only working databases. color/abbr match
@@ -5589,6 +5689,8 @@ window.SLRViews = (() => {
     { key: 'scopus',    label: 'Scopus',    abbr: 'Sc', color: '#E47025', note: null },
     { key: 'pubmed',    label: 'PubMed',    abbr: 'PM', color: '#326599', note: 'Free  No key required' },
     { key: 'openalex',  label: 'OpenAlex',  abbr: 'OA', color: '#3ab09e', note: 'Free  No key required' },
+    { key: 'crossref',  label: 'Crossref',  abbr: 'CR', color: '#3EB1C8', note: 'Free  relevance search, no Boolean logic' },
+    { key: 'doaj',      label: 'DOAJ',      abbr: 'DJ', color: '#F58220', note: 'Free  open-access journals, max. 1,000 records per query' },
   ];
 
   // Welche Abfragesprache gerade gilt — steht klein neben der Ueberschrift
@@ -5598,6 +5700,8 @@ window.SLRViews = (() => {
     scopus:   'Scopus Boolean syntax',
     pubmed:   'PubMed query syntax',
     openalex: 'OpenAlex keyword / filter syntax',
+    crossref: 'Crossref relevance search',
+    doaj:     'DOAJ query syntax',
   };
 
   // Hints per database (shown below the query textarea)
@@ -5609,6 +5713,8 @@ window.SLRViews = (() => {
     scopus:   'Scopus Boolean syntax — e.g. TITLE-ABS-KEY("machine learning") AND PUBYEAR > 2019',
     pubmed:   'PubMed query syntax — e.g. machine learning[Title] AND 2019:2024[PDAT]',
     openalex: 'Keyword search across title, abstract & full text — or filter syntax for precision, e.g. title.search:"deep learning",publication_year:>2019 (comma = AND)',
+    crossref: 'Plain words, ranked by relevance — no AND/OR. Best for checking coverage or finding a known title, e.g. algorithmic management platform work',
+    doaj:     'Boolean query on open-access articles — e.g. bibjson.title:"artificial intelligence" AND (labour OR labor)',
   };
 
 
@@ -6012,11 +6118,11 @@ window.SLRViews = (() => {
     });
 
     container.querySelectorAll('.search-term-delete').forEach(btn => {
-      btn.addEventListener('click', () => {
+      btn.addEventListener('click', async () => {
         const term = btn.dataset.deleteTerm || '';
         if (!term) return;
-        if (!window.confirm(`Delete saved term "${term}"?`)) return;
-        void SLRApp.deleteQueryTerm(term);
+        const ok = await confirmDialog({ title: 'Delete saved term?', message: `"${term}" is removed from this project's saved terms. Past searches are not affected.`, confirmLabel: 'Delete', danger: true });
+        if (ok) void SLRApp.deleteQueryTerm(term);
       });
     });
 
@@ -6193,9 +6299,9 @@ window.SLRViews = (() => {
         const q   = ta ? ta.value.trim() : '';
         if (!q) return;
         // Feldbereich und Zeitraum stehen im Zustand, nicht in den Argumenten
-        // von executeSearch: Sie gelten nur fuer OpenAlex, und die Signatur
-        // waere sonst um zwei Werte laenger, die zwei von drei Quellen gar
-        // nicht kennen.
+        // von executeSearch: Der Feldbereich gilt nur fuer OpenAlex, der
+        // Zeitraum fuer OpenAlex, Crossref und DOAJ. Scopus und PubMed nehmen
+        // ihn in der Abfrage selbst (PUBYEAR, [PDAT]).
         const jahr = (id) => {
           const el = container.querySelector(id);
           const v = el ? String(el.value).trim() : '';
@@ -6447,11 +6553,15 @@ window.SLRViews = (() => {
     btn.addEventListener('click', async () => {
       const err = container.querySelector('#account-delete-error');
       if (err) err.hidden = true;
-      if (!window.confirm(
-        `Delete the account ${email}?\n\n` +
-        'All cloud projects, articles, tags and saved API keys are deleted immediately. ' +
-        'The login is removed after 30 days and can be restored until then by signing in ' +
-        'and cancelling.\n\nThis cannot be undone.')) return;
+      const ok = await confirmDialog({
+        title: `Delete the account ${email}?`,
+        message: 'All cloud projects, articles, tags and saved API keys are deleted immediately. ' +
+          'The login is removed after 30 days and can be restored until then by signing in ' +
+          'and cancelling.\n\nThis cannot be undone.',
+        confirmLabel: 'Delete account',
+        danger: true,
+      });
+      if (!ok) return;
       btn.disabled = true;
       btn.textContent = 'Deleting…';
       try {
@@ -6490,8 +6600,12 @@ window.SLRViews = (() => {
     if (!list.length) {
       return `<option value="">No ${lang === 'de' ? 'German' : 'English'} voice installed on this device</option>`;
     }
-    return `<option value="">Automatic${best ? ' — ' + esc(best.name) : ''}</option>` +
-      list.map(v => `<option value="${esc(v.voiceURI)}" ${v.voiceURI === cur ? 'selected' : ''}>${SLRTts.voiceQualityScore(v) > 0 ? '\u2728 ' : ''}${esc(v.name)} — ${esc(v.lang)}</option>`).join('');
+    return `<option value="">Automatic${best ? ' — ' + esc(best.name) + (best.localService === false ? ' — online' : '') : ''}</option>` +
+      // Voices with localService === false are synthesised by the browser
+      // vendor's server (Edge "Online (Natural)", Chrome "Google ..."): the
+      // text being read goes to Microsoft or Google. Marked so that this is
+      // a visible choice, not a silent one.
+      list.map(v => `<option value="${esc(v.voiceURI)}" ${v.voiceURI === cur ? 'selected' : ''}>${SLRTts.voiceQualityScore(v) > 0 ? '\u2728 ' : ''}${esc(v.name)} — ${esc(v.lang)}${v.localService === false ? ' — online' : ''}</option>`).join('');
   }
 
   function piperVoiceOptions(lang, stored) {
@@ -6515,11 +6629,11 @@ window.SLRViews = (() => {
         <label for="tts-engine">Voice engine</label>
         <select class="form-input" id="tts-engine">
           <option value="system" ${neural ? '' : 'selected'}>Device voices — instant, no download</option>
-          <option value="neural" ${neural ? 'selected' : ''}>Neural voices — natural, one-time download</option>
+          <option value="neural" ${neural ? 'selected' : ''}>Natural voices — first use needs an internet connection</option>
         </select>
         <p class="field-hint">${neural
-          ? 'Runs a neural voice model directly in this browser — no account, no server, nothing sent anywhere. Each language downloads once (~63 MB) and is then kept offline.'
-          : 'Uses the voices installed on this device. Instant and works everywhere; quality depends on what the device offers (\u2728 marks the natural-sounding ones).'}</p>
+          ? `The voice is computed inside this browser — the text being read never leaves the device. The engine and the voices are fetched from ${SLRTts.NEURAL_REMOTE_HOSTS.map(h => `<code>${esc(h.host)}</code>`).join(', ')}; like any download, those services see your IP address. Voice models (~63 MB per language) and engine files are then kept on this device, so a voice you have used once also works offline. <strong>A voice not yet used online — or any voice when a filter blocks these hosts — falls back to a device voice.</strong> <a href="#" id="tts-privacy-link">Details and voice licences</a>`
+          : 'Uses the voices your browser and system provide. Quality depends on what the device offers (\u2728 marks the natural-sounding ones). Voices marked <em>online</em> are generated on the browser vendor\u2019s server — with those, the text being read is sent to Microsoft or Google.'}</p>
       </div>
 
       <div class="form-field">
@@ -6558,7 +6672,7 @@ window.SLRViews = (() => {
     return collapseSection({
       id: 'settings-readaloud',
       title: 'Read aloud',
-      meta: neural ? 'Neural voices' : 'Device voices',
+      meta: neural ? 'Natural voices' : 'Device voices',
       metaSet: neural,
       open: false,
       body,
@@ -6569,6 +6683,11 @@ window.SLRViews = (() => {
     const $$ = sel => container.querySelector(sel);
     const engine = $$('#tts-engine');
     if (!engine) return;
+
+    $$('#tts-privacy-link')?.addEventListener('click', e => {
+      e.preventDefault();
+      SLRApp.navigate('privacy');
+    });
 
     const refreshStatus = async () => {
       const status = $$('#tts-status');
@@ -6581,7 +6700,7 @@ window.SLRViews = (() => {
             + (missing.length
               ? ` — ${missing.map(SLRTts.voiceLabel).join(' and ')} still to download (~63 MB each, fetched automatically on first use).`
               : ' — both selected voices are ready.')
-        : 'Nothing downloaded yet — the selected voice is fetched the first time you use it (~63 MB per language, then kept offline).';
+        : 'Nothing downloaded yet — the selected voice is fetched the first time you use it (~63 MB per language, then stored on this device).';
       // Mark the already-downloaded ones in the pickers.
       ['de', 'en'].forEach(lang => {
         const sel = $$(`#tts-voice-${lang}`);
@@ -6640,7 +6759,7 @@ window.SLRViews = (() => {
           : 'This voice reads the abstract of an article aloud.', {
             lang,
             onProgress: p => { if (status && p && p.total) status.textContent = `Downloading voice\u2026 ${Math.round((p.loaded / p.total) * 100)}%`; },
-            onFallback: () => showToastSafe('Neural voice unavailable — using a device voice', true),
+            onFallback: info => showToastSafe(SLRTts.fallbackMessage(info), true),
           });
         setTimeout(refreshStatus, 800);
       });
@@ -6655,7 +6774,7 @@ window.SLRViews = (() => {
       try {
         await SLRTts.downloadVoices(msg => { if (status) status.textContent = msg; });
         await refreshStatus();
-        showToastSafe('Neural voices ready');
+        showToastSafe('Natural voices ready');
       } catch (e) {
         if (status) status.textContent = 'Download failed: ' + (e && e.message ? e.message : e);
       } finally {
@@ -7327,8 +7446,10 @@ window.SLRViews = (() => {
         </div>
 
         <div class="settings-section">
-          <h3>Stored in this browser (<code>IndexedDB</code>)</h3>
+          <h3>Stored in this browser (<code>IndexedDB</code>, <code>Cache Storage</code>)</h3>
           <ul class="about-feature-list">
+            <li><span class="about-li-icon" aria-hidden="true">${SLRIcons.refresh}</span><span><strong>Offline copy of the app</strong> (Cache Storage, <code>slr-shell-v1</code>) &mdash; the app's own program files, kept by a service worker so the app also starts without a connection. Online, the current files are always fetched first. Contains no project data.</span></li>
+            <li><span class="about-li-icon" aria-hidden="true">${SLRIcons.speaker}</span><span><strong>Voice engine files</strong> (Cache Storage, <code>slr-voice-engine-v1</code>) &mdash; only once natural voices have been used: the engine's WebAssembly and speech-sound data, so the voices work offline. Contains nothing about you or your projects. Clearing site data removes both caches.</span></li>
             <li><span class="about-li-icon" aria-hidden="true">${SLRIcons.folderOpen}</span><span><strong>Local folder connection</strong> (Local Folder mode only; database <code>slr-harvester-web</code>, store <code>handles</code>) &mdash; the browser's own reference/permission handle to the folder you picked, so the app can reconnect without re-prompting the picker every visit. This holds a permission token, not file contents &mdash; your actual project files (search results, tags, etc.) live only inside the folder you chose on your own device, read and written live through the File System Access API. Nothing about them is copied into browser storage.</span></li>
           </ul>
         </div>
@@ -7343,8 +7464,46 @@ window.SLRViews = (() => {
             <li><span class="about-li-icon" aria-hidden="true">${SLRIcons.databases}</span><span><strong>Scopus</strong> (api.elsevier.com) &mdash; your search query, and your API key / institutional token as request headers if you've configured one.</span></li>
             <li><span class="about-li-icon" aria-hidden="true">${SLRIcons.databases}</span><span><strong>PubMed</strong> (eutils.ncbi.nlm.nih.gov) &mdash; your search query. No key required or sent.</span></li>
             <li><span class="about-li-icon" aria-hidden="true">${SLRIcons.databases}</span><span><strong>OpenAlex</strong> (api.openalex.org) &mdash; your search query, and your OpenAlex key/contact email as a parameter, only if you've set them in Settings.</span></li>
-            <li><span class="about-li-icon" aria-hidden="true">${SLRIcons.refresh}</span><span><strong>Crossref</strong> (api.crossref.org) &mdash; DOI-based lookups when you use Fetch Abstracts/Authors/Types. A fixed placeholder contact address is sent as Crossref's polite-pool parameter, never your own email.</span></li>
+            <li><span class="about-li-icon" aria-hidden="true">${SLRIcons.refresh}</span><span><strong>Crossref</strong> (api.crossref.org) &mdash; your search query when you search Crossref, and DOI-based lookups when you use Fetch Abstracts/Authors/Types. A fixed placeholder contact address is sent as Crossref's polite-pool parameter, never your own email.</span></li>
+            <li><span class="about-li-icon" aria-hidden="true">${SLRIcons.databases}</span><span><strong>DOAJ</strong> (doaj.org) &mdash; your search query when you search DOAJ. No key required or sent.</span></li>
           </ul>
+        </div>
+
+        <div class="settings-section">
+          <h3>Read aloud</h3>
+          <p class="privacy-lead">Only if you use the <strong>Read aloud</strong> button. What
+            leaves the device depends on the voice engine chosen in Settings.</p>
+          <ul class="about-feature-list">
+            <li><span class="about-li-icon" aria-hidden="true">${SLRIcons.speaker}</span><span><strong>Natural voices</strong> &mdash;
+              the speech is computed inside this browser; <strong>the text being read is not sent anywhere</strong>.
+              To do that, the browser downloads the engine and the voice from
+              ${SLRTts.NEURAL_REMOTE_HOSTS.map(h => `<strong>${esc(h.host)}</strong> (${esc(h.what)})`).join(', ')}.
+              Like any download, these services receive your IP address and browser identification, and may log them.
+              The program code of the engine is served by this app itself; only binary engine files and voice data come from these hosts.
+              Voice models (~63&nbsp;MB per language) are stored in this browser's private file storage (<code>OPFS</code>, folder <code>piper</code>)
+              and can be removed under Settings &rarr; Read aloud.</span></li>
+            <li><span class="about-li-icon" aria-hidden="true">${SLRIcons.speaker}</span><span><strong>First use needs a connection</strong> &mdash;
+              after that, the voice model and the engine files are kept on this device and the voice also works offline.
+              A voice not yet used online, or any voice while a tracking or ad filter blocks these hosts, is unavailable;
+              the app then reads with a device voice instead and says so.</span></li>
+            <li><span class="about-li-icon" aria-hidden="true">${SLRIcons.speaker}</span><span><strong>Device voices</strong> &mdash;
+              provided by your browser and operating system; this app sends nothing itself. Some of them, however, are
+              generated on the browser vendor's servers &mdash; in Edge the voices named <em>Online (Natural)</em>, in Chrome
+              the <em>Google</em> voices. With those, <strong>the text being read is sent to Microsoft or Google</strong>.
+              The voice lists in Settings mark them <em>online</em>; a voice without that mark runs locally.</span></li>
+          </ul>
+          <details class="privacy-voice-licences">
+            <summary>Voice licences</summary>
+            <p class="privacy-lead">Each natural voice is trained on a speech dataset with its own terms (from the voice's
+              model card at rhasspy/piper-voices). The app does not redistribute the models; your browser fetches them
+              from Hugging Face. <em>NC</em> voices are for non-commercial use only.</p>
+            <ul class="about-feature-list">
+              ${['de', 'en'].flatMap(lang => SLRTts.PIPER_VOICES[lang])
+                .map(v => `<li><span><strong>${esc(v.label.split(' — ')[0])}</strong> (${esc(v.id)}${v.speaker != null ? ', speaker ' + esc(String(v.speaker)) : ''}) &mdash; ${esc(v.licence)}, ${esc(v.dataset)}</span></li>`)
+                .join('')}
+            </ul>
+            <p class="privacy-lead">Engine code: piper-tts-web (MIT), ONNX Runtime Web (MIT, Microsoft), piper-wasm (MIT).</p>
+          </details>
         </div>
 
         <div class="settings-section">
@@ -7380,7 +7539,7 @@ window.SLRViews = (() => {
             other files.
           </p>
           <p class="privacy-lead">
-            <strong>Neural read-aloud voices</strong> — if you enabled them, the downloaded voice
+            <strong>Natural read-aloud voices</strong> — if you enabled them, the downloaded voice
             models sit in this browser's Origin Private File System. <em>Settings → Reading → Read
             aloud → Remove downloads</em> deletes them; so does clearing site data.
           </p>
@@ -7455,14 +7614,16 @@ window.SLRViews = (() => {
               <li><strong>Scopus</strong> — requires an institutional API key (elsevier.com)</li>
               <li><strong>PubMed</strong> — free, no key required (NCBI E-utilities)</li>
               <li><strong>OpenAlex</strong> — free and open, no key required</li>
+              <li><strong>Crossref</strong> — free, no key; relevance search over DOI metadata, no Boolean logic</li>
+              <li><strong>DOAJ</strong> — free, no key; open-access journals, at most 1,000 records per query</li>
             </ul>
-           <p>All three are searchable directly from the Search view.</p>`,
+           <p>All five are searchable directly from the Search view.</p>`,
       },
       {
         id: 'qa-scopus-key',
         q: 'Do I need a Scopus API key?',
-        a: `<p>No — PubMed and OpenAlex work without any key, and you can run a complete review on
-            those alone. A Scopus key only unlocks Scopus as a fourth source.</p>
+        a: `<p>No — PubMed, OpenAlex, Crossref and DOAJ work without any key, and you can run a
+            complete review on those alone. A Scopus key only unlocks Scopus as an additional source.</p>
            <p>Free keys for academic institutions are available at
             <a href="https://dev.elsevier.com/" target="_blank" rel="noopener">dev.elsevier.com</a>.
             Enter it under <button class="link-btn" id="about-goto-settings">Settings</button>,
@@ -7511,14 +7672,20 @@ window.SLRViews = (() => {
         q: 'Does it work offline?',
         a: `<p>In Local Folder mode, yes — everything except searching and fetching, which need
             the databases. Reading, tagging, screening, exporting and the charts all run locally.</p>
-           <p>There is no build step, no framework and no CDN: the app is plain HTML/CSS/JS and
-            even opens straight from <code>index.html</code>.</p>`,
+           <p>One more exception: <strong>natural read-aloud voices</strong> need a connection the
+            first time, because their engine and voice files come from outside hosts. After that they
+            are kept on the device and work offline; a voice not yet used falls back to a device voice.</p>
+           <p>In a browser served over <code>https</code> the app also <strong>starts offline</strong>
+            once it has been opened online — its files are kept by a service worker.</p>
+           <p>There is no build step and no framework: the app is plain HTML/CSS/JS and even opens
+            straight from <code>index.html</code>. All program code is served by the app itself;
+            the only remote files are the binary engine and voice data of the natural voices.</p>`,
       },
     ];
 
     const featureList = `
       <ul class="about-feature-list">
-        <li><span class="about-li-icon" aria-hidden="true">${SLRIcons.databases}</span><span><strong>Multi-database search</strong> &mdash; Scopus, PubMed and OpenAlex in one Search view</span></li>
+        <li><span class="about-li-icon" aria-hidden="true">${SLRIcons.databases}</span><span><strong>Multi-database search</strong> &mdash; Scopus, PubMed, OpenAlex, Crossref and DOAJ in one Search view</span></li>
         <li><span class="about-li-icon" aria-hidden="true">${SLRIcons.refresh}</span><span><strong>Crossref enrichment</strong> &mdash; abstracts, full author lists, document types and affiliations by DOI</span></li>
         <li><span class="about-li-icon" aria-hidden="true">${SLRIcons.corpus}</span><span><strong>Two-stage screening</strong> &mdash; Selected &rarr; Corpus, with per-article comments</span></li>
         <li><span class="about-li-icon" aria-hidden="true">${SLRIcons.tag}</span><span><strong>Tagging</strong> &mdash; keyword auto-tagging, editable rules, aliases, and ${COLOR_SCHEMES.length} colour palettes</span></li>
@@ -7543,7 +7710,7 @@ window.SLRViews = (() => {
           <li><span class="about-li-icon" aria-hidden="true">${SLRIcons.supabaseLogo}</span><span><strong>Cloud Sync</strong> &mdash; optional Supabase-backed workspace, including mobile</span></li>
           <li><span class="about-li-icon" aria-hidden="true">${SLRIcons.databases}</span><span><strong>PubMed and OpenAlex</strong> added alongside Scopus</span></li>
           <li><span class="about-li-icon" aria-hidden="true">${SLRIcons.network}</span><span><strong>Citation network</strong> &mdash; intra-project citation links, added alongside the world map</span></li>
-          <li><span class="about-li-icon" aria-hidden="true">${SLRIcons.speaker}</span><span><strong>Read aloud</strong> &mdash; device voices, or neural voices downloaded once and run offline</span></li>
+          <li><span class="about-li-icon" aria-hidden="true">${SLRIcons.speaker}</span><span><strong>Read aloud</strong> &mdash; device voices, or natural voices computed in the browser (first use needs an internet connection; afterwards they also work offline)</span></li>
           <li><span class="about-li-icon" aria-hidden="true">${SLRIcons.user}</span><span><strong>Account management</strong> &mdash; change email or password, and delete the account with a 30-day grace period</span></li>
           <li><span class="about-li-icon" aria-hidden="true">${SLRIcons.sun}</span><span><strong>Dark &amp; light theme</strong> &mdash; full CSS custom property design system</span></li>
         </ul>
@@ -7877,14 +8044,19 @@ window.SLRViews = (() => {
 
     // Wire: delete buttons
     container.querySelectorAll('[data-delete]').forEach(btn => {
-      btn.addEventListener('click', () => {
+      btn.addEventListener('click', async () => {
         const colorKey = btn.dataset.delete;
         const alias    = (projectData.tagAliases || {})[colorKey] || colorKey;
         const count    = countMap[colorKey] || 0;
-        const msg = count > 0
-          ? `Delete tag "${alias}"? This will remove the tag from ${count} article${count !== 1 ? 's' : ''}.`
-          : `Delete tag "${alias}"?`;
-        if (window.confirm(msg)) SLRApp.deleteTag(colorKey);
+        const ok = await confirmDialog({
+          title: `Delete tag "${alias}"?`,
+          message: count > 0
+            ? `The tag is removed from ${count} article${count !== 1 ? 's' : ''}. The articles themselves stay.`
+            : 'No article carries this tag.',
+          confirmLabel: 'Delete tag',
+          danger: true,
+        });
+        if (ok) SLRApp.deleteTag(colorKey);
       });
     });
 
@@ -8728,6 +8900,199 @@ window.SLRViews = (() => {
   //
   // Drei Antworten: eine Obergrenze nachtraeglich setzen, ohne Grenze
   // weitermachen, oder abbrechen.
+  // ── Eigener Bestaetigungsdialog ──────────────────────────────────────────
+  // Ersetzt window.confirm(). Der Browserdialog passte nicht zum Aussehen der
+  // Anwendung, blieb im Dunkelmodus hell und hielt die ganze Seite an.
+  // Liefert ein Promise<boolean>. Eigenes Overlay statt #modal-overlay, damit
+  // eine Rueckfrage nie einen gerade offenen Dialog ueberschreibt.
+  // Bei destruktiven Aktionen (danger) liegt der Fokus auf "Abbrechen":
+  // Ein versehentliches Enter loescht dann nichts.
+  function confirmDialog(opts) {
+    const o = opts || {};
+    return new Promise(resolve => {
+      const overlay = document.createElement('div');
+      overlay.className = 'modal-overlay confirm-dialog-overlay';
+      const titelId = `confirm-title-${Date.now()}`;
+      const text = esc(o.message || '').replace(/\n/g, '<br>');
+      overlay.innerHTML = `
+        <div class="modal" role="alertdialog" aria-modal="true" aria-labelledby="${titelId}">
+          <div class="modal-header">
+            <h3 id="${titelId}">${esc(o.title || 'Please confirm')}</h3>
+          </div>
+          <div class="modal-body">
+            <p class="field-hint confirm-dialog-text" style="margin-top:0">${text}</p>
+          </div>
+          <div class="modal-footer">
+            <button type="button" class="btn-secondary" data-confirm="no">${esc(o.cancelLabel || 'Cancel')}</button>
+            <button type="button" class="${o.danger ? 'btn-danger' : 'btn-primary'}" data-confirm="yes">${esc(o.confirmLabel || 'OK')}</button>
+          </div>
+        </div>`;
+      const vorher = document.activeElement;
+      let fertig = false;
+      const ende = (wert) => {
+        if (fertig) return;
+        fertig = true;
+        document.removeEventListener('keydown', onKey, true);
+        overlay.remove();
+        if (vorher && typeof vorher.focus === 'function') {
+          try { vorher.focus({ preventScroll: true }); } catch (_) { /* Element weg */ }
+        }
+        resolve(wert);
+      };
+      const onKey = (e) => {
+        if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); ende(false); }
+        else if (e.key === 'Enter' && e.target && e.target.dataset && e.target.dataset.confirm) {
+          e.preventDefault(); e.stopPropagation(); ende(e.target.dataset.confirm === 'yes');
+        } else if (e.key === 'Tab') {
+          // Fokus im Dialog halten.
+          const knoepfe = [...overlay.querySelectorAll('[data-confirm]')];
+          const i = knoepfe.indexOf(document.activeElement);
+          e.preventDefault();
+          knoepfe[(i + (e.shiftKey ? knoepfe.length - 1 : 1)) % knoepfe.length].focus();
+        }
+      };
+      overlay.addEventListener('click', e => {
+        if (e.target === overlay) { ende(false); return; }
+        const k = e.target.closest('[data-confirm]');
+        if (k) ende(k.dataset.confirm === 'yes');
+      });
+      document.addEventListener('keydown', onKey, true);
+      document.body.appendChild(overlay);
+      overlay.querySelector(`[data-confirm="${o.danger ? 'no' : 'yes'}"]`).focus();
+    });
+  }
+
+  // ── Tastenkuerzel fuer das Screening ─────────────────────────────────────
+  // Gilt in Articles, Selected und Corpus. Beim Sichten hunderter Treffer ist
+  // die Maus der langsamste Weg; mit j/k und einem Buchstaben je
+  // Entscheidung bleibt die Hand auf der Tastatur.
+  //
+  // Der markierte Artikel wird ueber seine Kennung gemerkt, nicht ueber das
+  // DOM-Element: Jede Annotation zeichnet die Liste neu, und die Markierung
+  // (samt aufgeklapptem Zustand) wird danach wiederhergestellt.
+  const KBD_LISTS = ['#article-list', '#selected-list', '#corpus-list'];
+  const KBD_SHORTCUTS = [
+    ['j', 'Next article'],
+    ['k', 'Previous article'],
+    ['Enter / o', 'Open or close the article'],
+    ['s', 'Selected on/off'],
+    ['c', 'Corpus on/off'],
+    ['t', 'Set tag'],
+    ['r', 'Read the abstract aloud / stop'],
+    ['Esc', 'Stop reading, clear the marker'],
+    ['?', 'This overview'],
+  ];
+  let kbdEid = null;
+  let kbdOffen = false;
+
+  function kbdListe() {
+    for (const sel of KBD_LISTS) {
+      const el = document.querySelector(`#view-container ${sel}`);
+      if (el) return el;
+    }
+    return null;
+  }
+
+  function kbdKarten(liste) {
+    return [...liste.querySelectorAll('.article-item[data-eid]')];
+  }
+
+  function kbdMarkieren(karte, scrollen) {
+    document.querySelectorAll('.article-item.kbd-focus').forEach(k => k.classList.remove('kbd-focus'));
+    if (!karte) { kbdEid = null; return; }
+    karte.classList.add('kbd-focus');
+    kbdEid = karte.dataset.eid;
+    kbdOffen = karte.classList.contains('expanded');
+    if (scrollen) karte.scrollIntoView({ block: 'nearest' });
+  }
+
+  // Nach jedem Neuzeichnen einer Liste aufgerufen.
+  function restoreKbdFocus(liste) {
+    if (!liste || !kbdEid) return;
+    const karte = kbdKarten(liste).find(k => k.dataset.eid === kbdEid);
+    if (!karte) return;
+    if (kbdOffen) karte.classList.add('expanded');
+    karte.classList.add('kbd-focus');
+  }
+
+  function renderShortcutHelp() {
+    const zeilen = KBD_SHORTCUTS.map(([k, t]) =>
+      `<tr><td><kbd>${esc(k)}</kbd></td><td>${esc(t)}</td></tr>`).join('');
+    const overlay = document.createElement('div');
+    overlay.className = 'modal-overlay';
+    overlay.innerHTML = `
+      <div class="modal" role="dialog" aria-modal="true" aria-labelledby="kbd-help-title">
+        <div class="modal-header">
+          <h3 id="kbd-help-title">Keyboard shortcuts</h3>
+          <button class="icon-btn" data-kbd-close aria-label="Close">${SLRIcons.close}</button>
+        </div>
+        <div class="modal-body">
+          <p class="field-hint" style="margin-top:0">In Articles, Selected and Corpus. Not while typing in a field.</p>
+          <table class="kbd-help-table">${zeilen}</table>
+        </div>
+      </div>`;
+    const zu = () => { document.removeEventListener('keydown', onKey, true); overlay.remove(); };
+    const onKey = (e) => { if (e.key === 'Escape' || e.key === '?') { e.preventDefault(); e.stopPropagation(); zu(); } };
+    overlay.addEventListener('click', e => { if (e.target === overlay || e.target.closest('[data-kbd-close]')) zu(); });
+    document.addEventListener('keydown', onKey, true);
+    document.body.appendChild(overlay);
+    overlay.querySelector('[data-kbd-close]').focus();
+  }
+
+  function onScreeningKey(e) {
+    if (e.defaultPrevented || e.ctrlKey || e.metaKey || e.altKey) return;
+    const ziel = e.target;
+    if (ziel && (ziel.isContentEditable || /^(INPUT|TEXTAREA|SELECT)$/.test(ziel.tagName))) return;
+    if (document.querySelector('.modal-overlay:not(.hidden)')) return;
+    const liste = kbdListe();
+    if (!liste) return;
+    const taste = e.key;
+
+    if (taste === '?') { e.preventDefault(); renderShortcutHelp(); return; }
+
+    const karten = kbdKarten(liste);
+    if (!karten.length) return;
+    let karte = karten.find(k => k.dataset.eid === kbdEid) || null;
+
+    if (taste === 'j' || taste === 'k') {
+      e.preventDefault();
+      const i = karte ? karten.indexOf(karte) : -1;
+      const neu = taste === 'j'
+        ? karten[Math.min(karten.length - 1, i + 1)]
+        : karten[Math.max(0, i === -1 ? 0 : i - 1)];
+      kbdMarkieren(neu, true);
+      return;
+    }
+    if (taste === 'Escape') {
+      if (window.SLRTts) SLRTts.stop();
+      kbdMarkieren(null);
+      return;
+    }
+    if (!karte) return;
+
+    if (taste === 'Enter' || taste === 'o') {
+      e.preventDefault();
+      karte.classList.toggle('expanded');
+      kbdOffen = karte.classList.contains('expanded');
+      karte.scrollIntoView({ block: 'nearest' });
+    } else if (taste === 's' || taste === 'c' || taste === 't') {
+      e.preventDefault();
+      const aktion = { s: 'toggle-selected', c: 'toggle-corpus', t: 'open-tag-picker' }[taste];
+      const knopf = karte.querySelector(`[data-action="${aktion}"]`);
+      if (knopf) knopf.click();
+    } else if (taste === 'r') {
+      e.preventDefault();
+      if (!karte.classList.contains('expanded')) {
+        karte.classList.add('expanded');
+        kbdOffen = true;
+      }
+      const knopf = karte.querySelector('[data-action="speak-abstract"]');
+      if (knopf) knopf.click();
+      else showToastSafe('This article has no abstract to read.');
+    }
+  }
+  document.addEventListener('keydown', onScreeningKey);
+
   function renderSearchLimitModal(overlay, { gesamt, geholt, grenze, cloud }, entscheiden) {
     const zahl = (n) => Number(n).toLocaleString('en');
     // 713 Byte je Datensatz, an echten OpenAlex-Treffern gemessen — seit die
@@ -9046,7 +9411,8 @@ window.SLRViews = (() => {
     search: {
       titel: 'Search',
       karten: [
-        'Pick a <strong>source</strong> first — Scopus, PubMed or OpenAlex. Each has its own query syntax; the grey text in the query box shows what that source expects, and the field codes on the left change with it.',
+        'Pick a <strong>source</strong> first — Scopus, PubMed, OpenAlex, Crossref or DOAJ. Each has its own query syntax; the grey text in the query box shows what that source expects, and the field codes on the left change with it.',
+        '<strong>Crossref</strong> ranks by relevance and has no Boolean logic, so it returns very many loose matches — use it to check coverage, not as the main search. <strong>DOAJ</strong> takes Boolean syntax such as <code>bibjson.title:&quot;artificial intelligence&quot; AND labour</code> and returns at most 1,000 records per query.',
         '<strong>Scopus</strong> takes Boolean syntax with field codes: <code>TITLE-ABS-KEY(&quot;machine learning&quot;) AND PUBYEAR &gt; 2019</code>. <strong>PubMed</strong> takes bracket tags: <code>machine learning[Title] AND 2019:2024[PDAT]</code>.',
         '<strong>OpenAlex</strong> searches title, abstract and full text from plain keywords. For precision it also takes filter syntax: <code>title.search:&quot;deep learning&quot;,publication_year:&gt;2019</code> — a comma means AND.',
         'Click a <strong>field code</strong> to insert it at the cursor, and a <strong>saved term</strong> to insert it in quotes. Drag the bottom-right corner of the query box to make it taller.',
@@ -9099,7 +9465,7 @@ window.SLRViews = (() => {
     databases: {
       titel: 'Databases',
       karten: [
-        'What each source covers, what it costs, and what it needs from you — Scopus wants an API key, PubMed and OpenAlex do not.',
+        'What each source covers, what it costs, and what it needs from you — Scopus wants an API key, PubMed, OpenAlex, Crossref and DOAJ do not.',
         'A review that uses only one database is hard to defend. This page is here to help you choose which ones to combine.',
       ],
     },
@@ -9247,6 +9613,7 @@ window.SLRViews = (() => {
     // Die Feldcode-Tafeln, damit app.js beim Merken neuer Begriffe erkennen
     // kann, was ein Feldcode ist und was ein Suchbegriff.
     FIELD_CODES_BY_DB,
+    confirmDialog,
     renderGuide,
     fuehrungZuruecksetzen,
     fuehrungEntfernen,

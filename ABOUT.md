@@ -8,7 +8,7 @@
 
 SLR Harvester Web lets you search multiple academic databases, collect and annotate results, and produce outputs — all without leaving the browser.
 
-- **Search** Scopus, PubMed, and OpenAlex directly from the app
+- **Search** Scopus, PubMed, OpenAlex, Crossref and DOAJ directly from the app
 - **Annotate** articles with tags, colors, comments, Selected and Corpus flags
 - **Visualize** your corpus with tag distribution charts, a year timeline, and a PRISMA 2020 screening flow diagram
 - **Auto-tag** articles by discipline using journal keyword heuristics
@@ -47,7 +47,7 @@ These databases provide APIs only under institutional subscription agreements. T
 
 - **Zero dependencies** — plain HTML, CSS, JavaScript. No React, Vue, webpack, or any other framework or build tool.
 - **Works as `file://` or hosted `https://`** — can be opened directly from the filesystem, or run from the live GitHub Pages deployment at [socresearcher.github.io/slr-harvester](https://socresearcher.github.io/slr-harvester/); no web server of your own required either way. Your project data always stays on your device — Pages only serves the app's own code.
-- **No external CDN** — no fonts, icon libraries, or scripts loaded from the internet.
+- **No external CDN for code** — no fonts, icon libraries, or scripts loaded from the internet; third-party JavaScript is vendored under `js/vendor/` (see its README). One deliberate exception for *data*: the optional natural read-aloud voices fetch their WebAssembly engine files and voice models (~90 MB) from `cdnjs.cloudflare.com`, `cdn.jsdelivr.net` and `huggingface.co`. They therefore need an internet connection; offline, or if a filter blocks those hosts, the app reads aloud with a device voice instead.
 - **File System Access API** — uses the browser's `showDirectoryPicker()` to read (and optionally write) your project folder. Requires **Chrome 86+ or Edge 86+ on desktop**. Desktop Firefox and Safari don't support it, and as of now **no mobile browser does either** (Chrome, Edge, or Safari on phone/tablet) — this is a platform limitation, not something this app can work around; a clear in-app message explains this when detected.
 - **IndexedDB** — the folder handle is persisted between sessions so you don't need to pick it every time.
 - **Dark mode by default** — theme persisted in `localStorage`, togglable at any time.
@@ -111,8 +111,8 @@ Note: Under `file://`, browsers can occasionally keep stale script versions long
 - **Fetch Abstracts & Authors** — Crossref integration to fill gaps Scopus leaves (first-author-only, missing abstracts)
 - **Auto-tag by journal** — heuristic discipline tagging with one click
 - **Tag color themes** — 17 built-in schemes (Vivid, Pastel, Monochrome, Earth, Neon, …) plus individual per-tag color editing
-- **Multi-database search** — PubMed and OpenAlex alongside Scopus
-- **Browser-based, zero-install** — no Python, no dependencies, works offline
+- **Multi-database search** — PubMed, OpenAlex, Crossref and DOAJ alongside Scopus
+- **Browser-based, zero-install** — no Python, no dependencies; works offline in Local Folder mode except for database searches and the natural read-aloud voices
 - **Hosted on GitHub Pages** — usable directly from a URL, no download required, alongside the original local `file://` mode
 
 ---
