@@ -1062,8 +1062,6 @@ window.SLRViews = (() => {
 
     container.innerHTML = `
       <div class="projects-view">
-        <div class="view-head">
-        </div>
         <div class="projects-header">
           <div>
             <p class="projects-subtitle">${projects.length} project${projects.length !== 1 ? 's' : ''} found</p>
@@ -3195,10 +3193,7 @@ window.SLRViews = (() => {
       bodyHTML = `<div class="history-list">${items}</div>`;
     }
 
-    const historyHead = `
-      <div class="view-head">
-      </div>`;
-    container.innerHTML = `<div class="history-view">${historyHead}${tabsHTML}${bodyHTML}</div>`;
+    container.innerHTML = `<div class="history-view">${tabsHTML}${bodyHTML}</div>`;
 
     container.querySelectorAll('.hist-tab').forEach(btn => {
       btn.addEventListener('click', () => SLRApp.setHistoryStatusFilter(btn.dataset.tab));
@@ -4433,8 +4428,6 @@ window.SLRViews = (() => {
 
     container.innerHTML = `
       <div class="viz-view">
-        <div class="view-head">
-        </div>
 
         <div class="viz-section">
           <div class="viz-section-controls">
@@ -5358,8 +5351,6 @@ window.SLRViews = (() => {
 
     container.innerHTML = `
       <div class="databases-view">
-        <div class="view-head">
-        </div>
 
         ${groupSections}
 
@@ -6819,8 +6810,6 @@ window.SLRViews = (() => {
 
     container.innerHTML = `
       <div class="settings-view">
-        <div class="view-head">
-        </div>
 
         <div class="workspace-active-card ${usingCloud ? 'is-cloud' : 'is-local'}">
           <span class="workspace-active-icon">${usingCloud ? SLRIcons.databases : SLRIcons.folder}</span>
@@ -6913,8 +6902,6 @@ window.SLRViews = (() => {
 
     container.innerHTML = `
       <div class="settings-view">
-        <div class="view-head">
-        </div>
 
         ${cloudUser ? `
           <div class="account-identity-card">
@@ -7464,7 +7451,7 @@ window.SLRViews = (() => {
             <li><span class="about-li-icon" aria-hidden="true">${SLRIcons.databases}</span><span><strong>Scopus</strong> (api.elsevier.com) &mdash; your search query, and your API key / institutional token as request headers if you've configured one.</span></li>
             <li><span class="about-li-icon" aria-hidden="true">${SLRIcons.databases}</span><span><strong>PubMed</strong> (eutils.ncbi.nlm.nih.gov) &mdash; your search query. No key required or sent.</span></li>
             <li><span class="about-li-icon" aria-hidden="true">${SLRIcons.databases}</span><span><strong>OpenAlex</strong> (api.openalex.org) &mdash; your search query, and your OpenAlex key/contact email as a parameter, only if you've set them in Settings.</span></li>
-            <li><span class="about-li-icon" aria-hidden="true">${SLRIcons.refresh}</span><span><strong>Crossref</strong> (api.crossref.org) &mdash; your search query when you search Crossref, and DOI-based lookups when you use Fetch Abstracts/Authors/Types. A fixed placeholder contact address is sent as Crossref's polite-pool parameter, never your own email.</span></li>
+            <li><span class="about-li-icon" aria-hidden="true">${SLRIcons.refresh}</span><span><strong>Crossref</strong> (api.crossref.org) &mdash; your search query when you search Crossref, and DOI-based lookups when you use Fetch Abstracts/Authors/Types/Affiliations (also run automatically after a search if auto-fetch is on). A fixed placeholder contact address is sent as Crossref's polite-pool parameter, never your own email.</span></li>
             <li><span class="about-li-icon" aria-hidden="true">${SLRIcons.databases}</span><span><strong>DOAJ</strong> (doaj.org) &mdash; your search query when you search DOAJ. No key required or sent.</span></li>
           </ul>
         </div>

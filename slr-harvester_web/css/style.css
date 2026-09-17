@@ -3764,9 +3764,19 @@ a.db-link:visited {
    aber gelesen wurde das als drei verschiedene Abstaende, weil oben eben
    drei verschiedene Dinge standen. Jetzt beginnt jeder Tab mit demselben
    Block, und damit stimmt der Abstand nicht nur rechnerisch, sondern auch
-   fuer das Auge. Der Bezugspunkt ist About, so wie gewuenscht. */
+   fuer das Auge. Der Bezugspunkt ist About, so wie gewuenscht.
+   Seit die doppelten Tab-Ueberschriften entfernt sind, gilt: Der Block
+   traegt nur dann Abstand, wenn er etwas enthaelt (Untertitel, Titel).
+   Ein leerer Kopfblock belegt keinen Platz — sonst bliebe unter der
+   Kopfleiste eine Leerzeile von 28px stehen, wo nichts mehr steht, und der
+   Inhalt begaenne 48px statt 20px tiefer (so gemessen in Projects, History,
+   Visualisations, Workspace, Account und Databases). */
 .view-head {
   margin-bottom: 28px;
+}
+
+.view-head:not(:has(*)) {
+  display: none;
 }
 
 .view-title {
@@ -7406,6 +7416,12 @@ body.has-progress-footer #view-container {
 
 .viz-section {
   margin-top: 4px;
+}
+
+/* Der erste Block eines Tabs sitzt genau auf dem Seitenabstand (20px unter
+   der Kopfleiste, siehe .view-head) — hier wie in allen anderen Tabs. */
+.viz-view > .viz-section:first-child {
+  margin-top: 0;
 }
 
 /* Controls bar: dropdowns (chart type, group-by) on the left, everything

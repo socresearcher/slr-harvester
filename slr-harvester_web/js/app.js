@@ -1647,20 +1647,33 @@ window.SLRApp = (() => {
 		'is-referenced-by-count', 'abstract', 'type',
 	].join(',');
 
-	// Crossref liefert Abstracts als JATS-XML. Fuer Anzeige und Vorlesen zaehlt
-	// nur der Text.
-	function jatsZuText(roh) {
+	// Crossref liefert Abstracts als JATS-XML, DOAJ Titel und Abstracts mit
+	// HTML-Entitaeten (&#x2014;, &amp; …). Fuer Anzeige, Suche und Vorlesen
+	// zaehlt nur der Text: erst die Auszeichnungen entfernen, dann die
+	// Entitaeten aufloesen. Der DOMParser fuehrt dabei nichts aus; das Ergebnis
+	// ist reiner Text und geht wie jeder andere Wert durch esc().
+	function textAusMarkup(roh) {
 		if (!roh) return '';
-		return String(roh)
+		const ohneTags = String(roh)
 			.replace(/<jats:title>[^<]*<\/jats:title>/gi, ' ')
-			.replace(/<[^>]+>/g, ' ')
-			.replace(/\s+/g, ' ')
-			.trim();
+			.replace(/<[^>]+>/g, ' ');
+		// Zwei Durchgaenge: Crossref liefert manche Abstracts doppelt kodiert
+		// ("&amp;lt;20 participants", am 17.09.2026 an 10.3389/fmed.2026.1847464
+		// nachgeprueft). Ein zweiter Durchgang laeuft nur, wenn nach dem ersten
+		// noch eine Entitaet uebrig ist.
+		let text = ohneTags;
+		for (let i = 0; i < 2 && /&(#x?[0-9a-f]+|[a-z]+);/i.test(text); i++) {
+			const doc = new DOMParser().parseFromString(`<!doctype html><body>${text.replace(/</g, '&lt;')}`, 'text/html');
+			text = String(doc.body.textContent || '');
+		}
+		return text.replace(/\s+/g, ' ').trim();
 	}
+	const jatsZuText = textAusMarkup;
 
 	function mapCrossrefSource(item) {
 		const row = mapCrossrefSearchResult(item);
 		row.source = 'crossref';
+		row.title = textAusMarkup(row.title);
 		row.abstract = jatsZuText(row.abstract);
 		return row;
 	}
@@ -1741,15 +1754,15 @@ window.SLRApp = (() => {
 		return {
 			source: 'doaj',
 			eid: r && r.id ? `doaj:${r.id}` : '',
-			title: b.title || '',
-			authors: (Array.isArray(b.author) ? b.author : []).map(a => a.name).filter(Boolean).join(', '),
+			title: textAusMarkup(b.title),
+			authors: (Array.isArray(b.author) ? b.author : []).map(a => textAusMarkup(a.name)).filter(Boolean).join(', '),
 			date: jahr ? `${jahr}-${monat}-01` : '',
 			// DOAJ fuehrt keine Zitationszahlen. '0' ist dieselbe Setzung wie
 			// bei PubMed; die Anreicherung kann sie spaeter ueberschreiben.
 			citedby: '0',
 			doi: String(doi).replace(/^https?:\/\/(dx\.)?doi\.org\//i, ''),
-			publicationName: (b.journal && b.journal.title) || '',
-			abstract: b.abstract || '',
+			publicationName: textAusMarkup(b.journal && b.journal.title),
+			abstract: textAusMarkup(b.abstract),
 			affiliationCountries: [],
 			affiliations: [],
 			openAlexFields: [],
@@ -2762,7 +2775,7 @@ window.SLRApp = (() => {
 			try {
 				const msg = await fetchCrossrefByDOI(a.doi);
 				const abs = msg && msg.abstract ? String(msg.abstract) : '';
-				if (abs) abstractMap[a.eid || a._id] = abs.replace(/<[^>]*>/g, ' ').replace(/\s+/g, ' ').trim();
+				if (abs) abstractMap[a.eid || a._id] = textAusMarkup(abs);
 			} catch (_) {
 				// ignore per-item failures
 			}
