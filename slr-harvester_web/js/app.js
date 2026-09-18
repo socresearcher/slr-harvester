@@ -524,6 +524,146 @@ window.SLRApp = (() => {
 		showToast(`${summary}${skippedText}`, false);
 	}
 
+	// ── Datensparsamkeit: zusammenlegen und abtragen ──────────────────────────
+	//
+	// Beide Vorgaenge gehen ueber den Arbeitsbereich und beide zeigen erst, was
+	// geschaehe. Keiner laeuft von selbst, auf keinem Zeitplan: Die Daten, um
+	// die es geht, sind Belege laufender Qualifikationsarbeiten, und etwas
+	// daran im Hintergrund zu veraendern waere auch dann falsch, wenn es
+	// technisch umkehrbar ist.
+
+	const AUFBEWAHRUNG_KEY = 'slr-aufbewahrung-tage';
+
+	function aufbewahrungTage() {
+		const n = parseInt(localStorage.getItem(AUFBEWAHRUNG_KEY) || '60', 10);
+		return Number.isFinite(n) && n > 0 ? n : 60;
+	}
+
+	function setAufbewahrungTage(tage) {
+		const n = parseInt(tage, 10);
+		if (Number.isFinite(n) && n > 0) localStorage.setItem(AUFBEWAHRUNG_KEY, String(n));
+		renderCurrentView();
+	}
+
+	/** Alle geladenen Projekte, als [folder, projectData] — ohne die leeren. */
+	function geladeneProjekte() {
+		return Object.entries(state.allProjectData || {}).filter(([, pd]) => pd && Array.isArray(pd.searchLog));
+	}
+
+	/** Was das Zusammenlegen braechte, ohne etwas zu tun. */
+	function planCompaction() {
+		let vorher = 0, nachher = 0, projekte = 0;
+		for (const [, pd] of geladeneProjekte()) {
+			const roh = JSON.stringify(pd.searchLog);
+			const neu = JSON.stringify(SLRData.compactSearchLog(pd.searchLog));
+			vorher += roh.length;
+			nachher += neu.length;
+			if (neu.length < roh.length) projekte++;
+		}
+		return { vorher, nachher, ersparnis: Math.max(0, vorher - nachher), projekte };
+	}
+
+	/** Was das Abtragen mit der eingestellten Frist braechte, ohne etwas zu tun. */
+	function planAbtragen(tage) {
+		const frist = tage || aufbewahrungTage();
+		const summe = { tage: frist, arbeiten: 0, bytes: 0, geschuetzt: 0, ohneKennung: 0, zuJung: 0, ohneZeit: 0, gesamt: 0 };
+		for (const [, pd] of geladeneProjekte()) {
+			const plan = SLRData.planPruning(pd, { tage: frist });
+			for (const k of ['arbeiten', 'bytes', 'geschuetzt', 'ohneKennung', 'zuJung', 'ohneZeit', 'gesamt']) {
+				summe[k] += plan[k] || 0;
+			}
+		}
+		return summe;
+	}
+
+	function byteText(n) {
+		const b = Number(n) || 0;
+		if (b < 1024) return `${b} B`;
+		if (b < 1048576) return `${(b / 1024).toFixed(b < 10240 ? 1 : 0)} kB`;
+		return `${(b / 1048576).toFixed(b < 10485760 ? 2 : 1)} MB`;
+	}
+
+	/** Zusammenlegen anwenden — jede Arbeit steht danach einmal je Projekt. */
+	async function compactStorage() {
+		const plan = planCompaction();
+		if (!plan.ersparnis) {
+			showToast('Nothing to compact — every work is already stored once.', false);
+			return;
+		}
+		if (SLRData.getBackend() === 'cloud' && !(await SLRDataCloud.kannKompakt())) {
+			showToast('Cloud Sync needs the format-2 functions in your Supabase project first — see the note above.', true);
+			return;
+		}
+		const ok = await SLRViews.confirmDialog({
+			title: 'Store each work once?',
+			message: `Frees about ${byteText(plan.ersparnis)} across ${plan.projekte} project`
+				+ `${plan.projekte !== 1 ? 's' : ''}.\n\n`
+				+ 'Nothing is lost. Which search returned which record is kept — as an '
+				+ 'identifier instead of a copy — so the query history, the duplicate '
+				+ 'count and the PRISMA diagram show exactly the same numbers afterwards.',
+			confirmLabel: 'Compact',
+		});
+		if (!ok) return;
+
+		let getan = 0;
+		for (const [folder, pd] of geladeneProjekte()) {
+			const roh = JSON.stringify(pd.searchLog).length;
+			if (JSON.stringify(SLRData.compactSearchLog(pd.searchLog)).length >= roh) continue;
+			try {
+				await SLRData.rewriteSearchLog(folder, pd.searchLog);
+				getan++;
+			} catch (err) {
+				showToast(`Could not compact ${folder}: ${err.message || String(err)}`, true);
+				return;
+			}
+		}
+		await loadProjectsAndStats();
+		if (state.currentFolder) await hydrateProject(state.currentFolder);
+		renderCurrentView();
+		showToast(`Compacted ${getan} project${getan !== 1 ? 's' : ''}, about ${byteText(plan.ersparnis)} freed.`, false);
+	}
+
+	/** Abtragen anwenden — nachladbare Felder alter Treffer entfernen. */
+	async function applyPruning() {
+		const tage = aufbewahrungTage();
+		const plan = planAbtragen(tage);
+		if (!plan.arbeiten) {
+			showToast('Nothing older than the retention window is safe to thin out right now.', false);
+			return;
+		}
+		const ok = await SLRViews.confirmDialog({
+			title: `Thin out ${plan.arbeiten.toLocaleString()} record${plan.arbeiten !== 1 ? 's' : ''}?`,
+			message: `Frees about ${byteText(plan.bytes)}.\n\n`
+				+ 'Abstracts, author lists, affiliations and fields are removed from records '
+				+ `whose most recent search is more than ${tage} days old. Identifiers, dates, `
+				+ 'titles, journals and every tag, comment and screening decision stay.\n\n'
+				+ `${plan.geschuetzt.toLocaleString()} record${plan.geschuetzt !== 1 ? 's are' : ' is'} `
+				+ 'left alone for being selected or in the corpus, and '
+				+ `${plan.ohneKennung.toLocaleString()} for having no identifier to fetch ${plan.ohneKennung !== 1 ? 'them' : 'it'} back with.\n\n`
+				+ 'Fetch restores the removed fields whenever you need them — as long as the source still has them.',
+			confirmLabel: 'Thin out',
+			danger: true,
+		});
+		if (!ok) return;
+
+		let getan = 0;
+		for (const [folder, pd] of geladeneProjekte()) {
+			const plan1 = SLRData.planPruning(pd, { tage, anwenden: true });
+			if (!plan1.searchLog || !plan1.arbeiten) continue;
+			try {
+				await SLRData.rewriteSearchLog(folder, plan1.searchLog);
+				getan += plan1.arbeiten;
+			} catch (err) {
+				showToast(`Could not thin out ${folder}: ${err.message || String(err)}`, true);
+				return;
+			}
+		}
+		await loadProjectsAndStats();
+		if (state.currentFolder) await hydrateProject(state.currentFolder);
+		renderCurrentView();
+		showToast(`Thinned out ${getan.toLocaleString()} record${getan !== 1 ? 's' : ''}, about ${byteText(plan.bytes)} freed.`, false);
+	}
+
 	function renderCurrentView() {
 		if (!_container) return;
 		// Tags und Auto-Tag Rules sind seit 06.09.2026 keine eigenen Ansichten
@@ -4043,6 +4183,12 @@ window.SLRApp = (() => {
 		removeAutoTagKeyword,
 		resetAutoTagRules,
 		fetchAbstractsViaDOI,
+		compactStorage,
+		applyPruning,
+		planCompaction,
+		planAbtragen,
+		aufbewahrungTage,
+		setAufbewahrungTage,
 		fetchAuthorsViaDOI,
 		fetchTypesViaDOI,
 		fetchAffiliationsViaIdentifier,

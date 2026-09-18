@@ -246,3 +246,78 @@ revoke all on function public.process_account_deletions() from public, anon, aut
 -- create extension if not exists pg_cron;
 -- select cron.schedule('slr-process-account-deletions', '0 3 * * *',
 --                      $$select public.process_account_deletions()$$);
+
+
+-- ── Storage format 2: each work stored once (run once) ────────────────────
+-- Until 18.09.2026 a project's search_log kept every run's full result list,
+-- so a work returned by four searches was stored four times. Measured across
+-- ten real projects that was 58% of the file. Format 2 keeps each work once:
+--
+--   { "format": 2,
+--     "works": { "<id>": { …one record… }, … },
+--     "runs":  [ { "timestamp", "query", "view", "results": ["<id>", …] } ] }
+--
+-- Which run returned which record is fully preserved — as an id instead of a
+-- copy — so the query history and the PRISMA counts are unchanged.
+--
+-- Run this block once. Until you do, the app keeps writing the old format:
+-- it asks slr_schema_version() first and will not write a shape the database
+-- cannot append to. Nothing breaks either way, and both formats stay readable
+-- forever.
+
+-- Tells the app what this database can do. Version 2 means "append_search_log_v2
+-- exists and append_search_log understands both shapes".
+create or replace function public.slr_schema_version()
+returns integer language sql immutable as $$ select 2 $$;
+
+grant execute on function public.slr_schema_version() to authenticated, anon;
+
+-- Appends one run in format 2, merging its works into the existing map, in a
+-- single statement — the same "never read the row first" property the original
+-- append_search_log had. A row still in format 1 is converted on the way.
+create or replace function public.append_search_log_v2(
+  p_workspace_folder text, p_run jsonb, p_works jsonb)
+returns void
+language sql
+as $$
+  update public.projects
+  set search_log = case
+        when jsonb_typeof(search_log) = 'object' then
+          jsonb_build_object(
+            'format', 2,
+            'works',  coalesce(search_log -> 'works', '{}'::jsonb) || coalesce(p_works, '{}'::jsonb),
+            'runs',   jsonb_build_array(p_run) || coalesce(search_log -> 'runs', '[]'::jsonb))
+        else
+          -- Still an array of full runs: keep those runs as they are (the app
+          -- reads both shapes) and put the new one in front, in the new shape.
+          jsonb_build_object(
+            'format', 2,
+            'works',  coalesce(p_works, '{}'::jsonb),
+            'runs',   jsonb_build_array(p_run) || coalesce(search_log, '[]'::jsonb))
+      end
+  where workspace_folder = p_workspace_folder and user_id = auth.uid();
+$$;
+
+grant execute on function public.append_search_log_v2(text, jsonb, jsonb) to authenticated;
+
+-- The original append, taught to recognise a format-2 row so an older tab
+-- cannot corrupt one. On such a row it prepends the entry to "runs" with its
+-- records left inline — which the app reads correctly and compacts on its next
+-- write.
+create or replace function public.append_search_log(p_workspace_folder text, p_entry jsonb)
+returns void
+language sql
+as $$
+  update public.projects
+  set search_log = case
+        when jsonb_typeof(search_log) = 'object' then
+          jsonb_set(search_log, '{runs}',
+                    jsonb_build_array(p_entry) || coalesce(search_log -> 'runs', '[]'::jsonb))
+        else
+          jsonb_build_array(p_entry) || coalesce(search_log, '[]'::jsonb)
+      end
+  where workspace_folder = p_workspace_folder and user_id = auth.uid();
+$$;
+
+-- merge_global_tags is unaffected: annotations were never part of the query
+-- log, and nothing in format 2 touches them.

@@ -171,6 +171,26 @@ window.SLRDataLocal = (() => {
    * @param {string} folderName  e.g. "20260416_193649"
    * @returns {Object} { searchLog, globalTags, tagsConfig, queryHistory }
    */
+  // ── Ablageform am Rand des Dateizugriffs ──────────────────────────────────
+  //
+  // Alles oberhalb dieser beiden Funktionen arbeitet mit der Form, die die
+  // Anwendung immer hatte: ein Array von Laeufen mit vollstaendigen
+  // Datensaetzen. Auf der Platte steht seit dem 18.09.2026 Ablageform 2, in
+  // der jede Arbeit einmal vorkommt (siehe SLRData.compactSearchLog). Beide
+  // Formen werden gelesen; geschrieben wird die neue.
+
+  /** search_log.json lesen und in die Form bringen, die die Anwendung kennt. */
+  async function leseLog(projDir) {
+    const roh = await readJSON(projDir, 'search_log.json');
+    if (!roh) return [];
+    return SLRData.expandSearchLog(roh);
+  }
+
+  /** Laeufe zusammenlegen und schreiben. */
+  async function schreibeLog(projDir, runs) {
+    await writeJSON(projDir, 'search_log.json', SLRData.compactSearchLog(runs));
+  }
+
   async function loadProjectData(folderName) {
     if (!_rootHandle) throw new Error('No folder open');
 
@@ -190,7 +210,7 @@ window.SLRDataLocal = (() => {
 
     return {
       folderName,
-      searchLog:    Array.isArray(searchLog)  ? searchLog  : [],
+      searchLog:    searchLog ? SLRData.expandSearchLog(searchLog) : [],
       globalTags:   globalTags  || {},
       tagsConfig:   tagsConfig  || {},
       tagAliases:   tagAliases  || {},
@@ -208,9 +228,9 @@ window.SLRDataLocal = (() => {
     if (!projectsDir) throw new Error('projects/ folder not found');
     const projDir = await getSubdir(projectsDir, folderName);
     if (!projDir) throw new Error(`Project folder "${folderName}" not found`);
-    const existing = (await readJSON(projDir, 'search_log.json')) || [];
+    const existing = await leseLog(projDir);
     existing.unshift(entry); // newest first
-    await writeJSON(projDir, 'search_log.json', existing);
+    await schreibeLog(projDir, existing);
   }
 
   /**
@@ -225,10 +245,10 @@ window.SLRDataLocal = (() => {
     if (!projectsDir) throw new Error('projects/ folder not found');
     const projDir = await getSubdir(projectsDir, folderName);
     if (!projDir) throw new Error(`Project folder "${folderName}" not found`);
-    const existing = (await readJSON(projDir, 'search_log.json')) || [];
+    const existing = await leseLog(projDir);
     if (index < 0 || index >= existing.length) throw new Error('Invalid query index');
     existing.splice(index, 1);
-    await writeJSON(projDir, 'search_log.json', existing);
+    await schreibeLog(projDir, existing);
   }
 
   /**
@@ -243,11 +263,11 @@ window.SLRDataLocal = (() => {
     if (!projectsDir) throw new Error('projects/ folder not found');
     const projDir = await getSubdir(projectsDir, folderName);
     if (!projDir) throw new Error(`Project folder "${folderName}" not found`);
-    const existing = (await readJSON(projDir, 'search_log.json')) || [];
+    const existing = await leseLog(projDir);
     if (index < 0 || index >= existing.length) throw new Error('Invalid query index');
     if (status === 'active') delete existing[index].status;
     else existing[index].status = status;
-    await writeJSON(projDir, 'search_log.json', existing);
+    await schreibeLog(projDir, existing);
   }
 
   /**
@@ -469,7 +489,7 @@ window.SLRDataLocal = (() => {
     const projectsDir = await getSubdir(_rootHandle, 'projects');
     const projDir = await getSubdir(projectsDir, folderName);
     if (!projDir) throw new Error(`Project folder "${folderName}" not found`);
-    const log = (await readJSON(projDir, 'search_log.json')) || [];
+    const log = await leseLog(projDir);
     for (const entry of log) {
       if (!Array.isArray(entry.results)) continue;
       for (const result of entry.results) {
@@ -479,7 +499,7 @@ window.SLRDataLocal = (() => {
         }
       }
     }
-    await writeJSON(projDir, 'search_log.json', log);
+    await schreibeLog(projDir, log);
   }
 
   async function patchSearchLogDocTypes(folderName, docTypeMap) {
@@ -488,7 +508,7 @@ window.SLRDataLocal = (() => {
     const projectsDir = await getSubdir(_rootHandle, 'projects');
     const projDir = await getSubdir(projectsDir, folderName);
     if (!projDir) throw new Error(`Project folder "${folderName}" not found`);
-    const log = (await readJSON(projDir, 'search_log.json')) || [];
+    const log = await leseLog(projDir);
     for (const entry of log) {
       if (!Array.isArray(entry.results)) continue;
       for (const result of entry.results) {
@@ -498,7 +518,7 @@ window.SLRDataLocal = (() => {
         }
       }
     }
-    await writeJSON(projDir, 'search_log.json', log);
+    await schreibeLog(projDir, log);
   }
 
   async function patchSearchLogAuthors(folderName, authorsMap) {
@@ -507,7 +527,7 @@ window.SLRDataLocal = (() => {
     const projectsDir = await getSubdir(_rootHandle, 'projects');
     const projDir = await getSubdir(projectsDir, folderName);
     if (!projDir) throw new Error(`Project folder "${folderName}" not found`);
-    const log = (await readJSON(projDir, 'search_log.json')) || [];
+    const log = await leseLog(projDir);
     for (const entry of log) {
       if (!Array.isArray(entry.results)) continue;
       for (const result of entry.results) {
@@ -517,7 +537,7 @@ window.SLRDataLocal = (() => {
         }
       }
     }
-    await writeJSON(projDir, 'search_log.json', log);
+    await schreibeLog(projDir, log);
   }
 
   async function patchSearchLogAffiliations(folderName, affiliationMap) {
@@ -526,7 +546,7 @@ window.SLRDataLocal = (() => {
     const projectsDir = await getSubdir(_rootHandle, 'projects');
     const projDir = await getSubdir(projectsDir, folderName);
     if (!projDir) throw new Error(`Project folder "${folderName}" not found`);
-    const log = (await readJSON(projDir, 'search_log.json')) || [];
+    const log = await leseLog(projDir);
     for (const entry of log) {
       if (!Array.isArray(entry.results)) continue;
       for (const result of entry.results) {
@@ -538,7 +558,7 @@ window.SLRDataLocal = (() => {
         if (Array.isArray(update.affiliationSources)) result.affiliationSources = update.affiliationSources;
       }
     }
-    await writeJSON(projDir, 'search_log.json', log);
+    await schreibeLog(projDir, log);
   }
 
   // Backfill for the citation-network feature: existing projects were
@@ -551,7 +571,7 @@ window.SLRDataLocal = (() => {
     const projectsDir = await getSubdir(_rootHandle, 'projects');
     const projDir = await getSubdir(projectsDir, folderName);
     if (!projDir) throw new Error(`Project folder "${folderName}" not found`);
-    const log = (await readJSON(projDir, 'search_log.json')) || [];
+    const log = await leseLog(projDir);
     for (const entry of log) {
       if (!Array.isArray(entry.results)) continue;
       for (const result of entry.results) {
@@ -560,12 +580,28 @@ window.SLRDataLocal = (() => {
         if (update !== undefined) result.referencedWorks = update;
       }
     }
-    await writeJSON(projDir, 'search_log.json', log);
+    await schreibeLog(projDir, log);
   }
 
   /**
    * Update name and/or description of an existing project in projects.json.
    */
+  /**
+   * Das ganze Abfrageprotokoll neu schreiben — der eine Weg, auf dem
+   * Zusammenlegen und Abtragen ihr Ergebnis ablegen. Die Laeufe gehen in der
+   * Form hinein, die die Anwendung kennt; `schreibeLog` macht daraus die
+   * platzsparende Form.
+   */
+  async function rewriteSearchLog(folderName, runs) {
+    const hasWrite = await ensureWriteAccess();
+    if (!hasWrite) throw new Error('Write access required.');
+    const projectsDir = await getSubdir(_rootHandle, 'projects');
+    if (!projectsDir) throw new Error('projects/ folder not found');
+    const projDir = await getSubdir(projectsDir, folderName);
+    if (!projDir) throw new Error(`Project folder "${folderName}" not found`);
+    await schreibeLog(projDir, runs);
+  }
+
   async function saveProjectMeta(folderName, name, description) {
     const hasWrite = await ensureWriteAccess();
     if (!hasWrite) throw new Error('Write access required.');
@@ -617,6 +653,7 @@ window.SLRDataLocal = (() => {
     patchSearchLogAuthors,
     patchSearchLogAffiliations,
     patchSearchLogReferencedWorks,
+    rewriteSearchLog,
     saveQueryTerms,
     deleteQueryTerm,
     updateArticleAnnotation,

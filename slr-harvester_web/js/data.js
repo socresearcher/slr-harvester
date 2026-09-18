@@ -43,7 +43,7 @@ window.SLRData = (() => {
     'saveProjectIcon',
     'loadConfig', 'saveConfig', 'loadProjectData', 'appendSearchResult',
     'deleteSearchResult', 'setSearchResultStatus', 'patchSearchLogAbstracts', 'patchSearchLogDocTypes',
-    'patchSearchLogAuthors', 'patchSearchLogAffiliations', 'patchSearchLogReferencedWorks', 'saveQueryTerms',
+    'patchSearchLogAuthors', 'patchSearchLogAffiliations', 'patchSearchLogReferencedWorks', 'rewriteSearchLog', 'saveQueryTerms',
     'deleteQueryTerm', 'updateArticleAnnotation', 'bulkUpdateAnnotations',
     'saveTagAliases', 'saveTagsConfig', 'createProject', 'ensureWriteAccess',
   ];
@@ -234,6 +234,283 @@ window.SLRData = (() => {
     return { total: articles.length, selected, corpus, byTag };
   }
 
+  // ── Ablageform 2: jede Arbeit einmal ───────────────────────────────────────
+  //
+  // Bis zum 18.09.2026 hielt `search_log.json` je Suchlauf dessen vollstaendige
+  // Trefferliste. Eine Arbeit, die vier Suchen zurueckgaben, stand viermal in
+  // der Datei — an zehn realen Projekten gemessen 58 % des Inhalts, in einem
+  // Projekt der Faktor 10,2. Die Zusammenfuehrung lief immer nur beim Lesen.
+  //
+  // Ablageform 2 dreht das um:
+  //
+  //   { "format": 2,
+  //     "works": { "<kennung>": { …ein Datensatz… }, … },
+  //     "runs":  [ { "timestamp", "query", "view", "results": ["<kennung>", …] } ] }
+  //
+  // Wichtig, und der Grund, warum das keine Auswirkung auf den Rest der
+  // Anwendung hat: Welcher Lauf welchen Treffer zurueckgab, bleibt vollstaendig
+  // erhalten — nur als Kennung statt als Kopie. `expandSearchLog` stellt beim
+  // Lesen genau die Form wieder her, die es immer gab, weshalb getArticles,
+  // die Ansichten, das Abfrageprotokoll und das PRISMA-Diagramm unveraendert
+  // weiterarbeiten. PRISMA zaehlt `run.results.length`; eine Liste von
+  // Kennungen ist genauso lang wie eine Liste von Datensaetzen. Der
+  // Deduplikationsschritt des Diagramms zaehlt weiterhin dieselben Treffer,
+  // weil er dieselbe Mehrfachnennung sieht.
+  //
+  // Ablageform 1 — das blanke Array von Laeufen — bleibt lesbar, fuer immer.
+  // Umgestellt wird nur, was ohnehin geschrieben wird.
+
+  const ABLAGEFORM = 2;
+
+  /** Ist das die alte Form (ein Array von Laeufen)? */
+  function istAlteForm(gespeichert) {
+    return Array.isArray(gespeichert);
+  }
+
+  /**
+   * Zwei Fassungen derselben Arbeit zu einer zusammenfuehren — dieselbe Regel,
+   * die getArticles beim Lesen anwendet, damit das Zusammenlegen in der Datei
+   * nichts anderes ergibt als das Zusammenlegen im Speicher: der vorhandene
+   * Abstract schlaegt den fehlenden, die hoehere Zitationszahl gewinnt, Listen
+   * werden vereinigt.
+   */
+  function mergeWork(vorhanden, neu) {
+    if (!vorhanden) return Object.assign({}, neu);
+    const out = Object.assign({}, vorhanden);
+    for (const feld of Object.keys(neu)) {
+      const wert = neu[feld];
+      if (wert === undefined || wert === null || wert === '') continue;
+      if (Array.isArray(wert)) {
+        const zusammen = new Set(Array.isArray(out[feld]) ? out[feld] : []);
+        for (const v of wert) if (v !== undefined && v !== null && v !== '') zusammen.add(v);
+        out[feld] = [...zusammen];
+      } else if (feld === 'citedby') {
+        const alt = parseInt(out[feld], 10) || 0;
+        const neuZahl = parseInt(wert, 10) || 0;
+        if (neuZahl > alt) out[feld] = wert;
+      } else if (out[feld] === undefined || out[feld] === null || out[feld] === '') {
+        out[feld] = wert;
+      }
+    }
+    return out;
+  }
+
+  /**
+   * Gespeicherte Form → die Form, die die Anwendung kennt: ein Array von
+   * Laeufen, jeder mit vollstaendigen Datensaetzen in `results`.
+   *
+   * Beide Ablageformen gehen hinein, immer dasselbe kommt heraus. Eine Kennung
+   * ohne Eintrag in `works` — theoretisch moeglich, wenn jemand die Datei von
+   * Hand bearbeitet hat — wird zu einem Datensatz, der nur aus seiner Kennung
+   * besteht, statt den ganzen Lauf zu verlieren.
+   */
+  function expandSearchLog(gespeichert) {
+    if (istAlteForm(gespeichert)) return gespeichert;
+    if (!gespeichert || typeof gespeichert !== 'object') return [];
+    const works = gespeichert.works || {};
+    const runs  = Array.isArray(gespeichert.runs) ? gespeichert.runs : [];
+    return runs.map(run => {
+      const ids = Array.isArray(run.results) ? run.results : [];
+      const results = ids.map(id => {
+        if (id && typeof id === 'object') return id;    // schon ein Datensatz
+        const w = works[id];
+        if (!w) return { eid: String(id) };
+        const out = Object.assign({}, w);
+        // Die Kennung ist der Schluessel; im Datensatz steht sie nur, wenn sie
+        // dort etwas anderes bedeutet (siehe compactSearchLog).
+        if (out.eid === undefined && out.doi !== id) out.eid = id;
+        return out;
+      });
+      return Object.assign({}, run, { results });
+    });
+  }
+
+  /**
+   * Die Form, die die Anwendung kennt → die gespeicherte Form 2.
+   *
+   * Verlustfrei in dem Sinn, der zaehlt: `expandSearchLog(compactSearchLog(x))`
+   * liefert fuer jeden Lauf dieselbe Anzahl Treffer in derselben Reihenfolge,
+   * und jeder Treffer traegt die zusammengefuehrten Angaben aller seiner
+   * Fassungen. Das ist genau das, was getArticles ohnehin daraus gemacht
+   * haette. Ein Treffer ohne jede Kennung kann nicht referenziert werden und
+   * bleibt deshalb als ganzer Datensatz im Lauf stehen.
+   */
+  function compactSearchLog(runs) {
+    const liste = Array.isArray(runs) ? runs : expandSearchLog(runs);
+    const works = {};
+    const neueRuns = liste.map(run => {
+      const results = Array.isArray(run.results) ? run.results : [];
+      const ids = results.map(r => {
+        if (!r || typeof r !== 'object') return r;
+        const id = r.eid || r.doi;
+        if (!id) return r;                               // ohne Kennung: unveraendert
+        // `eid` gleich dem Schluessel waere dieselbe Zeichenkette zweimal in
+        // derselben Datei. Sie entfaellt — ausser wenn sie mit der DOI
+        // zusammenfaellt, denn dann koennte das Lesen die beiden nicht mehr
+        // auseinanderhalten und wuerde eine Kennung erfinden, die es nicht gab.
+        const koerper = (r.eid === id && r.doi !== id)
+          ? (() => { const o = Object.assign({}, r); delete o.eid; return o; })()
+          : r;
+        works[id] = mergeWork(works[id], koerper);
+        return id;
+      });
+      return Object.assign({}, run, { results: ids });
+    });
+    return { format: ABLAGEFORM, works, runs: neueRuns };
+  }
+
+  // ── Aufbewahrung: nachladbare Felder abtragen ──────────────────────────────
+  //
+  // Was hier verschwindet, steht bei Crossref, OpenAlex oder PubMed weiterhin
+  // und wird ueber dieselben Abrufe zurueckgeholt, die die Anwendung fuer die
+  // Anreicherung ohnehin hat (Fetch). Was bleibt, ist alles, wovon das nicht
+  // gilt: Kennungen, Datum, Titel, Zeitschrift, Typ, Zitationszahl — und jede
+  // Angabe, die die Nutzerin selbst gemacht hat.
+  const NACHLADBARE_FELDER = [
+    'abstract', 'authors', 'affiliations', 'affiliationCountries',
+    'affiliationSources', 'openAlexFields', 'openAlexSubfields', 'referencedWorks',
+  ];
+
+  /** Wurde diese Arbeit abgetragen? Dann steht das Datum im Datensatz. */
+  function istAbgetragen(work) {
+    return !!(work && work._pruned);
+  }
+
+  /**
+   * Darf diese Arbeit abgetragen werden? Vier Bedingungen, alle notwendig.
+   *
+   *   1. Sie ist wiederbeschaffbar. Ohne DOI und ohne aufloesbare Kennung
+   *      koennte niemand sie zurueckholen; dann bleibt sie vollstaendig.
+   *   2. Sie ist nicht ausgewaehlt und nicht im Korpus. Ein Korpus, der durch
+   *      eine Aufraeumung unbrauchbar wird, waere ein Fehler und keine
+   *      Sparsamkeit — das ist die Bedingung, an der alles andere haengt.
+   *   3. Der juengste Lauf, der sie zurueckgab, liegt hinter der Frist.
+   *   4. Es ist ueberhaupt etwas abzutragen da.
+   */
+  function pruefeAbtragbar(work, id, letzterLauf, grenzeMs, globalTags, aliasVon) {
+    if (!work || istAbgetragen(work)) return false;
+    const wiederbeschaffbar = !!(work.doi || /^(openalex:|pmid:|doi:|crossref:|doaj:)/i.test(String(work.eid || id)));
+    if (!wiederbeschaffbar) return false;
+    const kennungen = [id, ...(aliasVon.get(id) || [])];
+    for (const k of kennungen) {
+      const ann = (globalTags || {})[k];
+      if (ann && (ann.selected || ann.corpus)) return false;
+    }
+    if (!(letzterLauf > 0) || letzterLauf > grenzeMs) return false;
+    return NACHLADBARE_FELDER.some(f => {
+      const v = work[f];
+      return Array.isArray(v) ? v.length > 0 : (v !== undefined && v !== null && v !== '');
+    });
+  }
+
+  /** Zeitstempel eines Laufs ("YYYY-MM-DD HH:MM:SS") als Millisekunden. */
+  function laufZeit(run) {
+    const roh = run && run.timestamp ? String(run.timestamp).trim() : '';
+    if (!roh) return 0;
+    const t = Date.parse(roh.replace(' ', 'T'));
+    return Number.isFinite(t) ? t : Date.parse(roh) || 0;
+  }
+
+  /**
+   * Was ein Abtragen mit dieser Frist bewirken wuerde — und, wenn `anwenden`
+   * gesetzt ist, das Ergebnis gleich mit.
+   *
+   * Ohne `anwenden` veraendert diese Funktion nichts. Das ist der Probelauf:
+   * Erst zeigen, was verschwaende, dann fragen, dann tun.
+   *
+   * @param {Object} projectData   geladenes Projekt
+   * @param {Object} optionen      { tage, jetzt, anwenden }
+   * @returns {Object} { arbeiten, bytes, geschuetzt, ohneKennung, zuJung, searchLog? }
+   */
+  function planPruning(projectData, optionen = {}) {
+    const tage    = Number(optionen.tage) > 0 ? Number(optionen.tage) : 60;
+    const jetzt   = optionen.jetzt !== undefined ? optionen.jetzt : Date.now();
+    const grenze  = jetzt - tage * 86400000;
+    const runs    = (projectData && Array.isArray(projectData.searchLog)) ? projectData.searchLog : [];
+    const globalTags = (projectData && projectData.globalTags) || {};
+
+    // Nebenkennungen ueber die DOI, damit eine Auswahl, die unter der
+    // Zweitkennung steht, die Hauptkennung ebenso schuetzt — dieselbe
+    // Zusammenfuehrung, die getArticles vornimmt.
+    const doiZuId  = new Map();
+    const aliasVon = new Map();
+    for (const run of runs) {
+      for (const r of (Array.isArray(run.results) ? run.results : [])) {
+        if (!r || typeof r !== 'object') continue;
+        const id = r.eid || r.doi;
+        if (!id) continue;
+        const dk = normDoi(r.doi);
+        if (!dk) continue;
+        if (!doiZuId.has(dk)) { doiZuId.set(dk, id); continue; }
+        const haupt = doiZuId.get(dk);
+        if (haupt === id) continue;
+        if (!aliasVon.has(haupt)) aliasVon.set(haupt, []);
+        if (!aliasVon.get(haupt).includes(id)) aliasVon.get(haupt).push(id);
+        if (!aliasVon.has(id)) aliasVon.set(id, []);
+        if (!aliasVon.get(id).includes(haupt)) aliasVon.get(id).push(haupt);
+      }
+    }
+
+    // Juengster Lauf je Arbeit, und die zusammengefuehrte Fassung.
+    const juengster = new Map();
+    const zusammen  = new Map();
+    for (const run of runs) {
+      const t = laufZeit(run);
+      for (const r of (Array.isArray(run.results) ? run.results : [])) {
+        if (!r || typeof r !== 'object') continue;
+        const id = r.eid || r.doi;
+        if (!id) continue;
+        if (!juengster.has(id) || t > juengster.get(id)) juengster.set(id, t);
+        zusammen.set(id, mergeWork(zusammen.get(id), r));
+      }
+    }
+
+    let arbeiten = 0, bytes = 0, geschuetzt = 0, ohneKennung = 0, zuJung = 0, ohneZeit = 0;
+    const abzutragen = new Set();
+    for (const [id, work] of zusammen.entries()) {
+      if (istAbgetragen(work)) continue;
+      const wiederbeschaffbar = !!(work.doi || /^(openalex:|pmid:|doi:|crossref:|doaj:)/i.test(String(work.eid || id)));
+      const kennungen = [id, ...(aliasVon.get(id) || [])];
+      const gehalten = kennungen.some(k => {
+        const ann = globalTags[k];
+        return ann && (ann.selected || ann.corpus);
+      });
+      if (!wiederbeschaffbar) { ohneKennung++; continue; }
+      if (gehalten) { geschuetzt++; continue; }
+      // Ein Lauf ohne lesbaren Zeitstempel hat kein Alter; er wird gehalten,
+      // aber nicht als "zu jung" gezaehlt — das waere eine Behauptung, die
+      // die Daten nicht hergeben.
+      if (!(juengster.get(id) > 0)) { ohneZeit++; continue; }
+      if (juengster.get(id) > grenze) { zuJung++; continue; }
+      if (!pruefeAbtragbar(work, id, juengster.get(id), grenze, globalTags, aliasVon)) continue;
+      arbeiten++;
+      for (const f of NACHLADBARE_FELDER) {
+        if (work[f] !== undefined) bytes += jsonBytes(work[f]) + f.length + 4;
+      }
+      abzutragen.add(id);
+    }
+
+    const plan = { tage, arbeiten, bytes, geschuetzt, ohneKennung, zuJung, ohneZeit,
+                   gesamt: zusammen.size };
+    if (!optionen.anwenden || !abzutragen.size) return plan;
+
+    // Anwenden heisst: dieselbe Struktur noch einmal, mit den betroffenen
+    // Feldern entfernt und einem Datum, das sagt, wann und wonach.
+    const datum = new Date(jetzt).toISOString().slice(0, 10);
+    plan.searchLog = runs.map(run => Object.assign({}, run, {
+      results: (Array.isArray(run.results) ? run.results : []).map(r => {
+        if (!r || typeof r !== 'object') return r;
+        const id = r.eid || r.doi;
+        if (!id || !abzutragen.has(id)) return r;
+        const out = Object.assign({}, r);
+        for (const f of NACHLADBARE_FELDER) delete out[f];
+        out._pruned = datum;
+        return out;
+      }),
+    }));
+    return plan;
+  }
+
   // ── Storage accounting ────────────────────────────────────────────────────
   //
   // What a project actually costs to keep, measured rather than estimated.
@@ -409,6 +686,10 @@ window.SLRData = (() => {
     get DEFAULT_TAGS_CONFIG() { return backendModule().DEFAULT_TAGS_CONFIG; },
     getArticles,
     getStats,
+    expandSearchLog,
+    compactSearchLog,
+    planPruning,
+    NACHLADBARE_FELDER,
     measureProject,
     measureWorkspace,
     normDoi,

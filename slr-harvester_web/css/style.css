@@ -9173,3 +9173,36 @@ body.has-progress-footer .slr-guide {
 @media (max-width: 560px) {
   .storage-project-meta { display: none; }
 }
+
+/* Aufbewahrungsfrist: Beschriftung und Auswahl in einer Zeile, damit die
+   Vorschau darunter als Folge dieser Einstellung gelesen wird und nicht als
+   eigener Block. */
+.storage-retention {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin: 12px 0 10px;
+}
+
+.storage-retention label {
+  font-size: 13px;
+  color: var(--text);
+}
+
+.storage-retention .filter-select {
+  width: auto;
+  min-width: 110px;
+}
+
+/* Die Vorschau steht in derselben Legendenform wie der Balken darueber,
+   bekommt aber eine Trennlinie: Sie sagt etwas ueber die Zukunft, nicht
+   ueber den Bestand. */
+.storage-plan {
+  border-top: 1px solid var(--border);
+  padding-top: 4px;
+  margin-bottom: 10px;
+}
+
+@media (max-width: 420px) {
+  .storage-retention { flex-wrap: wrap; }
+}

@@ -221,6 +221,10 @@ window.SLRDataCloud = (() => {
    *  own token in localStorage, so this is just asking it what it already
    *  knows) — the cloud-backend analogue of restoreFolder(). */
   async function restoreSession() {
+    // Die Frage nach der Ablageform gehoert hierher und nicht in den ersten
+    // Schreibvorgang: Dort waere sie eine Verzoegerung, hier ist sie beim
+    // Warten auf die Sitzung ohnehin schon verbraucht.
+    schemaVersion().catch(() => {});
     const client = getClient();
     if (!client) return false;
     try {
@@ -306,7 +310,7 @@ window.SLRDataCloud = (() => {
     if (error) throw error;
     return {
       folderName,
-      searchLog:    Array.isArray(data.search_log) ? data.search_log : [],
+      searchLog:    data.search_log ? SLRData.expandSearchLog(data.search_log) : [],
       globalTags:   data.global_tags   || {},
       tagsConfig:   data.tags_config   || {},
       tagAliases:   data.tag_aliases   || {},
@@ -319,6 +323,20 @@ window.SLRDataCloud = (() => {
    *  existing log first, unlike every other write below. */
   async function appendSearchResult(folderName, entry) {
     const client = requireAuth();
+    // Die Funktion in der Datenbank erkennt beide Formen selbst, sobald sie die
+    // neue Fassung ist (Version 2). Der Lauf geht dann so hinein, wie er ist;
+    // das Zusammenlegen mit den schon vorhandenen Arbeiten geschieht dort, in
+    // einer Anweisung, ohne die Zeile vorher zu lesen.
+    if (await kannKompakt()) {
+      const kompakt = SLRData.compactSearchLog([entry]);
+      const { error } = await client.rpc('append_search_log_v2', {
+        p_workspace_folder: folderName,
+        p_run:   kompakt.runs[0],
+        p_works: kompakt.works,
+      });
+      if (error) throw error;
+      return;
+    }
     const { error } = await client.rpc('append_search_log', {
       p_workspace_folder: folderName,
       p_entry: entry,
@@ -471,6 +489,12 @@ window.SLRDataCloud = (() => {
     return folderName;
   }
 
+  /** Gegenstueck zu rewriteSearchLog im lokalen Ordner. */
+  async function rewriteSearchLog(folderName, runs) {
+    const client = requireAuth();
+    await writeSearchLog(client, folderName, runs);
+  }
+
   async function saveProjectMeta(folderName, name, description) {
     const client = requireAuth();
     const patch = {};
@@ -505,6 +529,49 @@ window.SLRDataCloud = (() => {
     return data;
   }
 
+  // ── Ablageform 2 in der Cloud: erst wenn die Datenbank sie kennt ──────────
+  //
+  // Lokal kann die neue Ablageform sofort geschrieben werden — dort liegt eine
+  // Datei, und wer sie liest, ist diese Anwendung. In der Cloud nicht: Das
+  // Anhaengen eines Laufs geschieht serverseitig in einer SQL-Funktion, und die
+  // alte Fassung von `append_search_log` setzt ein Array voraus. Bekaeme sie
+  // ein Objekt, entstuende aus `array || object` eine Zeile, die weder das eine
+  // noch das andere ist — stiller Datenverlust in fremden Konten.
+  //
+  // Deshalb wird einmal je Sitzung gefragt, ob die Datenbank schon die neue
+  // Fassung traegt (`slr_schema_version` >= 2, siehe supabase/schema.sql).
+  // Bis dahin liest die Anwendung beide Formen, schreibt aber weiterhin die
+  // alte. Kein Zwang, keine halbe Umstellung, und der Nutzen kommt in dem
+  // Augenblick, in dem das SQL gelaufen ist.
+  let _schemaVersion = null;
+
+  async function schemaVersion() {
+    if (_schemaVersion !== null) return _schemaVersion;
+    const client = getClient();
+    if (!client) return (_schemaVersion = 1);
+    try {
+      const { data, error } = await client.rpc('slr_schema_version');
+      _schemaVersion = (!error && Number(data) > 0) ? Number(data) : 1;
+    } catch (_) {
+      _schemaVersion = 1;
+    }
+    return _schemaVersion;
+  }
+
+  /** Darf hier die platzsparende Form geschrieben werden? */
+  async function kannKompakt() {
+    return (await schemaVersion()) >= 2;
+  }
+
+  /**
+   * Dasselbe, ohne zu warten — fuer die Ansicht, die synchron zeichnet.
+   * `null` heisst "noch nicht gefragt"; dann behauptet die Ansicht nichts.
+   * Gefragt wird beim Wiederaufnehmen der Sitzung, also lange vorher.
+   */
+  function kompaktBereitJetzt() {
+    return _schemaVersion === null ? null : _schemaVersion >= 2;
+  }
+
   // ── search_log read/write helpers (shared by the patch* functions below) ──
 
   async function loadSearchLog(client, folderName) {
@@ -514,11 +581,12 @@ window.SLRDataCloud = (() => {
       .eq('workspace_folder', folderName)
       .single();
     if (error) throw error;
-    return Array.isArray(data.search_log) ? data.search_log : [];
+    return data.search_log ? SLRData.expandSearchLog(data.search_log) : [];
   }
 
   async function writeSearchLog(client, folderName, log) {
-    const { error } = await client.from('projects').update({ search_log: log }).eq('workspace_folder', folderName);
+    const nutzlast = (await kannKompakt()) ? SLRData.compactSearchLog(log) : log;
+    const { error } = await client.from('projects').update({ search_log: nutzlast }).eq('workspace_folder', folderName);
     if (error) throw error;
   }
 
@@ -654,6 +722,9 @@ window.SLRDataCloud = (() => {
 
     // Same surface as data-local.js
     loadProjects,
+    schemaVersion,
+    kannKompakt,
+    get kompaktBereit() { return kompaktBereitJetzt(); },
     saveProjectMeta,
     saveProjectIcon,
     loadConfig,
@@ -667,6 +738,7 @@ window.SLRDataCloud = (() => {
     patchSearchLogAuthors,
     patchSearchLogAffiliations,
     patchSearchLogReferencedWorks,
+    rewriteSearchLog,
     saveQueryTerms,
     deleteQueryTerm,
     updateArticleAnnotation,

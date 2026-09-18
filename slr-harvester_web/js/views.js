@@ -6882,6 +6882,17 @@ window.SLRViews = (() => {
 
     const mehrfachPct = m.ergebnisse ? (100 * m.mehrfach / m.ergebnisse).toFixed(0) : '0';
 
+    // Beide Vorschauen sind reine Rechnungen auf schon geladenen Daten — kein
+    // Zugriff, keine Veraenderung. Faellt eine aus, fehlt die Vorschau, nicht
+    // die Ansicht.
+    let kompaktPlan = null, prunePlan = null, tage = 60;
+    try {
+      kompaktPlan = SLRApp.planCompaction();
+      tage        = SLRApp.aufbewahrungTage();
+      prunePlan   = SLRApp.planAbtragen(tage);
+    } catch (_) { /* Vorschau ist Beiwerk */ }
+    const cloudBlockiert = usingCloud && SLRDataCloud.kompaktBereit === false;
+
     return `
       <p class="settings-group-label">Storage</p>
       <div class="settings-card">
@@ -6898,20 +6909,72 @@ window.SLRViews = (() => {
           written${usingCloud ? ' and as it crosses the wire on every save; what Postgres then occupies is smaller, because a large jsonb value is compressed' : ''}.</p>
       </div>
 
-      <p class="settings-group-label">Where it could be smaller</p>
+      <p class="settings-group-label">Store each work once</p>
       <div class="settings-card">
         <p class="field-hint" style="margin-top:0">
           <strong>${byteText(m.mehrfach)} (${mehrfachPct}%) is the same work stored more than once.</strong>
           A query log keeps every run's own result list, so a work returned by four searches is written
-          four times. The duplicate check runs when the list is read, never in the file.</p>
-        <p class="field-hint">
-          <strong>${byteText(m.nachladbar)} could be fetched again</strong> from Crossref, OpenAlex or PubMed
-          as long as the identifiers stay. That is what <em>Fetch</em> above the article list already does,
-          one record at a time.</p>
+          four times. Compacting keeps <em>which</em> search returned it — as an identifier instead of a
+          copy — so the query history, the duplicate count and the PRISMA diagram show the same numbers
+          afterwards. Nothing is lost.</p>
+        ${kompaktPlan && kompaktPlan.ersparnis > 0
+          ? `<p class="field-hint">Compacting now would free about
+               <strong>${byteText(kompaktPlan.ersparnis)}</strong>.</p>
+             <button class="btn-secondary" id="storage-compact" style="margin-top:6px">
+               ${SLRIcons.archive} Compact now</button>`
+          : `<p class="field-hint">Already compact — every work is stored once.</p>`}
+        ${cloudBlockiert ? `
+          <p class="field-hint storage-note">Cloud Sync writes the old format until your Supabase project
+            has the format&nbsp;2 functions. Run the block at the end of
+            <code>supabase/schema.sql</code> once, then reload. Until then nothing changes and nothing
+            breaks &mdash; the app simply keeps writing what your database can append to.</p>` : ''}
+      </div>
+
+      <p class="settings-group-label">Thin out old records</p>
+      <div class="settings-card">
+        <p class="field-hint" style="margin-top:0">
+          <strong>${byteText(m.nachladbar)} could be fetched again</strong> from Crossref, OpenAlex or
+          PubMed as long as the identifiers stay. Records whose most recent search is older than the
+          retention window can give those fields up and get them back with <em>Fetch</em> when needed.</p>
+        <div class="storage-retention">
+          <label for="storage-retention-days">Retention window</label>
+          <select class="filter-select" id="storage-retention-days">
+            ${[30, 60, 90, 180, 365].map(d =>
+              `<option value="${d}"${d === tage ? ' selected' : ''}>${d} days</option>`).join('')}
+          </select>
+        </div>
+        ${prunePlan ? `
+          <ul class="storage-legend storage-plan">
+            <li class="storage-legend-row">
+              <span class="storage-dot storage-seg-nachladbar"></span>
+              <span class="storage-legend-label">Would be thinned out</span>
+              <span class="storage-legend-size">${prunePlan.arbeiten.toLocaleString()} &middot; ${byteText(prunePlan.bytes)}</span>
+            </li>
+            <li class="storage-legend-row">
+              <span class="storage-dot storage-seg-eigen"></span>
+              <span class="storage-legend-label">Kept &mdash; selected or in the corpus</span>
+              <span class="storage-legend-size">${prunePlan.geschuetzt.toLocaleString()}</span>
+            </li>
+            <li class="storage-legend-row">
+              <span class="storage-dot storage-seg-kennung"></span>
+              <span class="storage-legend-label">Kept &mdash; no identifier to fetch it back with</span>
+              <span class="storage-legend-size">${prunePlan.ohneKennung.toLocaleString()}</span>
+            </li>
+            <li class="storage-legend-row">
+              <span class="storage-dot storage-seg-anzeige"></span>
+              <span class="storage-legend-label">Kept &mdash; newer than the window</span>
+              <span class="storage-legend-size">${(prunePlan.zuJung + prunePlan.ohneZeit).toLocaleString()}</span>
+            </li>
+          </ul>
+          ${prunePlan.arbeiten > 0
+            ? `<button class="btn-secondary" id="storage-prune" style="margin-top:4px">
+                 ${SLRIcons.trash} Thin out ${prunePlan.arbeiten.toLocaleString()} record${prunePlan.arbeiten !== 1 ? 's' : ''}</button>`
+            : `<p class="field-hint">Nothing is old enough to thin out at this window.</p>`}` : ''}
         <p class="field-hint storage-note">
-          Nothing here is removed, on any schedule. Both numbers are what a future data-thrift mode
-          <em>could</em> reach, not what is happening. Should such a mode ever arrive it will be a setting
-          you switch on, with the identifiers and your own notes kept whatever else goes.</p>
+          This never runs on its own. There is no schedule and no background job: the figures above are a
+          preview, and only the button does anything. What goes is always recoverable from the source;
+          what the source cannot return &mdash; your tags, comments and screening decisions &mdash; is
+          never touched, and neither is anything you have selected or put in the corpus.</p>
       </div>`;
   }
 
@@ -6991,6 +7054,13 @@ window.SLRViews = (() => {
                  your projects in your account.</p>`}
         </div>
       </div>`;
+
+    const compactBtn = container.querySelector('#storage-compact');
+    if (compactBtn) compactBtn.addEventListener('click', () => SLRApp.compactStorage());
+    const pruneBtn = container.querySelector('#storage-prune');
+    if (pruneBtn) pruneBtn.addEventListener('click', () => SLRApp.applyPruning());
+    const retentionSel = container.querySelector('#storage-retention-days');
+    if (retentionSel) retentionSel.addEventListener('change', () => SLRApp.setAufbewahrungTage(retentionSel.value));
 
     wireCloudSyncSection(container);
 
