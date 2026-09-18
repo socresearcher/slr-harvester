@@ -234,6 +234,173 @@ window.SLRData = (() => {
     return { total: articles.length, selected, corpus, byTag };
   }
 
+  // ── Storage accounting ────────────────────────────────────────────────────
+  //
+  // What a project actually costs to keep, measured rather than estimated.
+  // Pure and backend-agnostic like getArticles/getStats above: it reads an
+  // already-loaded projectData and returns byte counts, nothing else. It
+  // deletes nothing and proposes nothing — the Workspace view turns these
+  // numbers into a picture, and any future thinning would be a separate,
+  // explicit step.
+  //
+  // The unit is the byte length of the JSON as it is written. That is exactly
+  // what the local backend puts on disk and exactly what crosses the wire to
+  // Supabase on every save. What Postgres then occupies is smaller, because a
+  // jsonb column past two kilobytes is compressed out of line — so the cloud
+  // figure is an upper bound on stored size and an accurate one on transfer.
+
+  // Identity and provenance. Without these a record cannot be found again in
+  // the database it came from, so nothing may ever remove them.
+  const FELD_KENNUNG = ['eid', 'doi', 'source', 'date'];
+
+  // Small enough to be worth keeping for a readable list, and not worth a
+  // network round trip to recover.
+  const FELD_ANZEIGE = ['title', 'publicationName', 'citedby', 'docType'];
+
+  // Written by the user, or derived from their decisions. No external source
+  // can give these back. Most live in slr_global_tags.json; a few sit inside
+  // old search logs written by the desktop application.
+  const FELD_EIGEN = ['comment', 'custom_abstract', 'tag', 'color', 'selected', 'corpus', 'favorite', 'must_cite'];
+
+  function jsonBytes(value) {
+    if (value === undefined) return 0;
+    // TextEncoder counts UTF-8 bytes; abstracts carry enough dashes, quotes
+    // and diacritics that counting characters instead would understate them.
+    return new TextEncoder().encode(JSON.stringify(value)).length;
+  }
+
+  /**
+   * Byte accounting for one already-loaded project.
+   *
+   * @param {Object} projectData  result of loadProjectData()
+   * @returns {Object} counts in bytes, plus the row/work tallies behind them
+   */
+  function measureProject(projectData) {
+    const searchLog = (projectData && Array.isArray(projectData.searchLog)) ? projectData.searchLog : [];
+
+    const bytes = {
+      searchLog:  jsonBytes(searchLog),
+      globalTags: jsonBytes((projectData && projectData.globalTags) || {}),
+      rest:       jsonBytes((projectData && projectData.tagsConfig) || {})
+                + jsonBytes((projectData && projectData.tagAliases) || {})
+                + jsonBytes((projectData && projectData.queryHistory) || {}),
+    };
+    bytes.total = bytes.searchLog + bytes.globalTags + bytes.rest;
+
+    let rows = 0;
+    let kennung = 0, anzeige = 0, nachladbar = 0, eigen = 0;
+    // Exact size of the result records themselves. The per-field tally below
+    // measures shares, not totals — it adds a few bytes of punctuation per
+    // field that the real JSON writes only once — so the two are kept apart
+    // and the shares are scaled onto this figure at the end.
+    let satzBytesGenau = 0;
+    const jeFeld = {};
+    // Largest copy seen per work — the yardstick for what one copy would
+    // cost, since the read-side merge already prefers the fuller record.
+    const groesste = new Map();
+
+    for (const run of searchLog) {
+      if (!run || !Array.isArray(run.results)) continue;
+      for (const r of run.results) {
+        rows++;
+        satzBytesGenau += jsonBytes(r);
+        let satz = 0;
+        for (const feld of Object.keys(r)) {
+          const b = jsonBytes(r[feld]) + feld.length + 4;   // + "key":
+          satz += b;
+          jeFeld[feld] = (jeFeld[feld] || 0) + b;
+          if (FELD_KENNUNG.includes(feld))      kennung    += b;
+          else if (FELD_ANZEIGE.includes(feld)) anzeige    += b;
+          else if (FELD_EIGEN.includes(feld))   eigen      += b;
+          else                                  nachladbar += b;
+        }
+        const id = r.eid || r.doi;
+        if (!id) continue;
+        const bisher = groesste.get(id);
+        if (bisher === undefined || satz > bisher) groesste.set(id, satz);
+      }
+    }
+
+    // One copy per work, at its largest observed size. The difference to the
+    // sum of all rows is what repeated runs cost: the same work is stored
+    // again for every query that returned it, and the deduplication in
+    // getArticles happens on read, never in the file.
+    let einfach = 0;
+    for (const b of groesste.values()) einfach += b;
+    const alle = Object.values(jeFeld).reduce((a, b) => a + b, 0);
+
+    // Four bands that cover the whole project, not just its result records.
+    // The annotation index and the saved query terms are the user's own work
+    // as much as a comment written into an old desktop-era result row is, so
+    // they belong in the same band; without them a project written by this
+    // application would show no user data at all, which is the opposite of
+    // true. Invariant: the four bands sum to bytes.total.
+    // Everything in the query log that is not a result record: the timestamp,
+    // the query string itself and which database ran it. That is the
+    // reproducibility record — the user's own input — so it sits in the same
+    // band as their notes.
+    const rahmen = Math.max(0, bytes.searchLog - satzBytesGenau);
+    const faktor = alle > 0 ? satzBytesGenau / alle : 0;
+    const bands = {
+      kennung:    Math.round(kennung * faktor),
+      anzeige:    Math.round(anzeige * faktor),
+      nachladbar: Math.round(nachladbar * faktor),
+      eigen:      Math.round(eigen * faktor) + rahmen + bytes.globalTags + bytes.rest,
+    };
+    // Rounding four shares can lose or gain a byte or two; the largest band
+    // absorbs it so the four always add up to the figure shown above them.
+    const rest = bytes.total - (bands.kennung + bands.anzeige + bands.nachladbar + bands.eigen);
+    if (rest !== 0) {
+      const groesstesBand = Object.keys(bands).reduce((a, b) => (bands[b] > bands[a] ? b : a));
+      bands[groesstesBand] += rest;
+    }
+
+    return {
+      rows,
+      works: groesste.size,
+      bytes,
+      ergebnisse: alle,          // all result records, as stored
+      einfach,                   // the same works, stored once each
+      mehrfach: Math.max(0, alle - einfach),
+      kennung, anzeige, nachladbar, eigen,
+      bands,
+      jeFeld,
+    };
+  }
+
+  /** Sums measureProject over a { folder: projectData } map, skipping nulls. */
+  function measureWorkspace(allProjectData) {
+    const summe = {
+      projects: 0, rows: 0, works: 0,
+      bytes: { searchLog: 0, globalTags: 0, rest: 0, total: 0 },
+      ergebnisse: 0, einfach: 0, mehrfach: 0,
+      kennung: 0, anzeige: 0, nachladbar: 0, eigen: 0,
+      bands: { kennung: 0, anzeige: 0, nachladbar: 0, eigen: 0 },
+      jeProjekt: {},
+    };
+    for (const [folder, pd] of Object.entries(allProjectData || {})) {
+      if (!pd) continue;
+      const m = measureProject(pd);
+      summe.projects++;
+      summe.rows       += m.rows;
+      summe.works      += m.works;
+      summe.ergebnisse += m.ergebnisse;
+      summe.einfach    += m.einfach;
+      summe.mehrfach   += m.mehrfach;
+      summe.kennung    += m.kennung;
+      summe.anzeige    += m.anzeige;
+      summe.nachladbar += m.nachladbar;
+      summe.eigen      += m.eigen;
+      for (const k of Object.keys(summe.bands)) summe.bands[k] += m.bands[k];
+      summe.bytes.searchLog  += m.bytes.searchLog;
+      summe.bytes.globalTags += m.bytes.globalTags;
+      summe.bytes.rest       += m.bytes.rest;
+      summe.bytes.total      += m.bytes.total;
+      summe.jeProjekt[folder] = m;
+    }
+    return summe;
+  }
+
   const dispatcher = {
     getBackend,
     setBackend,
@@ -242,6 +409,8 @@ window.SLRData = (() => {
     get DEFAULT_TAGS_CONFIG() { return backendModule().DEFAULT_TAGS_CONFIG; },
     getArticles,
     getStats,
+    measureProject,
+    measureWorkspace,
     normDoi,
   };
 

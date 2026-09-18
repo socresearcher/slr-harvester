@@ -6792,7 +6792,130 @@ window.SLRViews = (() => {
   // grundlegendste Entscheidung der App. Jetzt ein eigener Menuepunkt, und
   // die aktive Wahl steht als Erstes und ausgeschrieben da, nicht nur als
   // angehakter Radioknopf.
-  function renderWorkspace(container, { folderName }) {
+  // Bytes in the shortest form that is still honest: no unit jumps below the
+  // next thousand, and one decimal from a megabyte up, because "13 MB" and
+  // "13,6 MB" are a different answer to "is this a lot".
+  function byteText(n) {
+    const b = Number(n) || 0;
+    if (b < 1024) return `${b} B`;
+    if (b < 1048576) return `${(b / 1024).toFixed(b < 10240 ? 1 : 0)} kB`;
+    return `${(b / 1048576).toFixed(b < 10485760 ? 2 : 1)} MB`;
+  }
+
+  // The Supabase free tier's database size, for the whole project — not per
+  // account. Every signed-in user of this installation shares it, which is
+  // exactly why it is shown. Retrieved from supabase.com/pricing on
+  // 18.09.2026; if the tier changes, this number and the note in the Privacy
+  // and About views change with it.
+  const CLOUD_FREI_BYTES = 500 * 1048576;
+
+  // Storage, measured rather than guessed. Read-only by design: it counts
+  // what is there and says what a future thinning could reach, and it removes
+  // nothing. Automatic thinning does not exist yet — saying so plainly here
+  // is part of the point, because a page about storage that stayed silent
+  // about deletion would read as if deletion happened.
+  function storageSectionHTML(allProjectData, projects, usingCloud) {
+    const m = SLRData.measureWorkspace(allProjectData || {});
+    if (!m.projects || !m.rows) {
+      return `
+        <p class="settings-group-label">Storage</p>
+        <div class="settings-card">
+          <p class="field-hint" style="margin-top:0">Nothing stored in this workspace yet.
+            Once a project holds search results, this is where their size is broken down.</p>
+        </div>`;
+    }
+
+    const nameOf = folder => {
+      const p = (projects || []).find(x => x.workspace_folder === folder);
+      return (p && p.name) || folder;
+    };
+
+    const anteil = Math.min(100, (m.bytes.total / CLOUD_FREI_BYTES) * 100);
+    const budget = usingCloud
+      ? `<div class="storage-meter" role="img"
+              aria-label="${byteText(m.bytes.total)} of the shared 500 MB free-tier database">
+           <span class="storage-meter-fill" style="width:${anteil < 0.6 ? 0.6 : anteil.toFixed(2)}%"></span>
+         </div>
+         <p class="field-hint">${byteText(m.bytes.total)} of the <strong>500 MB</strong> database the free
+           Supabase tier provides &mdash; and that 500 MB belongs to the installation, not to your account:
+           every signed-in user shares it. There is no per-account quota today, which is precisely why
+           this figure is worth watching. Free-tier figures retrieved 18.09.2026.</p>`
+      : `<p class="field-hint" style="margin-top:0">${byteText(m.bytes.total)} in the folder you opened.
+           A local workspace has no quota beyond the disk it sits on &mdash; the numbers below matter
+           here for speed and for backups, not for a limit.</p>`;
+
+    const zeilen = Object.entries(m.jeProjekt)
+      .sort((a, b) => b[1].bytes.total - a[1].bytes.total)
+      .map(([folder, pm]) => `
+        <li class="storage-project">
+          <span class="storage-project-name">${esc(nameOf(folder))}</span>
+          <span class="storage-project-meta">${pm.works.toLocaleString()} work${pm.works !== 1 ? 's' : ''}</span>
+          <span class="storage-project-size">${byteText(pm.bytes.total)}</span>
+        </li>`).join('');
+
+    // Two different cuts of the same total, kept visually apart on purpose.
+    // Mixing them is the easy mistake: "69% is re-fetchable" and "58% is a
+    // repeated copy" overlap, they do not add up.
+    const teile = [
+      { k: 'kennung',    label: 'Identifiers and dates', hint: 'Never removable — without them a record cannot be found again.' },
+      { k: 'anzeige',    label: 'Title, journal, type',  hint: 'Small, and what makes a pruned list still readable.' },
+      { k: 'nachladbar', label: 'Abstracts, authors, affiliations', hint: 'Recoverable from Crossref, OpenAlex or PubMed via the DOI.' },
+      { k: 'eigen',      label: 'Your notes and decisions', hint: 'Tags, comments, screening decisions, saved query terms — no external source can return these.' },
+    ];
+    const segs = teile.map(t => {
+      const v = m.bands[t.k] || 0;
+      if (!v) return '';
+      return `<span class="storage-seg storage-seg-${t.k}" style="flex:${v}"
+                    title="${esc(t.label)}: ${byteText(v)}"></span>`;
+    }).join('');
+    const legende = teile.map(t => {
+      const v = m.bands[t.k] || 0;
+      if (!v) return '';
+      const pct = (100 * v / m.bytes.total).toFixed(0);
+      return `<li class="storage-legend-row">
+                <span class="storage-dot storage-seg-${t.k}"></span>
+                <span class="storage-legend-label">${esc(t.label)}</span>
+                <span class="storage-legend-size">${byteText(v)} &middot; ${pct}%</span>
+                <span class="storage-legend-hint">${esc(t.hint)}</span>
+              </li>`;
+    }).join('');
+
+    const mehrfachPct = m.ergebnisse ? (100 * m.mehrfach / m.ergebnisse).toFixed(0) : '0';
+
+    return `
+      <p class="settings-group-label">Storage</p>
+      <div class="settings-card">
+        ${budget}
+        <ul class="storage-project-list">${zeilen}</ul>
+      </div>
+
+      <p class="settings-group-label">What the space holds</p>
+      <div class="settings-card">
+        <div class="storage-bar">${segs}</div>
+        <ul class="storage-legend">${legende}</ul>
+        <p class="field-hint">Measured across ${m.rows.toLocaleString()} stored result rows covering
+          ${m.works.toLocaleString()} distinct work${m.works !== 1 ? 's' : ''}. Sizes are the JSON as it is
+          written${usingCloud ? ' and as it crosses the wire on every save; what Postgres then occupies is smaller, because a large jsonb value is compressed' : ''}.</p>
+      </div>
+
+      <p class="settings-group-label">Where it could be smaller</p>
+      <div class="settings-card">
+        <p class="field-hint" style="margin-top:0">
+          <strong>${byteText(m.mehrfach)} (${mehrfachPct}%) is the same work stored more than once.</strong>
+          A query log keeps every run's own result list, so a work returned by four searches is written
+          four times. The duplicate check runs when the list is read, never in the file.</p>
+        <p class="field-hint">
+          <strong>${byteText(m.nachladbar)} could be fetched again</strong> from Crossref, OpenAlex or PubMed
+          as long as the identifiers stay. That is what <em>Fetch</em> above the article list already does,
+          one record at a time.</p>
+        <p class="field-hint storage-note">
+          Nothing here is removed, on any schedule. Both numbers are what a future data-thrift mode
+          <em>could</em> reach, not what is happening. Should such a mode ever arrive it will be a setting
+          you switch on, with the identifiers and your own notes kept whatever else goes.</p>
+      </div>`;
+  }
+
+  function renderWorkspace(container, { folderName, allProjectData, projects }) {
     const backend    = SLRData.getBackend();
     const cloudUser  = SLRDataCloud.currentUser();
     const usingCloud = backend === 'cloud';
@@ -6819,6 +6942,8 @@ window.SLRViews = (() => {
             <p class="workspace-active-where">${activeWhere}</p>
           </div>
         </div>
+
+        ${storageSectionHTML(allProjectData, projects, usingCloud)}
 
         <p class="settings-group-label">Switch workspace</p>
         <div class="settings-card">

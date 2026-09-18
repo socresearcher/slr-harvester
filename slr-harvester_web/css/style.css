@@ -25,6 +25,11 @@
   --accent-hover: #5ff0e0;
   --accent-subtle:#123330;
   --accent-ink:   #06231f;
+  /* Das Gold des Logos, identisch in beiden Themen und deshalb nur hier
+     gesetzt: In icons.js steht es ebenso fest neben currentColor. Gebraucht
+     wird es dort, wo eine zweite Markenfarbe eine Bedeutung traegt und nicht
+     nur schmueckt — bisher das Band der nachladbaren Felder unter "Storage". */
+  --brand-gold:   #e8a317;
   /* Schrift auf farbigen Datenbank-Plaketten; in beiden Themen weiss, weil
      die Plakettenfarbe die Markenfarbe der Datenbank ist und nicht vom
      Thema abhaengt. */
@@ -9033,3 +9038,138 @@ body.has-progress-footer .slr-guide {
   line-height: 1.5;
 }
 
+
+/* ── Storage, in the Workspace view ────────────────────────────────────────
+   Measurement only: a meter against the cloud tier's shared database, a list
+   of projects by size, and one segmented bar splitting what is stored into
+   what may never go and what could be fetched again. The four segment colours
+   carry meaning, so they are fixed hues rather than the accent — but they are
+   token-derived shades, never raw values outside this block's own variables. */
+.storage-meter {
+  height: 8px;
+  border-radius: 4px;
+  background: var(--surface-3);
+  overflow: hidden;
+  margin: 2px 0 10px;
+}
+
+.storage-meter-fill {
+  display: block;
+  height: 100%;
+  border-radius: 4px;
+  background: var(--accent);
+}
+
+.storage-project-list {
+  list-style: none;
+  margin: 12px 0 0;
+  padding: 0;
+  border-top: 1px solid var(--border);
+}
+
+.storage-project {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  padding: 7px 0;
+  border-bottom: 1px solid var(--border);
+  font-size: 13px;
+}
+
+.storage-project-name {
+  flex: 1;
+  min-width: 0;
+  color: var(--text);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.storage-project-meta {
+  color: var(--text-faint);
+  font-size: 12px;
+  white-space: nowrap;
+}
+
+.storage-project-size {
+  color: var(--text-muted);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+  min-width: 68px;
+  text-align: right;
+}
+
+.storage-bar {
+  display: flex;
+  height: 10px;
+  border-radius: 5px;
+  overflow: hidden;
+  gap: 1px;
+  margin: 2px 0 14px;
+}
+
+.storage-seg {
+  display: block;
+  height: 100%;
+  min-width: 2px;
+}
+
+/* Kept, whatever happens */
+.storage-seg-kennung { background: var(--accent); }
+.storage-seg-anzeige { background: color-mix(in srgb, var(--accent) 45%, var(--surface-3)); }
+/* Recoverable from outside — the one band a thinning mode would target */
+.storage-seg-nachladbar { background: var(--brand-gold); }
+/* The user's own work */
+.storage-seg-eigen { background: var(--green); }
+
+.storage-legend {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.storage-legend-row {
+  display: grid;
+  grid-template-columns: 10px 1fr auto;
+  align-items: baseline;
+  column-gap: 9px;
+  padding: 6px 0;
+}
+
+.storage-dot {
+  width: 10px;
+  height: 10px;
+  border-radius: 3px;
+  align-self: center;
+}
+
+.storage-legend-label {
+  color: var(--text);
+  font-size: 13px;
+}
+
+.storage-legend-size {
+  color: var(--text-muted);
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.storage-legend-hint {
+  grid-column: 2 / -1;
+  color: var(--text-faint);
+  font-size: 12px;
+  line-height: 1.45;
+}
+
+/* The sentence that says no deletion happens. It has to survive a skim, so
+   it is set apart rather than being the fourth paragraph in a row. */
+.storage-note {
+  border-left: 2px solid var(--border);
+  padding-left: 10px;
+  margin-top: 12px;
+}
+
+@media (max-width: 560px) {
+  .storage-project-meta { display: none; }
+}

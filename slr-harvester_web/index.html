@@ -15,9 +15,9 @@
        not allow eval(). style-src needs 'unsafe-inline' for style attributes. -->
   <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'wasm-unsafe-eval' 'sha256-YLs+T+FgxcIei7NqLvaWJAs+9cC27eorwbW1makPliw='; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self'; media-src 'self' blob: data:; connect-src 'self' https://api.elsevier.com https://eutils.ncbi.nlm.nih.gov https://api.openalex.org https://api.crossref.org https://doaj.org https://*.supabase.co wss://*.supabase.co https://cdn.jsdelivr.net https://cdnjs.cloudflare.com https://huggingface.co https://*.huggingface.co https://*.hf.co; worker-src 'self' blob:; frame-src zotero: citavi:; object-src 'none'; base-uri 'self'; form-action 'self'">
   <title>SLR Harvester Web</title>
-  <link rel="icon" type="image/svg+xml" href="favicon.svg?v=20260917d">
+  <link rel="icon" type="image/svg+xml" href="favicon.svg?v=20260918a">
   <link rel="manifest" href="manifest.webmanifest">
-  <link rel="stylesheet" href="css/style.css?v=20260917d">
+  <link rel="stylesheet" href="css/style.css?v=20260918a">
   <!-- Read-aloud: the neural voice engine (Piper) imports "onnxruntime-web/wasm"
        as a bare module specifier, which a browser cannot resolve without a
        bundler. This map supplies it — from the vendored copy, not a CDN
@@ -160,7 +160,7 @@
   <!-- Modal overlay (rendered dynamically) -->
   <div id="modal-overlay" class="modal-overlay hidden" role="dialog" aria-modal="true"></div>
 
-  <script src="js/icons.js?v=20260917d"></script>
+  <script src="js/icons.js?v=20260918a"></script>
   <!-- Cloud sync (optional): Supabase JS SDK v2.112.3, vendored locally
        (js/vendor/supabase.js) rather than loaded from a CDN. This used to
        be cdn.jsdelivr.net, which browser tracking-prevention features
@@ -171,18 +171,18 @@
        Same-origin now, so that entire class of blocking can't happen.
        To update: download a newer dist/umd/supabase.js build and replace
        the vendored file; nothing else needs to change. -->
-  <script src="js/vendor/supabase.js?v=20260917d"></script>
-  <script src="js/data-local.js?v=20260917d"></script>
-  <script src="js/data-supabase.js?v=20260917d"></script>
-  <script src="js/data.js?v=20260917d"></script>
-  <script src="js/world-map-data.js?v=20260917d"></script>
-  <script src="js/world-map-outline-data.js?v=20260917d"></script>
-  <script src="js/world-map-paths-data.js?v=20260917d"></script>
-  <script src="js/world-map.js?v=20260917d"></script>
-  <script src="js/tts.js?v=20260917d"></script>
-  <script src="js/views.js?v=20260917d"></script>
-  <script src="js/app-ui.js?v=20260917d"></script>
-  <script src="js/app.js?v=20260917d"></script>
+  <script src="js/vendor/supabase.js?v=20260918a"></script>
+  <script src="js/data-local.js?v=20260918a"></script>
+  <script src="js/data-supabase.js?v=20260918a"></script>
+  <script src="js/data.js?v=20260918a"></script>
+  <script src="js/world-map-data.js?v=20260918a"></script>
+  <script src="js/world-map-outline-data.js?v=20260918a"></script>
+  <script src="js/world-map-paths-data.js?v=20260918a"></script>
+  <script src="js/world-map.js?v=20260918a"></script>
+  <script src="js/tts.js?v=20260918a"></script>
+  <script src="js/views.js?v=20260918a"></script>
+  <script src="js/app-ui.js?v=20260918a"></script>
+  <script src="js/app.js?v=20260918a"></script>
 
 </body>
 </html>
