@@ -9216,3 +9216,20 @@ body.has-progress-footer .slr-guide {
   gap: 8px;
   margin-top: 4px;
 }
+
+/* Der Zotero-Dialog traegt mehr Inhalt als eine Rueckfrage: Typenliste,
+   Schluessel, Sammlung. Er bekommt deshalb Breite und eine eigene Hoehe mit
+   Bildlauf, damit die Fusszeile mit dem Senden-Knopf immer sichtbar bleibt. */
+.zotero-modal {
+  max-width: 560px;
+  width: 100%;
+}
+
+.zotero-modal .modal-body {
+  max-height: min(60vh, 520px);
+  overflow-y: auto;
+}
+
+.zotero-modal .settings-group-label:first-of-type {
+  margin-top: 14px;
+}

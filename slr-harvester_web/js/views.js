@@ -2158,10 +2158,139 @@ window.SLRViews = (() => {
 
   function openExportMenu(triggerEl, articles, scopeLabel) {
     openToolbarPopupMenu(triggerEl, [
-      { icon: SLRIcons.download, label: 'Download .bib', onClick: () => exportArticleList(articles, 'bib', scopeLabel) },
-      { icon: SLRIcons.download, label: 'Download .ris', onClick: () => exportArticleList(articles, 'ris', scopeLabel) },
+      { icon: SLRIcons.download, label: 'Send to Zotero\u2026', onClick: () => openZoteroDialog(articles) },
+      { icon: SLRIcons.download, label: 'Download .ris  (Zotero, Citavi, EndNote)', onClick: () => exportArticleList(articles, 'ris', scopeLabel) },
+      { icon: SLRIcons.download, label: 'Download .bib  (BibTeX, Citavi)', onClick: () => exportArticleList(articles, 'bib', scopeLabel) },
       { icon: SLRIcons.download, label: 'Download .csv', onClick: () => exportArticleList(articles, 'csv', scopeLabel) },
     ]);
+  }
+
+  /**
+   * Der Dialog fuer den unmittelbaren Weg nach Zotero.
+   *
+   * Zwei Schritte in einem Fenster: Schluessel eintragen und verbinden, dann
+   * die Sammlung waehlen und senden. Der zweite Teil erscheint erst, wenn der
+   * erste getragen hat — so steht nie eine Auswahl da, die ins Leere greift.
+   */
+  function openZoteroDialog(articles) {
+    const rows = Array.isArray(articles) ? articles : [];
+    if (!rows.length) {
+      SLRApp.showToast('No articles available for export in the current list.', true);
+      return;
+    }
+
+    // Was tatsaechlich uebertragen wuerde, nach Eintragstyp aufgeschluesselt —
+    // damit vor dem Senden sichtbar ist, als was die Liste drueben ankommt.
+    const nachTyp = {};
+    for (const a of rows) {
+      const t = dokumentTyp(a).zotero;
+      nachTyp[t] = (nachTyp[t] || 0) + 1;
+    }
+    const typZeilen = Object.entries(nachTyp).sort((a, b) => b[1] - a[1])
+      .map(([t, n]) => `<li class="storage-legend-row"><span class="storage-legend-label">${esc(t)}</span>
+            <span class="storage-legend-size">${n.toLocaleString('en')}</span></li>`).join('');
+
+    const ohneAbstract = rows.filter(a => !a.abstract).length;
+
+    const overlay = document.createElement('div');
+    overlay.className = 'modal-overlay confirm-dialog-overlay';
+    overlay.innerHTML = `
+      <div class="modal zotero-modal" role="dialog" aria-modal="true" aria-labelledby="zot-title">
+        <div class="modal-header"><h3 id="zot-title">Send ${rows.length.toLocaleString('en')} record${rows.length !== 1 ? 's' : ''} to Zotero</h3></div>
+        <div class="modal-body">
+          <p class="field-hint" style="margin-top:0">Writes straight into your Zotero library through
+            <code>api.zotero.org</code>. Zotero does not need to be running, and the entry types are set
+            explicitly &mdash; a chapter arrives as a book section, a preprint as a preprint.</p>
+
+          <p class="settings-group-label">Entry types in this list</p>
+          <ul class="storage-legend">${typZeilen}</ul>
+          ${ohneAbstract ? `<p class="field-hint"><strong>${ohneAbstract.toLocaleString('en')} of these have no abstract yet.</strong>
+             Zotero has no way to fill a whole collection in afterwards, so running <em>Fetch</em> first is
+             usually worth it.</p>` : ''}
+
+          <p class="settings-group-label">API key</p>
+          <div class="settings-card">
+            <input type="password" class="form-input monospace" id="zot-key" autocomplete="off" spellcheck="false"
+                   placeholder="Zotero API key" value="${esc(zoteroKey())}">
+            <p class="field-hint">Create one under <strong>zotero.org &rarr; Settings &rarr; Security &rarr;
+              Applications</strong>, with permission to write to your personal library. It is kept in this
+              browser and sent only to api.zotero.org.</p>
+            <button class="btn-secondary" id="zot-connect" style="margin-top:8px">Connect</button>
+            <p class="field-hint" id="zot-status" style="margin-bottom:0"></p>
+          </div>
+
+          <div id="zot-step2" class="hidden">
+            <p class="settings-group-label">Collection</p>
+            <div class="settings-card">
+              <select class="filter-select" id="zot-collection" style="width:100%"></select>
+              <p class="field-hint" style="margin-bottom:0">Items are added to your library either way; a
+                collection just files them.</p>
+            </div>
+          </div>
+        </div>
+        <div class="modal-footer">
+          <button type="button" class="btn-secondary" data-zot="cancel">Cancel</button>
+          <button type="button" class="btn-primary" id="zot-send" disabled>Send</button>
+        </div>
+      </div>`;
+    document.body.appendChild(overlay);
+
+    const status = overlay.querySelector('#zot-status');
+    const senden = overlay.querySelector('#zot-send');
+    const schritt2 = overlay.querySelector('#zot-step2');
+    const auswahl = overlay.querySelector('#zot-collection');
+    let konto = null;
+
+    const schliessen = () => overlay.remove();
+    overlay.querySelector('[data-zot="cancel"]').addEventListener('click', schliessen);
+    overlay.addEventListener('click', ev => { if (ev.target === overlay) schliessen(); });
+    document.addEventListener('keydown', function esc2(ev) {
+      if (ev.key === 'Escape') { schliessen(); document.removeEventListener('keydown', esc2, true); }
+    }, true);
+
+    overlay.querySelector('#zot-connect').addEventListener('click', async () => {
+      const key = overlay.querySelector('#zot-key').value.trim();
+      if (!key) { status.textContent = 'Enter a key first.'; return; }
+      zoteroKeyMerken(key);
+      status.textContent = 'Checking\u2026';
+      try {
+        konto = await zoteroKonto();
+        if (!konto.darfSchreiben) {
+          status.textContent = 'That key cannot write to your library. Give it write permission in Zotero and try again.';
+          return;
+        }
+        status.textContent = `Connected as ${konto.username || konto.userID}.`;
+        const sammlungen = await zoteroSammlungen(konto.userID);
+        auswahl.innerHTML = ['<option value="">Library root (no collection)</option>']
+          .concat(sammlungen.map(c => `<option value="${esc(c.key)}">${esc(c.name)}</option>`)).join('');
+        schritt2.classList.remove('hidden');
+        senden.disabled = false;
+      } catch (err) {
+        status.textContent = err.message || String(err);
+      }
+    });
+
+    senden.addEventListener('click', async () => {
+      if (!konto) return;
+      senden.disabled = true;
+      schliessen();
+      try {
+        const ergebnis = await zoteroSenden(rows, konto.userID, auswahl.value || null,
+          (fertig, gesamt) => SLRApp.showFetchProgress('Sending to Zotero', fertig, gesamt));
+        SLRApp.hideFetchProgress();
+        if (ergebnis.fehler.length) {
+          SLRApp.showToast(`Sent ${ergebnis.uebertragen.toLocaleString('en')} of ${rows.length.toLocaleString('en')}. `
+            + `${ergebnis.fehler.length} rejected: ${ergebnis.fehler[0]}`, true);
+        } else {
+          SLRApp.showToast(`Sent ${ergebnis.uebertragen.toLocaleString('en')} record${ergebnis.uebertragen !== 1 ? 's' : ''} to Zotero.`, false);
+        }
+      } catch (err) {
+        SLRApp.hideFetchProgress();
+        SLRApp.showToast('Zotero transfer failed: ' + (err.message || String(err)), true);
+      }
+    });
+
+    overlay.querySelector('#zot-key').focus();
   }
 
   function openFetchMenu(triggerEl) {
@@ -2195,6 +2324,180 @@ window.SLRViews = (() => {
         title: 'Reset every tag and re-run automatic tagging on all articles, including ones already tagged',
         onClick: () => void SLRApp.autoTagByJournal(true).catch(onErr) },
     ]);
+  }
+
+  // ── Unmittelbar nach Zotero ───────────────────────────────────────────────
+  //
+  // Warum ueberhaupt, wenn es .ris gibt: Eine Datei traegt nur, was das Format
+  // kennt. Zoteros RIS-Uebersetzer hat keinen Preprint-Typ, und ein unbekannter
+  // Typ kommt dort als Zeitschriftenaufsatz an (`GEN: "journalArticle"` in
+  // importTypeMap). Ueber die Schnittstelle laesst sich der Eintragstyp
+  // dagegen genau setzen, samt des richtigen Behaelterfelds je Typ.
+  //
+  // Der zweite Grund ist der, den die Nutzung nahelegt: Angereichert wird hier
+  // (Abschnitt "Fetch"), und Zotero kennt keinen Weg, eine ganze Sammlung
+  // nachtraeglich nachzuladen. Was beim Uebertragen fehlt, fehlt dort dauerhaft.
+  //
+  // Weg: die Web-Schnittstelle unter api.zotero.org mit einem persoenlichen
+  // Schluessel. Sie ist von fremder Herkunft aus ansprechbar (am 21.09.2026
+  // gegen die laufende Anwendung geprueft), verlangt kein laufendes Zotero und
+  // kann in eine Sammlung schreiben. Der Schluessel wird im Browser abgelegt
+  // und geht ausschliesslich an api.zotero.org.
+  const ZOTERO_API = 'https://api.zotero.org';
+  const ZOTERO_KEY_SPEICHER = 'slr-zotero-key';
+  const ZOTERO_STAPEL = 50;   // Hoechstzahl je Anfrage laut Schnittstelle
+
+  function zoteroKey() {
+    try { return localStorage.getItem(ZOTERO_KEY_SPEICHER) || ''; } catch (_) { return ''; }
+  }
+
+  function zoteroKeyMerken(key) {
+    try { localStorage.setItem(ZOTERO_KEY_SPEICHER, String(key || '').trim()); } catch (_) { /* gesperrt */ }
+  }
+
+  async function zoteroAnfrage(pfad, optionen = {}) {
+    const key = zoteroKey();
+    if (!key) throw new Error('No Zotero API key stored.');
+    const res = await fetch(ZOTERO_API + pfad, Object.assign({}, optionen, {
+      headers: Object.assign({
+        'Zotero-API-Key': key,
+        'Zotero-API-Version': '3',
+      }, optionen.headers || {}),
+    }));
+    if (!res.ok) {
+      const text = await res.text().catch(() => '');
+      // Die haeufigsten drei Faelle beim Namen nennen, statt eine Zahl zu zeigen.
+      if (res.status === 403) throw new Error('Zotero rejected the key. Check that it exists and may write to your library.');
+      if (res.status === 404) throw new Error('Zotero could not find that library or collection.');
+      if (res.status === 413) throw new Error('Zotero refused the batch as too large.');
+      throw new Error(`Zotero replied ${res.status}${text ? ': ' + text.slice(0, 120) : ''}`);
+    }
+    return res;
+  }
+
+  /** Wem gehoert dieser Schluessel, und darf er schreiben? */
+  async function zoteroKonto() {
+    const res = await zoteroAnfrage('/keys/current');
+    const d = await res.json();
+    const rechte = (d && d.access && d.access.user) || {};
+    return {
+      userID: d.userID,
+      username: d.username || '',
+      darfSchreiben: !!rechte.write,
+      darfLesen: !!(rechte.library || rechte.write),
+    };
+  }
+
+  /** Die Sammlungen der Bibliothek, fuer die Auswahl. */
+  async function zoteroSammlungen(userID) {
+    const res = await zoteroAnfrage(`/users/${userID}/collections?limit=100`);
+    const d = await res.json();
+    return (Array.isArray(d) ? d : [])
+      .map(c => ({ key: c.key, name: (c.data && c.data.name) || c.key,
+                   eltern: (c.data && c.data.parentCollection) || null }))
+      .sort((a, b) => a.name.localeCompare(b.name));
+  }
+
+  /**
+   * Ein Artikel als Zotero-Eintrag.
+   *
+   * Die Feldnamen stammen aus dem Schema unter api.zotero.org/schema (Version
+   * 42, geprueft 21.09.2026) und sind je Eintragstyp verschieden — `bookTitle`
+   * beim Kapitel, `proceedingsTitle` beim Konferenzbeitrag,
+   * `publicationTitle` beim Aufsatz. Was das Schema fuer einen Typ nicht
+   * kennt, wird weggelassen statt hineingeschrieben: Zotero weist einen
+   * Eintrag mit unbekanntem Feld als Ganzes zurueck.
+   */
+  function zoteroEintrag(article, sammlung) {
+    const typ = dokumentTyp(article);
+    const eintrag = { itemType: typ.zotero };
+
+    const titel = String(article.title || '').trim();
+    if (titel) eintrag.title = titel;
+
+    const namen = splitAuthorsForRis(article.authors);
+    if (namen.length) {
+      eintrag.creators = namen.map(name => {
+        const roh = String(name).trim();
+        // "Nachname, V." ist die Form, in der die Datenbanken liefern.
+        const m = roh.match(/^([^,]+),\s*(.+)$/);
+        if (m) return { creatorType: 'author', lastName: m[1].trim(), firstName: m[2].trim() };
+        const teile = roh.split(/\s+/);
+        if (teile.length > 1) {
+          return { creatorType: 'author', lastName: teile.pop(), firstName: teile.join(' ') };
+        }
+        return { creatorType: 'author', name: roh };
+      });
+    }
+
+    const abstractText = String(article.abstract || '').trim();
+    if (abstractText) eintrag.abstractNote = abstractText;
+
+    const behaelter = String(article.publicationName || '').trim();
+    if (behaelter && typ.behaelter) eintrag[typ.behaelter] = behaelter;
+
+    const datum = String(article.date || '').trim() || getArticleYear(article);
+    if (datum) eintrag.date = datum;
+
+    const doi = String(article.doi || '').trim();
+    // DOI ist nicht bei jedem Eintragstyp ein Feld — bei `document` etwa nicht.
+    if (doi && ZOTERO_FELDER_MIT_DOI.has(typ.zotero)) eintrag.DOI = doi;
+    if (doi) eintrag.url = 'https://doi.org/' + doi;
+
+    // Was sonst verloren ginge: die Kennung der Quelldatenbank, der eigene Tag
+    // und der Kommentar. `extra` nimmt jeden Typ an.
+    const extra = [];
+    const kennung = String(article.eid || article._id || '').trim();
+    if (kennung) extra.push(kennung.startsWith('pmid:') ? `PMID: ${kennung.slice(5)}` : `Record ID: ${kennung}`);
+    if (doi && !ZOTERO_FELDER_MIT_DOI.has(typ.zotero)) extra.push(`DOI: ${doi}`);
+    if (article.comment) extra.push(`Note: ${String(article.comment).replace(/\s+/g, ' ').trim()}`);
+    if (extra.length) eintrag.extra = extra.join('\n');
+
+    const marken = [];
+    if (article.tag && article.tag !== 'None') marken.push({ tag: String(article.tag) });
+    if (article.corpus) marken.push({ tag: 'SLR: corpus' });
+    else if (article.selected) marken.push({ tag: 'SLR: selected' });
+    if (marken.length) eintrag.tags = marken;
+
+    if (sammlung) eintrag.collections = [sammlung];
+    return eintrag;
+  }
+
+  // Welche Eintragstypen ein eigenes DOI-Feld haben (Schema 42). Bei den
+  // uebrigen wandert die DOI nach `extra`, wo Zotero sie ebenfalls erkennt.
+  const ZOTERO_FELDER_MIT_DOI = new Set([
+    'journalArticle', 'bookSection', 'conferencePaper', 'book',
+    'preprint', 'dataset', 'report', 'thesis',
+  ]);
+
+  /**
+   * Die Liste stapelweise uebertragen.
+   *
+   * Zotero nimmt hoechstens 50 Eintraege je Anfrage und antwortet mit drei
+   * Verzeichnissen — success, unchanged, failed. Das `failed` wird ausgewertet
+   * und nicht verschwiegen: Ein Teilerfolg, der als Erfolg gemeldet wird,
+   * waere in einer Literaturliste der schlechteste Ausgang.
+   */
+  async function zoteroSenden(articles, userID, sammlung, melde) {
+    let uebertragen = 0;
+    const fehler = [];
+    for (let i = 0; i < articles.length; i += ZOTERO_STAPEL) {
+      const stapel = articles.slice(i, i + ZOTERO_STAPEL);
+      if (melde) melde(uebertragen, articles.length);
+      const res = await zoteroAnfrage(`/users/${userID}/items`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(stapel.map(a => zoteroEintrag(a, sammlung))),
+      });
+      const d = await res.json().catch(() => ({}));
+      uebertragen += Object.keys(d.success || {}).length;
+      for (const [idx, grund] of Object.entries(d.failed || {})) {
+        const a = stapel[Number(idx)];
+        fehler.push(`${(a && a.title ? a.title.slice(0, 60) : '(untitled)')}: ${(grund && grund.message) || 'rejected'}`);
+      }
+      if (melde) melde(uebertragen, articles.length);
+    }
+    return { uebertragen, fehler };
   }
 
   function exportArticleList(articles, format, scopeLabel) {
@@ -2253,9 +2556,68 @@ window.SLRViews = (() => {
     return match ? match[0] : '';
   }
 
+  // ── Dokumenttypen: eine Tabelle statt drei Vermutungen ────────────────────
+  //
+  // Bis zum 21.09.2026 schrieb der RIS-Export fuer jeden Datensatz `TY  - JOUR`
+  // und der BibTeX-Export `@article` — unabhaengig davon, was tatsaechlich
+  // vorlag. An den realen Projekten gemessen betraf das rund ein Siebtel der
+  // Datensaetze: 1.657 Buchkapitel und 383 Buecher landeten in Zotero als
+  // Zeitschriftenaufsaetze. Beim Zitieren faellt das erst auf, wenn die
+  // Bibliografie steht.
+  //
+  // Die RIS-Kuerzel und die Zotero-Typen sind nicht geraten, sondern aus
+  // Zoteros eigenem RIS-Uebersetzer (`exportTypeMap`/`importTypeMap` in
+  // translators/RIS.js) und dem Schema unter api.zotero.org/schema
+  // uebernommen; geprueft am 21.09.2026.
+  //
+  // `behaelter` sagt, was `publicationName` bei diesem Typ bedeutet: bei einem
+  // Aufsatz die Zeitschrift, bei einem Kapitel das Buch, bei einem
+  // Konferenzbeitrag der Tagungsband. Zotero fuehrt dafuer drei verschiedene
+  // Feldnamen — genau die Stelle, an der ein pauschaler Export schiefgeht.
+  const DOKUMENTTYPEN = {
+    article:        { ris: 'JOUR', bib: 'article',       zotero: 'journalArticle', behaelter: 'publicationTitle' },
+    review:         { ris: 'JOUR', bib: 'article',       zotero: 'journalArticle', behaelter: 'publicationTitle' },
+    editorial:      { ris: 'JOUR', bib: 'article',       zotero: 'journalArticle', behaelter: 'publicationTitle' },
+    letter:         { ris: 'JOUR', bib: 'article',       zotero: 'journalArticle', behaelter: 'publicationTitle' },
+    conference:     { ris: 'CONF', bib: 'inproceedings', zotero: 'conferencePaper', behaelter: 'proceedingsTitle' },
+    chapter:        { ris: 'CHAP', bib: 'incollection',  zotero: 'bookSection',    behaelter: 'bookTitle' },
+    'book-chapter': { ris: 'CHAP', bib: 'incollection',  zotero: 'bookSection',    behaelter: 'bookTitle' },
+    book:           { ris: 'BOOK', bib: 'book',          zotero: 'book',           behaelter: null },
+    dissertation:   { ris: 'THES', bib: 'phdthesis',     zotero: 'thesis',         behaelter: null },
+    report:         { ris: 'RPRT', bib: 'techreport',    zotero: 'report',         behaelter: null },
+    dataset:        { ris: 'DATA', bib: 'misc',          zotero: 'dataset',        behaelter: null },
+    // Zoteros RIS-Uebersetzer kennt keinen Preprint-Typ — in RIS.js kommt das
+    // Wort nicht vor. `UNPD` wird dort zu "manuscript"; das ist nicht richtig,
+    // aber naeher an der Sache als ein Zeitschriftenaufsatz, und `M3` haelt
+    // die Gattung fest. Der unmittelbare Weg nach Zotero setzt dagegen den
+    // echten Typ `preprint` — einer der Gruende, warum es ihn gibt.
+    preprint:       { ris: 'UNPD', bib: 'misc',          zotero: 'preprint',       behaelter: 'repository' },
+    paratext:       { ris: 'GEN',  bib: 'misc',          zotero: 'document',       behaelter: null },
+    other:          { ris: 'GEN',  bib: 'misc',          zotero: 'document',       behaelter: null },
+  };
+
+  /**
+   * Welcher Typ gilt fuer diesen Datensatz?
+   *
+   * Ohne Angabe wird nicht geraten, sondern nachgesehen: Steht ein
+   * Behaeltertitel da, ist es mit grosser Wahrscheinlichkeit ein Aufsatz;
+   * steht keiner da, ist jede Festlegung eine Erfindung, und `document` sagt
+   * wenigstens nichts Falsches. Zu beachten: In RIS wird `GEN` von Zotero
+   * ausdruecklich als journalArticle eingelesen (importTypeMap), weshalb der
+   * unbekannte Fall dort ohnehin als Aufsatz ankommt — der unmittelbare Weg
+   * kann es besser.
+   */
+  function dokumentTyp(article) {
+    const roh = String((article && article.docType) || '').trim().toLowerCase();
+    if (roh && DOKUMENTTYPEN[roh]) return DOKUMENTTYPEN[roh];
+    if (article && article.publicationName) return DOKUMENTTYPEN.article;
+    return DOKUMENTTYPEN.other;
+  }
+
   function toBib(articles) {
     return articles.map((article, index) => {
       const key = makeBibKey(article, index);
+      const typ = dokumentTyp(article);
       const year = getArticleYear(article);
       const fields = [];
 
@@ -2265,8 +2627,16 @@ window.SLRViews = (() => {
       const authors = escBib(formatBibAuthors(article.authors));
       if (authors) fields.push(`  author = {${authors}}`);
 
-      const journal = escBib(article.publicationName);
-      if (journal) fields.push(`  journal = {${journal}}`);
+      // Der Behaelter heisst je nach Typ anders. `journal` an einem
+      // @incollection ist kein Schoenheitsfehler: Die meisten Leser ignorieren
+      // das Feld dort, und der Buchtitel fehlt dann in der Bibliografie.
+      const behaelter = escBib(article.publicationName);
+      if (behaelter) {
+        if (typ.bib === 'incollection') fields.push(`  booktitle = {${behaelter}}`);
+        else if (typ.bib === 'inproceedings') fields.push(`  booktitle = {${behaelter}}`);
+        else if (typ.bib === 'article') fields.push(`  journal = {${behaelter}}`);
+        else if (typ.bib === 'misc' && typ.zotero === 'preprint') fields.push(`  howpublished = {${behaelter}}`);
+      }
 
       if (year) fields.push(`  year = {${year}}`);
 
@@ -2279,7 +2649,7 @@ window.SLRViews = (() => {
       const eid = escBib(article.eid || article._id);
       if (eid) fields.push(`  note = {EID: ${eid}}`);
 
-      return `@article{${key},\n${fields.join(',\n')}\n}`;
+      return `@${typ.bib}{${key},\n${fields.join(',\n')}\n}`;
     }).join('\n\n');
   }
 
@@ -2316,15 +2686,24 @@ window.SLRViews = (() => {
 
   function toRis(articles) {
     return articles.map(article => {
-      const lines = ['TY  - JOUR'];
+      const typ = dokumentTyp(article);
+      const lines = [`TY  - ${typ.ris}`];
       const title = risSafe(article.title);
       if (title) lines.push(`TI  - ${title}`);
 
       const authorLines = splitAuthorsForRis(article.authors);
       authorLines.forEach(author => lines.push(`AU  - ${risSafe(author)}`));
 
-      const journal = risSafe(article.publicationName);
-      if (journal) lines.push(`JO  - ${journal}`);
+      // T2 statt JO: Zotero liest `T2` je nach Eintragstyp als Zeitschrift,
+      // Buch- oder Tagungsbandtitel. `JO` gilt nur fuer Zeitschriften und lief
+      // bei jedem Kapitel ins Leere.
+      const behaelter = risSafe(article.publicationName);
+      if (behaelter) lines.push(`T2  - ${behaelter}`);
+
+      // Die Gattung, wo der Typ sie nicht traegt — Zoteros RIS-Uebersetzer
+      // kennt keinen Preprint, deshalb steht sie hier wenigstens im Klartext.
+      if (typ.zotero === 'preprint') lines.push('M3  - Preprint');
+      if (typ.zotero === 'thesis')   lines.push('M3  - Dissertation');
 
       const year = getArticleYear(article);
       if (year) lines.push(`PY  - ${year}`);
@@ -7671,6 +8050,23 @@ window.SLRViews = (() => {
         </div>
 
         <div class="settings-section">
+          <h3>Sending records to Zotero</h3>
+          <p class="privacy-lead">Only if you use <strong>Send to Zotero</strong> from the export menu.
+            Nothing goes there otherwise, and the file downloads (.ris, .bib, .csv) contact no one at all &mdash;
+            they are written by this browser and never leave it until you hand them to something else.</p>
+          <ul class="about-feature-list">
+            <li><span class="about-li-icon" aria-hidden="true">${SLRIcons.download}</span><span><strong>Zotero</strong> (api.zotero.org) &mdash;
+              the records you chose to send: title, authors, abstract, journal or book title, date, DOI, the
+              record's database identifier, and your own tag and comment if you made one. Your Zotero API key
+              travels as a request header. Which collection you picked is read from the same account.</span></li>
+            <li><span class="about-li-icon" aria-hidden="true">${SLRIcons.settings}</span><span><strong>Where the key is kept</strong> &mdash;
+              in this browser's local storage under <code>slr-zotero-key</code>, on this device only. It is
+              never written into a project, never synced, and goes to no host other than api.zotero.org.
+              Clearing site data removes it; so does deleting it in Zotero, which revokes it everywhere.</span></li>
+          </ul>
+        </div>
+
+        <div class="settings-section">
           <h3>Read aloud</h3>
           <p class="privacy-lead">Only if you use the <strong>Read aloud</strong> button. What
             leaves the device depends on the voice engine chosen in Settings.</p>
@@ -9816,6 +10212,13 @@ window.SLRViews = (() => {
     // kann, was ein Feldcode ist und was ein Suchbegriff.
     FIELD_CODES_BY_DB,
     confirmDialog,
+    // Fuer die Pruefung der Exporte offengelegt: Die Zuordnung der
+    // Dokumenttypen ist die Stelle, an der ein Export still falsch wird, und
+    // sie laesst sich nur pruefen, wenn man an sie herankommt.
+    toRis,
+    toBib,
+    dokumentTyp,
+    zoteroEintrag,
     renderGuide,
     fuehrungZuruecksetzen,
     fuehrungEntfernen,

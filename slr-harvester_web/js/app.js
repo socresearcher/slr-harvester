@@ -2840,7 +2840,10 @@ window.SLRApp = (() => {
 		const t = (type || '').toLowerCase();
 		if (!t) return null;
 		if (t.includes('journal-article')) return 'article';
-		if (t.includes('proceedings-article')) return 'article';
+		// Bis 21.09.2026 stand hier 'article'. Ein Konferenzbeitrag wurde damit
+		// schon beim Einlesen zu einem Zeitschriftenaufsatz, und kein Export
+		// konnte das mehr richtigstellen. Zotero und Citavi kennen den Typ.
+		if (t.includes('proceedings-article')) return 'conference';
 		if (t.includes('book-chapter')) return 'chapter';
 		if (t.includes('book')) return 'book';
 		if (t.includes('dataset')) return 'dataset';
@@ -2854,6 +2857,9 @@ window.SLRApp = (() => {
 	function mapOpenAlexType(type) {
 		const t = (type || '').toLowerCase();
 		if (!t) return null;
+		// Vor 'article' geprueft: OpenAlex schreibt "proceedings-article", und
+		// die Pruefung auf 'article' allein verschluckte den Konferenzbeitrag.
+		if (t.includes('proceedings') || t.includes('conference')) return 'conference';
 		if (t.includes('article')) return 'article';
 		if (t.includes('book-chapter') || t.includes('chapter')) return 'chapter';
 		if (t.includes('book')) return 'book';
@@ -4256,6 +4262,8 @@ window.SLRApp = (() => {
 		removeAutoTagKeyword,
 		resetAutoTagRules,
 		fetchAbstractsViaDOI,
+		showFetchProgress,
+		hideFetchProgress,
 		compactStorage,
 		applyPruning,
 		planCompaction,
