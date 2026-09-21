@@ -296,6 +296,25 @@ window.SLRData = (() => {
   }
 
   /**
+   * Was tatsaechlich abgelegt ist — Form und Groesse, gemessen am rohen
+   * Dokument, bevor es entpackt wird.
+   *
+   * Ohne diese Angabe misst die Anzeige im Arbeitsbereich die entpackte Form
+   * im Arbeitsspeicher und damit etwas, das so nirgends liegt: Nach einem
+   * Verdichten stuende dort unveraendert dieselbe Mehrfachablage, obwohl die
+   * Datei sie nicht mehr enthaelt — und das Angebot, noch einmal zu
+   * verdichten, kaeme immer wieder. Beide Backends rufen das beim Lesen auf
+   * und legen das Ergebnis als `searchLogStored` in die Projektdaten.
+   */
+  function describeStoredLog(roh) {
+    if (roh === null || roh === undefined) return { format: 1, bytes: 0 };
+    return {
+      format: istAlteForm(roh) ? 1 : 2,
+      bytes:  jsonBytes(roh),
+    };
+  }
+
+  /**
    * Gespeicherte Form → die Form, die die Anwendung kennt: ein Array von
    * Laeufen, jeder mit vollstaendigen Datensaetzen in `results`.
    *
@@ -396,7 +415,7 @@ window.SLRData = (() => {
       const ann = (globalTags || {})[k];
       if (ann && (ann.selected || ann.corpus)) return false;
     }
-    if (!(letzterLauf > 0) || letzterLauf > grenzeMs) return false;
+    if (grenzeMs !== Infinity && (!(letzterLauf > 0) || letzterLauf > grenzeMs)) return false;
     return NACHLADBARE_FELDER.some(f => {
       const v = work[f];
       return Array.isArray(v) ? v.length > 0 : (v !== undefined && v !== null && v !== '');
@@ -425,7 +444,13 @@ window.SLRData = (() => {
   function planPruning(projectData, optionen = {}) {
     const tage    = Number(optionen.tage) > 0 ? Number(optionen.tage) : 60;
     const jetzt   = optionen.jetzt !== undefined ? optionen.jetzt : Date.now();
-    const grenze  = jetzt - tage * 86400000;
+    // `ohneFrist` laesst die Altersbedingung weg — dann zaehlt nur noch, ob
+    // eine Arbeit wiederzubeschaffen und nicht ausgewaehlt ist. Die drei
+    // anderen Bedingungen gelten unveraendert; Korpus und Auswahl bleiben
+    // auch hier unberuehrt, denn sie sind der Grund, warum es die Pruefung
+    // ueberhaupt gibt, und nicht eine Voreinstellung.
+    const ohneFrist = !!optionen.ohneFrist;
+    const grenze  = ohneFrist ? Infinity : jetzt - tage * 86400000;
     const runs    = (projectData && Array.isArray(projectData.searchLog)) ? projectData.searchLog : [];
     const globalTags = (projectData && projectData.globalTags) || {};
 
@@ -480,8 +505,8 @@ window.SLRData = (() => {
       // Ein Lauf ohne lesbaren Zeitstempel hat kein Alter; er wird gehalten,
       // aber nicht als "zu jung" gezaehlt — das waere eine Behauptung, die
       // die Daten nicht hergeben.
-      if (!(juengster.get(id) > 0)) { ohneZeit++; continue; }
-      if (juengster.get(id) > grenze) { zuJung++; continue; }
+      if (!ohneFrist && !(juengster.get(id) > 0)) { ohneZeit++; continue; }
+      if (!ohneFrist && juengster.get(id) > grenze) { zuJung++; continue; }
       if (!pruefeAbtragbar(work, id, juengster.get(id), grenze, globalTags, aliasVon)) continue;
       arbeiten++;
       for (const f of NACHLADBARE_FELDER) {
@@ -490,7 +515,7 @@ window.SLRData = (() => {
       abzutragen.add(id);
     }
 
-    const plan = { tage, arbeiten, bytes, geschuetzt, ohneKennung, zuJung, ohneZeit,
+    const plan = { tage, ohneFrist, arbeiten, bytes, geschuetzt, ohneKennung, zuJung, ohneZeit,
                    gesamt: zusammen.size };
     if (!optionen.anwenden || !abzutragen.size) return plan;
 
@@ -555,8 +580,13 @@ window.SLRData = (() => {
   function measureProject(projectData) {
     const searchLog = (projectData && Array.isArray(projectData.searchLog)) ? projectData.searchLog : [];
 
+    // Die Groesse der gespeicherten Form, nicht der entpackten im
+    // Arbeitsspeicher. `searchLogStored` liefert beide Backends beim Lesen mit;
+    // fehlt es (etwa in einem Test mit untergeschobenen Daten), wird die
+    // entpackte Form gemessen wie frueher.
+    const abgelegt = projectData && projectData.searchLogStored;
     const bytes = {
-      searchLog:  jsonBytes(searchLog),
+      searchLog:  abgelegt ? abgelegt.bytes : jsonBytes(searchLog),
       globalTags: jsonBytes((projectData && projectData.globalTags) || {}),
       rest:       jsonBytes((projectData && projectData.tagsConfig) || {})
                 + jsonBytes((projectData && projectData.tagAliases) || {})
@@ -599,12 +629,15 @@ window.SLRData = (() => {
     }
 
     // One copy per work, at its largest observed size. The difference to the
-    // sum of all rows is what repeated runs cost: the same work is stored
-    // again for every query that returned it, and the deduplication in
-    // getArticles happens on read, never in the file.
+    // sum of all rows is what repeated runs cost — aber nur in Ablageform 1.
+    // Ist die Datei schon verdichtet, steht jede Arbeit dort bereits einmal;
+    // die Mehrfachnennung existiert dann nur noch als Verweisliste je Lauf und
+    // kostet nichts mehr. Sie hier trotzdem zu melden, war der Fehler, der die
+    // Anzeige nach dem Verdichten unveraendert liess.
     let einfach = 0;
     for (const b of groesste.values()) einfach += b;
     const alle = Object.values(jeFeld).reduce((a, b) => a + b, 0);
+    const schonVerdichtet = !!(abgelegt && abgelegt.format >= 2);
 
     // Four bands that cover the whole project, not just its result records.
     // The annotation index and the saved query terms are the user's own work
@@ -612,17 +645,18 @@ window.SLRData = (() => {
     // they belong in the same band; without them a project written by this
     // application would show no user data at all, which is the opposite of
     // true. Invariant: the four bands sum to bytes.total.
-    // Everything in the query log that is not a result record: the timestamp,
-    // the query string itself and which database ran it. That is the
-    // reproducibility record — the user's own input — so it sits in the same
-    // band as their notes.
-    const rahmen = Math.max(0, bytes.searchLog - satzBytesGenau);
-    const faktor = alle > 0 ? satzBytesGenau / alle : 0;
+    // Die vier Baender decken das ganze Projekt ab. Verteilt wird die
+    // tatsaechlich abgelegte Groesse des Abfrageprotokolls nach den Anteilen,
+    // die die Feldzaehlung ergibt — so stimmt die Summe unabhaengig davon, in
+    // welcher Ablageform die Datei liegt. Der Annotationsindex und die
+    // gemerkten Suchbegriffe kommen als bekannte Groessen hinzu; sie sind die
+    // Arbeit der Nutzerin und stehen im selben Band.
+    const anteil = alle > 0 ? bytes.searchLog / alle : 0;
     const bands = {
-      kennung:    Math.round(kennung * faktor),
-      anzeige:    Math.round(anzeige * faktor),
-      nachladbar: Math.round(nachladbar * faktor),
-      eigen:      Math.round(eigen * faktor) + rahmen + bytes.globalTags + bytes.rest,
+      kennung:    Math.round(kennung * anteil),
+      anzeige:    Math.round(anzeige * anteil),
+      nachladbar: Math.round(nachladbar * anteil),
+      eigen:      Math.round(eigen * anteil) + bytes.globalTags + bytes.rest,
     };
     // Rounding four shares can lose or gain a byte or two; the largest band
     // absorbs it so the four always add up to the figure shown above them.
@@ -636,9 +670,11 @@ window.SLRData = (() => {
       rows,
       works: groesste.size,
       bytes,
-      ergebnisse: alle,          // all result records, as stored
-      einfach,                   // the same works, stored once each
-      mehrfach: Math.max(0, alle - einfach),
+      ergebnisse: alle,          // alle Trefferzeilen, entpackt gezaehlt
+      einfach,                   // dieselben Arbeiten, je einmal
+      // Was die Mehrfachablage in der DATEI kostet. In Ablageform 2: nichts.
+      mehrfach: schonVerdichtet ? 0 : Math.max(0, alle - einfach),
+      format: abgelegt ? abgelegt.format : 1,
       kennung, anzeige, nachladbar, eigen,
       bands,
       jeFeld,
@@ -653,6 +689,7 @@ window.SLRData = (() => {
       ergebnisse: 0, einfach: 0, mehrfach: 0,
       kennung: 0, anzeige: 0, nachladbar: 0, eigen: 0,
       bands: { kennung: 0, anzeige: 0, nachladbar: 0, eigen: 0 },
+      altformat: 0,              // wie viele Projekte noch in Ablageform 1 liegen
       jeProjekt: {},
     };
     for (const [folder, pd] of Object.entries(allProjectData || {})) {
@@ -668,6 +705,7 @@ window.SLRData = (() => {
       summe.anzeige    += m.anzeige;
       summe.nachladbar += m.nachladbar;
       summe.eigen      += m.eigen;
+      if (m.format < 2) summe.altformat++;
       for (const k of Object.keys(summe.bands)) summe.bands[k] += m.bands[k];
       summe.bytes.searchLog  += m.bytes.searchLog;
       summe.bytes.globalTags += m.bytes.globalTags;
@@ -687,6 +725,7 @@ window.SLRData = (() => {
     getArticles,
     getStats,
     expandSearchLog,
+    describeStoredLog,
     compactSearchLog,
     planPruning,
     NACHLADBARE_FELDER,

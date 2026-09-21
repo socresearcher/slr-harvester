@@ -551,24 +551,32 @@ window.SLRApp = (() => {
 	}
 
 	/** Was das Zusammenlegen braechte, ohne etwas zu tun. */
+	// Verglichen wird gegen das, was wirklich abgelegt ist — nicht gegen die
+	// entpackte Form im Arbeitsspeicher. Ein schon verdichtetes Projekt kommt
+	// so auf null und wird nicht noch einmal angeboten.
+	function gespeicherteGroesse(pd) {
+		return (pd && pd.searchLogStored) ? pd.searchLogStored.bytes
+		                                  : JSON.stringify(pd.searchLog).length;
+	}
+
 	function planCompaction() {
 		let vorher = 0, nachher = 0, projekte = 0;
 		for (const [, pd] of geladeneProjekte()) {
-			const roh = JSON.stringify(pd.searchLog);
-			const neu = JSON.stringify(SLRData.compactSearchLog(pd.searchLog));
-			vorher += roh.length;
-			nachher += neu.length;
-			if (neu.length < roh.length) projekte++;
+			const roh = gespeicherteGroesse(pd);
+			const neu = JSON.stringify(SLRData.compactSearchLog(pd.searchLog)).length;
+			vorher += roh;
+			nachher += Math.min(roh, neu);
+			if (neu < roh) projekte++;
 		}
 		return { vorher, nachher, ersparnis: Math.max(0, vorher - nachher), projekte };
 	}
 
 	/** Was das Abtragen mit der eingestellten Frist braechte, ohne etwas zu tun. */
-	function planAbtragen(tage) {
+	function planAbtragen(tage, ohneFrist) {
 		const frist = tage || aufbewahrungTage();
-		const summe = { tage: frist, arbeiten: 0, bytes: 0, geschuetzt: 0, ohneKennung: 0, zuJung: 0, ohneZeit: 0, gesamt: 0 };
+		const summe = { tage: frist, ohneFrist: !!ohneFrist, arbeiten: 0, bytes: 0, geschuetzt: 0, ohneKennung: 0, zuJung: 0, ohneZeit: 0, gesamt: 0 };
 		for (const [, pd] of geladeneProjekte()) {
-			const plan = SLRData.planPruning(pd, { tage: frist });
+			const plan = SLRData.planPruning(pd, { tage: frist, ohneFrist: !!ohneFrist });
 			for (const k of ['arbeiten', 'bytes', 'geschuetzt', 'ohneKennung', 'zuJung', 'ohneZeit', 'gesamt']) {
 				summe[k] += plan[k] || 0;
 			}
@@ -581,6 +589,28 @@ window.SLRApp = (() => {
 		if (b < 1024) return `${b} B`;
 		if (b < 1048576) return `${(b / 1024).toFixed(b < 10240 ? 1 : 0)} kB`;
 		return `${(b / 1048576).toFixed(b < 10485760 ? 2 : 1)} MB`;
+	}
+
+	/**
+	 * Nach einem Schreibvorgang neu einlesen und zeichnen.
+	 *
+	 * Eigener try/catch, und zwar bewusst: Frueher lief das Neueinlesen im
+	 * selben Block wie das Schreiben. Schlug es fehl — und sei es aus einem
+	 * Grund, der mit dem Schreiben nichts zu tun hat —, brach die Funktion ab,
+	 * ohne Meldung und ohne neu zu zeichnen. Von aussen sah das aus, als waere
+	 * nichts geschehen, obwohl die Daten laengst geschrieben waren.
+	 */
+	async function nachLesenUndZeichnen() {
+		try {
+			await loadProjectsAndStats();
+			if (state.currentFolder) await hydrateProject(state.currentFolder);
+		} catch (err) {
+			showToast('Saved, but the view could not be refreshed: '
+				+ (err.message || String(err)) + ' — reload the page to see the new state.', true);
+			return false;
+		}
+		renderCurrentView();
+		return true;
 	}
 
 	/** Zusammenlegen anwenden — jede Arbeit steht danach einmal je Projekt. */
@@ -605,63 +635,106 @@ window.SLRApp = (() => {
 		});
 		if (!ok) return;
 
-		let getan = 0;
-		for (const [folder, pd] of geladeneProjekte()) {
-			const roh = JSON.stringify(pd.searchLog).length;
-			if (JSON.stringify(SLRData.compactSearchLog(pd.searchLog)).length >= roh) continue;
-			try {
-				await SLRData.rewriteSearchLog(folder, pd.searchLog);
-				getan++;
-			} catch (err) {
-				showToast(`Could not compact ${folder}: ${err.message || String(err)}`, true);
-				return;
+		// Nur die Projekte, bei denen es etwas bringt — dieselbe Bedingung wie
+		// in planCompaction, damit die angekuendigte Zahl und die getane Arbeit
+		// von derselben Liste sprechen.
+		const zuTun = geladeneProjekte().filter(([, pd]) =>
+			JSON.stringify(SLRData.compactSearchLog(pd.searchLog)).length < gespeicherteGroesse(pd));
+
+		let getan = 0, frei = 0;
+		try {
+			for (const [folder, pd] of zuTun) {
+				showFetchProgress(`Compacting ${projektName(folder)}`, getan, zuTun.length);
+				const vorher = gespeicherteGroesse(pd);
+				const nachher = JSON.stringify(SLRData.compactSearchLog(pd.searchLog)).length;
+				try {
+					await SLRData.rewriteSearchLog(folder, pd.searchLog);
+					getan++;
+					frei += Math.max(0, vorher - nachher);
+				} catch (err) {
+					hideFetchProgress();
+					showToast(`Could not compact ${projektName(folder)}: ${err.message || String(err)}`, true);
+					if (getan) await nachLesenUndZeichnen();
+					return;
+				}
+				showFetchProgress(`Compacting ${projektName(folder)}`, getan, zuTun.length);
 			}
+		} finally {
+			hideFetchProgress();
 		}
-		await loadProjectsAndStats();
-		if (state.currentFolder) await hydrateProject(state.currentFolder);
-		renderCurrentView();
-		showToast(`Compacted ${getan} project${getan !== 1 ? 's' : ''}, about ${byteText(plan.ersparnis)} freed.`, false);
+
+		await nachLesenUndZeichnen();
+		showToast(`Compacted ${getan} project${getan !== 1 ? 's' : ''}, about ${byteText(frei)} freed.`, false);
 	}
 
-	/** Abtragen anwenden — nachladbare Felder alter Treffer entfernen. */
-	async function applyPruning() {
+	/** Lesbarer Name eines Projekts, ersatzweise sein Ordner. */
+	function projektName(folder) {
+		const p = (state.projects || []).find(x => x.workspace_folder === folder);
+		return (p && p.name) || folder;
+	}
+
+	/**
+	 * Abtragen anwenden — nachladbare Felder entfernen.
+	 *
+	 * `ohneFrist` laesst die Altersbedingung weg. Die drei uebrigen
+	 * Bedingungen gelten unveraendert: Was ausgewaehlt oder im Korpus ist,
+	 * wird nie abgetragen, und nur was wiederzubeschaffen ist, wird angeruehrt.
+	 */
+	async function applyPruning(ohneFrist) {
 		const tage = aufbewahrungTage();
-		const plan = planAbtragen(tage);
+		const plan = planAbtragen(tage, ohneFrist);
 		if (!plan.arbeiten) {
-			showToast('Nothing older than the retention window is safe to thin out right now.', false);
+			showToast(ohneFrist
+				? 'Nothing left to thin out — everything else is selected, in the corpus, or has no identifier to fetch it back with.'
+				: 'Nothing older than the retention window is safe to thin out right now.', false);
 			return;
 		}
+		const wann = ohneFrist
+			? 'Removed from every record that can be fetched again, regardless of age.'
+			: `Removed from records whose most recent search is more than ${tage} days old.`;
 		const ok = await SLRViews.confirmDialog({
 			title: `Thin out ${plan.arbeiten.toLocaleString()} record${plan.arbeiten !== 1 ? 's' : ''}?`,
 			message: `Frees about ${byteText(plan.bytes)}.\n\n`
-				+ 'Abstracts, author lists, affiliations and fields are removed from records '
-				+ `whose most recent search is more than ${tage} days old. Identifiers, dates, `
-				+ 'titles, journals and every tag, comment and screening decision stay.\n\n'
+				+ `Abstracts, author lists, affiliations and fields go. ${wann} `
+				+ 'Identifiers, dates, titles, journals and every tag, comment and screening decision stay.\n\n'
 				+ `${plan.geschuetzt.toLocaleString()} record${plan.geschuetzt !== 1 ? 's are' : ' is'} `
 				+ 'left alone for being selected or in the corpus, and '
 				+ `${plan.ohneKennung.toLocaleString()} for having no identifier to fetch ${plan.ohneKennung !== 1 ? 'them' : 'it'} back with.\n\n`
 				+ 'Fetch restores the removed fields whenever you need them — as long as the source still has them.',
-			confirmLabel: 'Thin out',
+			confirmLabel: ohneFrist ? 'Thin out everything' : 'Thin out',
 			danger: true,
 		});
 		if (!ok) return;
 
-		let getan = 0;
-		for (const [folder, pd] of geladeneProjekte()) {
-			const plan1 = SLRData.planPruning(pd, { tage, anwenden: true });
-			if (!plan1.searchLog || !plan1.arbeiten) continue;
-			try {
-				await SLRData.rewriteSearchLog(folder, plan1.searchLog);
-				getan += plan1.arbeiten;
-			} catch (err) {
-				showToast(`Could not thin out ${folder}: ${err.message || String(err)}`, true);
-				return;
+		const alle = geladeneProjekte();
+		let getan = 0, frei = 0, erledigt = 0;
+		try {
+			for (const [folder, pd] of alle) {
+				showFetchProgress(`Thinning out ${projektName(folder)}`, erledigt, alle.length);
+				const plan1 = SLRData.planPruning(pd, { tage, ohneFrist: !!ohneFrist, anwenden: true });
+				erledigt++;
+				if (!plan1.searchLog || !plan1.arbeiten) {
+					showFetchProgress(`Thinning out ${projektName(folder)}`, erledigt, alle.length);
+					continue;
+				}
+				try {
+					await SLRData.rewriteSearchLog(folder, plan1.searchLog);
+					getan += plan1.arbeiten;
+					frei  += plan1.bytes;
+				} catch (err) {
+					hideFetchProgress();
+					showToast(`Could not thin out ${projektName(folder)}: ${err.message || String(err)}`, true);
+					if (getan) await nachLesenUndZeichnen();
+					return;
+				}
+				showFetchProgress(`Thinning out ${projektName(folder)}`, erledigt, alle.length);
 			}
+		} finally {
+			hideFetchProgress();
 		}
-		await loadProjectsAndStats();
-		if (state.currentFolder) await hydrateProject(state.currentFolder);
-		renderCurrentView();
-		showToast(`Thinned out ${getan.toLocaleString()} record${getan !== 1 ? 's' : ''}, about ${byteText(plan.bytes)} freed.`, false);
+
+		await nachLesenUndZeichnen();
+		showToast(`Thinned out ${getan.toLocaleString()} record${getan !== 1 ? 's' : ''}, about ${byteText(frei)} freed.`, false);
 	}
 
 	function renderCurrentView() {

@@ -104,6 +104,11 @@ desktop.ini
 **/INFRASTRUKTUR.md
 **/SUPABASE.md
 **/PAPER.md
+
+# File-based prompt inbox (see CLAUDE.md, "Prompt Inbox — prompts/"). These
+# are internal work orders for AI-assisted sessions, same category as
+# TASKS.md/SUGGESTIONS.md above — never meant for the public repo.
+/prompts/
 .github/copilot-instructions.md
 .github/instructions/
 .github/prompts/

@@ -311,6 +311,7 @@ window.SLRDataCloud = (() => {
     return {
       folderName,
       searchLog:    data.search_log ? SLRData.expandSearchLog(data.search_log) : [],
+      searchLogStored: SLRData.describeStoredLog(data.search_log),
       globalTags:   data.global_tags   || {},
       tagsConfig:   data.tags_config   || {},
       tagAliases:   data.tag_aliases   || {},

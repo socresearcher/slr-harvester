@@ -211,6 +211,7 @@ window.SLRDataLocal = (() => {
     return {
       folderName,
       searchLog:    searchLog ? SLRData.expandSearchLog(searchLog) : [],
+      searchLogStored: SLRData.describeStoredLog(searchLog),
       globalTags:   globalTags  || {},
       tagsConfig:   tagsConfig  || {},
       tagAliases:   tagAliases  || {},

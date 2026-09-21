@@ -9206,3 +9206,13 @@ body.has-progress-footer .slr-guide {
 @media (max-width: 420px) {
   .storage-retention { flex-wrap: wrap; }
 }
+
+/* Zwei Knoepfe nebeneinander unter der Abtrag-Vorschau: der zweite ist der
+   Weg an der Frist vorbei und soll nicht wie eine Wiederholung des ersten
+   aussehen, aber auch nicht wie die Hauptsache. */
+.storage-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 4px;
+}
