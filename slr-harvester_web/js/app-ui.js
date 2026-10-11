@@ -39,6 +39,17 @@ window.SLRAppUI = (() => {
 
     const icon = $('sidebar-toggle-icon');
     if (icon) icon.innerHTML = state.sidebarCollapsed ? SLRIcons.chevronRight : SLRIcons.chevronLeft;
+
+    // Der Schalter sagt, was ein Klick TUT, nicht was er war: Der Titel stand
+    // fest auf "Collapse sidebar", auch bei eingeklappter Seitenleiste, und
+    // Bildschirmleser erfuhren nie, ob sie offen ist.
+    const btn = $('sidebar-toggle');
+    if (btn) {
+      const was = state.sidebarCollapsed ? 'Expand sidebar' : 'Collapse sidebar';
+      btn.title = was;
+      btn.setAttribute('aria-label', was);
+      btn.setAttribute('aria-expanded', String(!state.sidebarCollapsed));
+    }
   }
 
   function toggleSidebar(state, sidebarEl, $) {

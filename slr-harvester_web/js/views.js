@@ -451,6 +451,8 @@ window.SLRViews = (() => {
           <p>A browser tool for managing
              <span style="white-space:nowrap">Systematic Literature Reviews</span>.<br>
              Connect a workspace below to get started.</p>
+          <p class="welcome-beta"><span class="beta-pill">Beta</span><span>A test project &mdash; so far used only by its author.
+             <button type="button" class="link-btn" id="welcome-beta-link">What that means</button></span></p>
         </div>
 
         <div class="welcome-actions">
@@ -481,6 +483,8 @@ window.SLRViews = (() => {
         </div>
 
       </div>`;
+
+    container.querySelector('#welcome-beta-link')?.addEventListener('click', () => SLRApp.navigate('about'));
 
     container.querySelector('#welcome-open-btn').addEventListener('click', () => {
       if (supported) {
@@ -8260,6 +8264,32 @@ window.SLRViews = (() => {
           </button>
         </div>
 
+        <section class="about-beta" id="about-beta" aria-labelledby="about-beta-title">
+          <h3 id="about-beta-title"><span class="beta-pill">Beta</span> A test project, not a finished product</h3>
+          <p>SLR Harvester Web is a research prototype under trial. So far it has been used productively
+            only by its author, and shown in person to a few others. There has been no field test, no
+            feedback survey and no usage statistics &mdash; nothing here has yet been shown to work for
+            anyone but the person who built it.</p>
+          <ul class="about-feature-list">
+            <li><span class="about-li-icon" aria-hidden="true">${SLRIcons.warning}</span><span><strong>No automatic backups.</strong>
+              With Local Folder, the files and their backups are yours. Cloud Sync lives in a free-tier
+              database, and that tier makes none. Export your lists (<code>.ris</code>, <code>.bib</code>,
+              <code>.csv</code>) and keep your own copies &mdash; do not let this app hold the only copy of
+              work you cannot redo.</span></li>
+            <li><span class="about-li-icon" aria-hidden="true">${SLRIcons.warning}</span><span><strong>No guarantee of availability.</strong>
+              The service can change, pause or stop; a free cloud project is paused after a week without
+              use, and stored formats may change between versions.</span></li>
+            <li><span class="about-li-icon" aria-hidden="true">${SLRIcons.warning}</span><span><strong>Shared storage.</strong>
+              Cloud Sync uses one free database of 500&nbsp;MB for all accounts together; limits per
+              account may follow.</span></li>
+            <li><span class="about-li-icon" aria-hidden="true">${SLRIcons.warning}</span><span><strong>No support and no warranty</strong>
+              beyond what the <a href="https://github.com/socresearcher/slr-harvester/blob/main/LICENSE.md" target="_blank" rel="noopener">licence</a> says.</span></li>
+          </ul>
+          <p>Found something wrong or missing?
+            <a href="https://github.com/socresearcher/slr-harvester/issues" target="_blank" rel="noopener">Report an issue</a>
+            &mdash; that feedback is what this phase is for.</p>
+        </section>
+
         <p class="settings-group-label">More</p>
         ${collapseSection({
           id: 'about-features',
@@ -9737,6 +9767,9 @@ window.SLRViews = (() => {
         </div>
         <div class="modal-body">
           ${renderSupabaseDevNotice()}
+          <p class="field-hint beta-signup-note" id="supabase-modal-beta" style="margin:0 0 14px" hidden>
+            <span class="beta-pill">Beta</span> A test project. Cloud Sync keeps <strong>no automatic backups</strong> &mdash;
+            export your lists and keep your own copies.</p>
           <form id="supabase-modal-form" autocomplete="on">
             <div class="form-field">
               <label for="supabase-modal-email">Email</label>
@@ -9803,7 +9836,9 @@ window.SLRViews = (() => {
     const titleEl  = overlay.querySelector('#supabase-modal-title');
     const submitEl = overlay.querySelector('#supabase-modal-submit');
     const switchEl = overlay.querySelector('#supabase-modal-switch-mode');
+    const betaNote = overlay.querySelector('#supabase-modal-beta');
     function updateModeUI() {
+      if (betaNote) betaNote.hidden = mode !== 'signup';
       titleEl.textContent  = labelFor(mode);
       submitEl.textContent = labelFor(mode);
       switchEl.textContent = mode === 'signup' ? 'Already have an account? Log In' : "Don't have an account? Sign Up";

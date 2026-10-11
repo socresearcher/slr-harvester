@@ -2,8 +2,10 @@
 
 **SLR Harvester** helps you conduct structured, reproducible Systematic Literature Reviews (SLRs) — searching academic databases, screening and tagging results, and producing exports for your methods section. Two versions are available, reading and writing the same project folder format:
 
-- **[SLR Harvester Web](#slr-harvester-web)** — browser-based, zero-install. Recommended for most users.
+- **[SLR Harvester Web](#slr-harvester-web)** — browser-based, zero-install. Recommended for most users, **in beta** (see below).
 - **[SLR Harvester Desktop](#slr-harvester-desktop-original)** — the original Python desktop application.
+
+> **Beta — a test project, not a finished product.** The web version is a research prototype under trial. So far it has been used productively only by its author, and shown in person to a few others; there has been no field test and no feedback survey. **There are no automatic backups** — export your lists and keep your own copies. Availability is not guaranteed and stored formats may change between versions. Found something wrong? [Report an issue](https://github.com/socresearcher/slr-harvester/issues).
 
 ---
 

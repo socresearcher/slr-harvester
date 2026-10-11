@@ -32,11 +32,22 @@ window.SLRTts = (() => {
 
   const STORE_KEY = 'slr-tts';
   // Piper synthesises a whole chunk in one go, so longer pieces are fine and
-  // actually sound better. The device engine gets much shorter ones: Chrome
-  // stops speaking after roughly 15 seconds, and staying well under that is
-  // what makes the workaround below unnecessary.
+  // actually sound better.
+  //
+  // The device engine used to get 110 characters for EVERY voice, because
+  // Chrome cuts a single utterance off after roughly fifteen seconds. That
+  // limit belongs to Google's *network* voices in Chrome, not to voices in
+  // general. Edge's "Online (Natural)" voices, Apple's and the local Windows
+  // ones read long sentences without it — and for them 110 characters meant
+  // a break every second clause: on a German abstract read with an Edge
+  // natural voice, ten audible pauses (median 190 ms) and a label such as
+  // "Methode:" spoken as an utterance of its own. The KI & Erwerbsarbeit
+  // site, which took this code from here, found the same and settled on 260
+  // for everything that is not a Google network voice (measured there
+  // 04.10.2026, re-measured here 11.10.2026 with Edge natural voices).
   const MAX_CHUNK = 180;
-  const MAX_CHUNK_SYSTEM = 110;
+  const MAX_CHUNK_SYSTEM = 260;
+  const MAX_CHUNK_GOOGLE_NETWORK = 110;
 
   // ── Settings ──────────────────────────────────────────────────────
   const DEFAULTS = {
@@ -109,9 +120,28 @@ window.SLRTts = (() => {
   // starting in the middle, and as sentences turning up where they do not
   // belong. `flush()` before any push is the whole fix; the property is
   // asserted in the tests below.
+  // Where a sentence may end. Not after:
+  //   - a one-character label: "A: Text" and "1: Text" would be torn apart
+  //     and the label spoken on its own;
+  //   - a single letter and a full stop ("z. B.", "d. h.", "J. R. Kitchin"):
+  //     the reading would stop after "z." and carry on with "B. ...";
+  //   - the usual abbreviations of scientific German and English ("et al.",
+  //     "vgl.", "Abb.", "Fig.", "Dr.", "ca.", "bzw." ...).
+  // Neither the KI & Erwerbsarbeit site nor this code handled that before; in
+  // abstracts it is common. Only *where* a cut may fall changes, never the
+  // order — the splitting test asserts that on thousands of random texts.
+  const ABBREVIATIONS = 'al|vgl|bzw|ca|Nr|Abb|Tab|Kap|Dr|Prof|Fig|Eq|vs|etc|resp|inkl|ggf|evtl|usw|sog|bspw|ebd|Hrsg|Jg|Bd|approx|cf|incl';
+  const SENTENCE_BREAK = new RegExp(
+    '(?<=[.!?:;])(?<!\\b[A-Za-z0-9]:)(?<!\\b[A-Za-z\\u00C0-\\u017F]\\.)(?<!\\b(?:' + ABBREVIATIONS + ')\\.)\\s+');
+  // A buffered lead-in this short (a label such as "Methode:") is carried into
+  // an oversized sentence that follows instead of being flushed alone.
+  const SHORT_LEAD = 40;
+  // A last piece this short is joined to its predecessor when that fits.
+  const SHORT_TAIL = 25;
+
   function splitIntoChunks(text, maxLen) {
     const limit = maxLen || MAX_CHUNK;
-    const sentences = String(text || '').replace(/\s+/g, ' ').trim().split(/(?<=[.!?:;])\s+/);
+    const sentences = String(text || '').replace(/\s+/g, ' ').trim().split(SENTENCE_BREAK);
     const chunks = [];
     let buf = '';
 
@@ -125,13 +155,22 @@ window.SLRTts = (() => {
       let rest = sentence.trim();
       if (!rest) continue;
 
-      // A single sentence longer than the limit gets broken at a comma, or
-      // failing that at a space, or failing that mid-word.
+      // Carried, not flushed: "Methode:" before a long sentence used to be
+      // spoken alone, with a pause either side. buf comes first, so the
+      // order is untouched.
+      if (rest.length > limit && buf && buf.length < SHORT_LEAD) {
+        rest = buf + ' ' + rest;
+        buf = '';
+      }
+
+      // A single sentence longer than the limit gets broken at a comma or
+      // semicolon, or failing that at a space, or failing that mid-word. The
+      // search starts at limit - 1 so a piece never exceeds the limit.
       while (rest.length > limit) {
         flush();
-        let cut = rest.lastIndexOf(',', limit);
-        if (cut < 40) cut = rest.lastIndexOf(' ', limit);
-        if (cut < 40) cut = limit;
+        let cut = Math.max(rest.lastIndexOf(',', limit - 1), rest.lastIndexOf(';', limit - 1));
+        if (cut < limit * 0.4) cut = rest.lastIndexOf(' ', limit - 1);
+        if (cut < limit * 0.4) cut = limit - 1;
         const piece = rest.slice(0, cut + 1).trim();
         if (piece) chunks.push(piece);
         rest = rest.slice(cut + 1).trim();
@@ -142,17 +181,35 @@ window.SLRTts = (() => {
       buf = buf ? buf + ' ' + rest : rest;
     }
     flush();
+
+    // A one- or two-word tail ("steht aus.") is not worth a pause of its own.
+    if (chunks.length > 1) {
+      const last = chunks[chunks.length - 1], prev = chunks[chunks.length - 2];
+      if (last.length < SHORT_TAIL && prev.length + 1 + last.length <= limit) {
+        chunks.splice(chunks.length - 2, 2, prev + ' ' + last);
+      }
+    }
     return chunks.filter(Boolean);
   }
 
-  // Chrome cuts a single utterance off at roughly fifteen seconds, silently.
-  // 110 characters is about eight seconds at normal speed — but the rate
-  // slider goes down to 0.7, which stretches the same chunk towards twelve,
-  // and a slow reader would start losing the tail of every chunk. Scaling the
-  // limit with the rate keeps every piece the same length in *time*.
-  function systemChunkLimit() {
+  // Google's network voices in Chrome cut a single utterance off at roughly
+  // fifteen seconds, silently. 110 characters is about eight seconds at normal
+  // speed — but the rate slider goes down to 0.7, which stretches the same
+  // chunk towards twelve, and a slow reader would start losing the tail of
+  // every chunk. Scaling the limit with the rate keeps every piece the same
+  // length in *time*. Every other device voice gets the long limit.
+  //
+  // localService === false is what marks a network voice. A Google voice that
+  // is installed locally (Android language packs) has it true and is not
+  // subject to the limit.
+  function isGoogleNetworkVoice(v) {
+    return !!v && v.localService === false && /google/i.test(v.name || '');
+  }
+
+  function systemChunkLimit(voice) {
+    if (!isGoogleNetworkVoice(voice)) return MAX_CHUNK_SYSTEM;
     const rate = settings.rate || 1;
-    return Math.max(60, Math.round(MAX_CHUNK_SYSTEM * Math.min(1, rate)));
+    return Math.max(60, Math.round(MAX_CHUNK_GOOGLE_NETWORK * Math.min(1, rate)));
   }
 
   // ── Engine 1: device voices ───────────────────────────────────────
@@ -202,6 +259,12 @@ window.SLRTts = (() => {
 
   let stallGuard = null;
 
+  // Chrome collects an utterance that nothing references any more — before
+  // its end event has fired, so the chain never continues and only the
+  // watchdog below gets it moving again, a moment late. Holding the
+  // utterances here until they are done costs nothing and removes the cause.
+  const heldUtterances = new Set();
+
   // One utterance at a time, chained on its own end event.
   //
   // The previous version queued every sentence at once and then pinged
@@ -210,13 +273,16 @@ window.SLRTts = (() => {
   // is filled synchronously, and a pause() immediately followed by resume()
   // makes it abandon the utterance it is on and continue with the next —
   // which is exactly "every so often a whole sentence is missing", on any
-  // voice. Speaking one short piece at a time removes the need for the
-  // workaround entirely, because no single utterance gets near the cut-off.
-  function speakSystem(chunks, lang, onDone, token) {
+  // voice. Speaking one piece at a time removes the need for the workaround
+  // entirely, and for Google's network voices (the only ones with the cut-off)
+  // the pieces stay short enough never to get near it. The KI & Erwerbsarbeit
+  // site re-added the nudge for those voices; it is deliberately not taken
+  // over, for the reason just given.
+  function speakSystem(chunks, lang, onDone, token, voice) {
     const synth = window.speechSynthesis;
     if (!synth) { onDone(); return; }
     clearTimeout(stallGuard);
-    const voice = pickSystemVoice(lang);
+    if (voice === undefined) voice = pickSystemVoice(lang);
     const rate = settings.rate || 1;
     let i = 0;
 
@@ -226,20 +292,36 @@ window.SLRTts = (() => {
       const chunk = chunks[i];
 
       const utt = new SpeechSynthesisUtterance(chunk);
+      heldUtterances.add(utt);
       if (voice) { utt.voice = voice; utt.lang = voice.lang; }
       else utt.lang = lang === 'de' ? 'de-DE' : 'en-US';
       utt.rate = rate;
 
       let started = false;    // onstart fired
-      let sawBusy = false;    // engine reported itself busy at least once
+      let sawBusy = false;    // the engine reported itself busy (speaking/pending) at least once
       let settled = false;
+      let idle = 0;           // consecutive looks at an engine that is doing nothing
+
+      const release = () => { heldUtterances.delete(utt); };
 
       const advance = () => {
         if (settled || token !== speakToken) return;
         settled = true;
         clearTimeout(stallGuard);
+        release();
         i += 1;
         startChunk(0);
+      };
+
+      // Say this same chunk again. Only ever for a chunk that never began.
+      const repeat = () => {
+        settled = true;
+        clearTimeout(stallGuard);
+        release();
+        // Drop the stale utterance first, or it may still surface later
+        // and speak the chunk a second time.
+        synth.cancel();
+        setTimeout(() => startChunk(attempt + 1), 200);
       };
 
       utt.onstart = () => { started = true; };
@@ -248,46 +330,58 @@ window.SLRTts = (() => {
         if (settled || token !== speakToken) return;
         // A cancel/interrupt is our own doing (stop, or a new read) — the
         // chain must not continue in that case.
-        if (e.error === 'interrupted' || e.error === 'canceled') { settled = true; return; }
+        if (e.error === 'interrupted' || e.error === 'canceled') { settled = true; release(); return; }
+        // An error before anything was spoken loses the chunk if we move on;
+        // saying it again does not. (It used to just move on.)
+        if (!started && attempt < 2) { repeat(); return; }
         advance();
       };
 
-      // Two failures need two different answers, and the previous version
-      // conflated them into one — which is what lost text.
+      // Two failures need two different answers.
       //
-      //   never started    the engine dropped the utterance. Nothing was
-      //                    spoken, so say this same chunk again.
+      //   never started    the engine dropped the utterance — or an online
+      //                    voice is still fetching its audio. Nothing was
+      //                    spoken, so say this same chunk again. How long to
+      //                    wait first depends on what the engine showed:
+      //                    never busy at all means it dropped the utterance
+      //                    (about two seconds), busy at some point means it
+      //                    was working on it, and online voices can need
+      //                    several seconds before the first sound (about six).
+      //                    Measured in Edge, 11.10.2026: speaking is true from
+      //                    speak() until the end, for natural and local voices
+      //                    alike (first sound after 590 ms cold, 140-170 ms
+      //                    warm) — so "idle and never started" there really
+      //                    is a drop, and waiting six seconds for it would
+      //                    only be a long silence.
       //   started, no end  it was spoken and the end event went missing.
       //                    Move on; repeating it would say it twice.
       //
-      // What it must never do is what it did before: cancel() an utterance
-      // that is still speaking because it has outrun an estimated duration,
-      // and then advance. That truncates a sentence mid-word and jumps to
-      // the next one — audible as a half-sentence swallowed. The estimate is
-      // gone; only the engine's own idea of "am I still busy" decides.
+      // The previous watchdog counted "the engine was busy at some point" as
+      // "this was spoken". For an online voice that is busy fetching and then
+      // goes quiet without ever starting, that skipped the chunk — text
+      // missing in the middle of a reading. Only an actual start now counts.
+      //
+      // And it must never cancel() an utterance that is still speaking
+      // because it has outrun an estimated duration: that truncates a
+      // sentence mid-word and jumps to the next one. Only the engine's own
+      // idea of "am I still busy" decides.
       const watch = () => {
         if (settled || token !== speakToken) return;
-        if (synth.speaking || synth.pending) {
-          sawBusy = true;
-          stallGuard = setTimeout(watch, 400);
+        if (synth.speaking || synth.pending) { sawBusy = true; idle = 0; stallGuard = setTimeout(watch, 500); return; }
+        idle += 1;
+        if (started) {
+          // Spoken, and the engine has been idle for two looks in a row.
+          if (idle >= 2) advance(); else stallGuard = setTimeout(watch, 400);
           return;
         }
-        if (started || sawBusy) { advance(); return; }
-        if (attempt < 3) {
-          settled = true;
-          clearTimeout(stallGuard);
-          // Drop the stale utterance first, or it may still surface later
-          // and speak the chunk a second time.
-          synth.cancel();
-          setTimeout(() => startChunk(attempt + 1), 150);
-          return;
-        }
+        if (idle < (sawBusy ? 12 : 4)) { stallGuard = setTimeout(watch, 500); return; }   // about six / two seconds
+        if (attempt < 2) { repeat(); return; }
         advance();  // three tries is enough; better one gap than a dead stop
       };
       // Generous first look: on the very first use the engine can take a
       // moment to get going, and treating that as a drop would make it
-      // stutter. Only a genuinely idle engine gets a repeat.
-      stallGuard = setTimeout(watch, 1000);
+      // stutter.
+      stallGuard = setTimeout(watch, 800);
 
       synth.speak(utt);
     };
@@ -297,7 +391,7 @@ window.SLRTts = (() => {
     // A paused engine (it can get stuck that way) never starts at all.
     synth.cancel();
     if (synth.paused) synth.resume();
-    setTimeout(() => startChunk(0), 140);
+    setTimeout(() => startChunk(0), 160);
   }
 
   // ── Engine 2: Piper (neural, in-browser) ──────────────────────────
@@ -648,6 +742,7 @@ window.SLRTts = (() => {
   function stop() {
     speakToken++;
     clearTimeout(stallGuard);
+    heldUtterances.clear();
     if (window.speechSynthesis) window.speechSynthesis.cancel();
     stopAudioSource();
     setSpeaking(false);
@@ -666,8 +761,12 @@ window.SLRTts = (() => {
     setSpeaking(true);
     const done = () => setSpeaking(false);
 
-    const readWithDeviceVoice = () =>
-      speakSystem(splitIntoChunks(text, systemChunkLimit()), lang, done, speakToken);
+    // The voice comes first: how long a piece may be depends on which voice
+    // has to read it (see systemChunkLimit).
+    const readWithDeviceVoice = () => {
+      const voice = pickSystemVoice(lang);
+      speakSystem(splitIntoChunks(text, systemChunkLimit(voice)), lang, done, speakToken, voice);
+    };
 
     const tryNeural = () =>
       speakPiper(chunks, lang, done, options.onProgress).catch(async err => {
@@ -775,7 +874,7 @@ window.SLRTts = (() => {
 
   return {
     getSettings, set,
-    detectLang, splitIntoChunks,
+    detectLang, splitIntoChunks, systemChunkLimit, isGoogleNetworkVoice,
     loadVoices, voicesForLang, voiceQualityScore, pickSystemVoice,
     PIPER_VOICES, voiceKey, piperVoice, voiceLabel,
     NEURAL_REMOTE_HOSTS, fallbackMessage,

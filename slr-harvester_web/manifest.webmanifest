@@ -1,5 +1,5 @@
 {
-  "name": "SLR Harvester Web",
+  "name": "SLR Harvester Web (Beta)",
   "short_name": "SLR Harvester",
   "description": "Systematic literature reviews in the browser: search, deduplicate, screen and document.",
   "start_url": "./",

@@ -275,28 +275,17 @@ a:hover {
   display: none;
 }
 
-/* Hide entire logo block in collapsed state; center the toggle button */
-.sidebar.collapsed .app-logo {
-  display: none;
-}
-
 /* Sidebar header */
 .sidebar-header {
   display: flex;
   align-items: center;
-  justify-content: space-between;
+  justify-content: flex-start;
   /* Left padding chosen so the logo icon's horizontal center (17 + 22/2 = 28px)
      matches the nav icons' center below it (padding-left 19 + 18/2 = 28px). */
   padding: 12px 10px 12px 17px;
   border-bottom: 1px solid var(--border);
   height: var(--topbar-h);
   flex-shrink: 0;
-}
-
-.sidebar.collapsed .sidebar-header {
-  justify-content: center;
-  padding: 12px 0;
-  gap: 0;
 }
 
 .app-logo {
@@ -369,8 +358,16 @@ a:hover {
   justify-content: center;
 }
 
-.sidebar.collapsed #sidebar-toggle {
-  margin: 0 auto;
+/* Der Schalter sitzt dauerhaft unten. Seine Mitte liegt auf derselben Linie wie
+   die des Logos und der Navigationssymbole (x = 28px): (56 - 30) / 2 = 13px
+   Abstand links bei 30px Breite. Das Logo oben steht in beiden Zustaenden an
+   derselben Stelle; was beim Einklappen verschwindet, ist allein der Name. */
+.sidebar-footer {
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  padding: 8px 0 max(8px, env(safe-area-inset-bottom, 0px)) 13px;
+  border-top: 1px solid var(--border);
 }
 
 /* The chevron direction is set by swapping the icon in JS (app-ui.js:
@@ -382,7 +379,7 @@ a:hover {
 .sidebar-nav {
   flex: 1;
   min-height: 0; /* Safari: a scrollable flex:1 child needs this to actually fill (not just wrap) available height */
-  padding: 8px 0 max(8px, env(safe-area-inset-bottom, 0px));
+  padding: 8px 0;
   overflow-y: auto;
   overflow-x: hidden;
   -webkit-overflow-scrolling: touch;
@@ -879,12 +876,8 @@ a:hover {
     --sidebar-icon-pad-left: 17px;
   }
 
-  /* Only the collapsed state is the icon-only rail. */
-  .sidebar.collapsed .sidebar-header {
-    justify-content: center;
-    padding: 10px 0;
-  }
-
+  /* Only the collapsed state is the icon-only rail. The header is NOT
+     re-centred there any more: the logo stays where it is. */
   .sidebar.collapsed .nav-item {
     padding: 10px 0 10px var(--sidebar-icon-pad-left);
   }
@@ -9331,4 +9324,112 @@ body.has-progress-footer .slr-guide {
 
 .zotero-modal .settings-group-label:first-of-type {
   margin-top: 14px;
+}
+
+
+/* ── Beta-Kennzeichnung ────────────────────────────────────────────────────
+   Dieselbe Amberfarbe (--warning) in allen vier Auftritten, damit sie als ein
+   Zeichen gelesen wird: Pille in der Kopfleiste (jede Ansicht), Zeile auf der
+   Startseite, Abschnitt in About, Zeile im Registrierungsfenster. */
+.beta-pill,
+.beta-badge {
+  display: inline-flex;
+  align-items: center;
+  box-sizing: border-box;
+  font-weight: 700;
+  letter-spacing: .06em;
+  text-transform: uppercase;
+  white-space: nowrap;
+  /* Textfarbe: --warning zum Textton hin gemischt. Reines --warning erreichte
+     im hellen Thema nur 2,9:1 (Startseite) und 4,0:1 (Kopfleiste), gemessen
+     an Bildpunkten; mit der Mischung liegt es deutlich ueber 4,5:1.
+     Der Grund ist deckend (kein transparent): Auf der Startseite lief sonst
+     das Hintergrundvideo durch die Pille. */
+  color: color-mix(in srgb, var(--warning) 62%, var(--text));
+  background: color-mix(in srgb, var(--warning) 14%, var(--surface));
+  border: 1px solid color-mix(in srgb, var(--warning) 55%, var(--surface));
+}
+
+.beta-pill {
+  height: 20px;
+  padding: 0 8px;
+  border-radius: 10px;
+  font-size: 11px;
+  flex-shrink: 0;
+}
+
+/* Gleiche Hoehe und Form wie .project-badge daneben. */
+.beta-badge {
+  height: 28px;
+  padding: 0 11px;
+  border-radius: 14px;
+  font-size: 11px;
+  flex-shrink: 0;
+  cursor: pointer;
+}
+
+.beta-badge:hover {
+  background: color-mix(in srgb, var(--warning) 26%, var(--surface));
+  border-color: var(--warning);
+}
+
+/* Auf der Startseite in voller Textfarbe, nicht gedaempft: Es ist ein Hinweis,
+   der gelesen werden soll, und er steht ueber dem Hintergrundvideo. */
+.welcome-hero p.welcome-beta {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  font-size: 13px;
+  line-height: 1.45;
+  color: var(--text);
+  max-width: 440px;
+}
+
+.welcome-beta .link-btn {
+  font-size: inherit;
+}
+
+.about-beta {
+  margin: 0 0 22px;
+  padding: 16px 18px;
+  border: 1px solid color-mix(in srgb, var(--warning) 45%, var(--border));
+  border-left: 3px solid var(--warning);
+  border-radius: var(--radius-md);
+  background: color-mix(in srgb, var(--warning) 7%, var(--surface));
+}
+
+.about-beta h3 {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin: 0 0 8px;
+  font-size: 15px;
+}
+
+.about-beta p {
+  font-size: 13.5px;
+  line-height: 1.55;
+  margin: 0 0 10px;
+}
+
+.about-beta .about-feature-list {
+  margin-bottom: 10px;
+}
+
+.about-beta .about-li-icon {
+  color: var(--warning);
+}
+
+.beta-signup-note {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+}
+
+@media (max-width: 420px) {
+  .welcome-hero p.welcome-beta {
+    flex-direction: column;
+    gap: 6px;
+  }
 }

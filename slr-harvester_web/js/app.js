@@ -854,6 +854,13 @@ window.SLRApp = (() => {
 		if (view === 'tags' || view === 'autotag-rules') {
 			try { SLRViews.rememberSectionOpen(view === 'tags' ? 'tags-tags' : 'tags-autotag', true); } catch (e) { /* Speicher gesperrt */ }
 		}
+		// Vorlesen gehoert zu der Ansicht, in der es gestartet wurde. Ohne das
+		// las die Stimme nach dem Wechsel den Abstract einer Karte weiter vor,
+		// die nicht mehr zu sehen ist — und der neue Knopf zeigte "Read aloud",
+		// obwohl gelesen wurde, sodass sein erster Klick das Lesen *beendete*.
+		// Nur beim echten Wechsel: Ein Neuzeichnen derselben Ansicht (etwa wenn
+		// im Hintergrund ein Abruf fertig wird) darf das Lesen nicht abbrechen.
+		if (state.view !== view && window.SLRTts && SLRTts.isSpeaking()) SLRTts.stop();
 		state.view = view;
 		renderCurrentView();
 		persistActiveProjectView();
@@ -4140,6 +4147,7 @@ window.SLRApp = (() => {
 		});
 		$('fullscreen-toggle')?.addEventListener('click', () => SLRAppUI.toggleFullscreen(showToast, $));
 		$('project-badge')?.addEventListener('click', () => openProjectDetail(state.currentFolder));
+		$('beta-badge')?.addEventListener('click', () => navigate('about'));
 		$('sidebar-toggle')?.addEventListener('click', () => SLRAppUI.toggleSidebar(state, _sidebar, $));
 
 		// Clicking the dimmed content, or Escape, closes the sidebar.
