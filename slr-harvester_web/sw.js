@@ -126,6 +126,14 @@ self.addEventListener('fetch', event => {
     // Der Entwicklungsserver leitet /proxy/ an fremde APIs weiter — das sind
     // Suchanfragen und gehoeren nicht in den Speicher.
     if (url.pathname.includes('/proxy/')) return;
+    // Das Hintergrundvideo der Startseite geht ungefiltert ans Netz. Zwei
+    // Gruende. Ein <video> fragt in Teilstuecken an (Range), die Antwort ist
+    // 206, und Cache.put() weist 206 mit einem TypeError zurueck — der
+    // Zwischenspeicher koennte es also gar nicht halten. Und die Datei wird
+    // regelmaessig ausgetauscht: Ein Rueckfall auf eine alte Fassung aus dem
+    // Speicher waere genau das, was niemand will. Offline fehlt das Video
+    // dann einfach; die Startseite haengt nicht davon ab (initHomeVideo).
+    if (url.pathname.endsWith('/video.mp4')) return;
     event.respondWith(netzZuerst(request));
   }
 });

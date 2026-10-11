@@ -424,7 +424,11 @@ window.SLRViews = (() => {
 
     container.innerHTML = `
       <div class="welcome-view" id="home">
-        <canvas id="heroParticles" class="hero-particles-canvas" aria-hidden="true"></canvas>
+        <div class="home-bg" id="home-bg" aria-hidden="true">
+          <video class="home-bg-video" muted loop playsinline preload="auto"
+                 disablepictureinpicture disableremoteplayback tabindex="-1"></video>
+          <div class="home-bg-vignette"></div>
+        </div>
 
         ${cloudUser ? `
           <!-- Account entry point lives only here on Home, not in the global
@@ -520,163 +524,66 @@ window.SLRViews = (() => {
       });
     }
 
-    initHeroParticles();
+    initHomeVideo();
   }
 
-  // Particle network background (Home)
-  function initHeroParticles() {
-    const canvas = document.getElementById('heroParticles');
-    const hero = document.getElementById('home');
-    if (!canvas || !hero) return;
-    if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) return;
+  // Hintergrundvideo der Startseite (ersetzt seit 11.10.2026 das Punktnetz).
+  //
+  // Die Datei heisst immer `video.mp4` und liegt neben index.html; sie wird
+  // ausgetauscht, ohne dass hier etwas angefasst werden muss. Deshalb steht
+  // der Name nur an dieser einen Stelle und es gibt keine Versionskennung am
+  // Namen — der Browser prueft nach spaetestens zehn Minuten, ob die Datei
+  // noch dieselbe ist (GitHub Pages sendet max-age=600 samt ETag).
+  //
+  // Geladen wird nur, wenn es angemessen ist:
+  //   - nicht bei `prefers-reduced-motion: reduce` (das Punktnetz lief dort
+  //     ebenfalls nicht; ein Video ist erst recht Bewegung),
+  //   - nicht im Datensparmodus des Browsers (5,5 MB sind dort viel),
+  //   - nicht ohne Verbindung: Schlaegt der Abruf fehl, bleibt die Ebene
+  //     unsichtbar und die Startseite steht auf ihrem gewohnten Grund.
+  // Die Seite haengt also nie vom Video ab.
+  function initHomeVideo() {
+    const wrap  = document.getElementById('home-bg');
+    const video = wrap && wrap.querySelector('video');
+    if (!wrap || !video) return;
 
-    const ctx = canvas.getContext('2d');
-    const COUNT       = 55;    // Anzahl Punkte
-    const SPEED       = 0.45;  // max. Pixel/Frame
-    const CONNECT     = 140;   // max. Verbindungsdistanz (px)
-    const R           = 2.2;   // Grund-Punktradius
-    const MAX_GROWTH  = 4;     // ab so vielen Verbindungen ist das Wachstum gedeckelt
-    const GROWTH_STEP = R * 0.32; // Radiuszuwachs pro Verbindung
-    const EASE        = 0.06;  // wie schnell der Radius dem Ziel folgt
-    const DISSOLVE_CHANCE = 0.0009; // Wahrscheinlichkeit pro Punkt & Frame, sich aufzulösen
-    const FADE_STEP    = 0.02; // Alpha-Änderung pro Frame beim Auflösen/Erscheinen
+    const reduziert = window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+    const verbindung = navigator.connection;
+    if (reduziert || (verbindung && verbindung.saveData)) { wrap.remove(); return; }
 
-    let W, H, particles = [];
+    // Erst wenn wirklich Bilder laufen, wird eingeblendet — nie ein schwarzes
+    // Rechteck oder ein Fehlersymbol.
+    video.addEventListener('playing', () => {
+      // Beides in einem Zug, damit die Ueberblendung der Textfarbe (siehe
+      // style.css, .is-fading-in) im selben Stilschritt beginnt. Danach faellt
+      // sie wieder weg — sonst liefe sie auch bei einem Themenwechsel.
+      wrap.classList.add('is-playing', 'is-fading-in');
+      setTimeout(() => wrap.classList.remove('is-fading-in'), 1600);
+    }, { once: true });
+    video.addEventListener('error',   () => wrap.classList.remove('is-playing'));
 
-    function isDark() {
-      return document.documentElement.getAttribute('data-theme') === 'dark';
-    }
-    function turquoiseColor(alpha) {
-      return isDark() ? `rgba(51, 230, 212, ${alpha})` : `rgba(23, 169, 156, ${alpha})`;
-    }
+    video.muted = true;               // Autoplay ist nur stumm erlaubt
+    video.src = 'video.mp4';
 
-    // Sized to the viewport, not to #home's own box — the canvas is
-    // position:fixed (see .hero-particles-canvas) specifically so toggling
-    // the sidebar (which changes #home's width, not the viewport's) can
-    // never stretch/reflow the already-placed particles.
-    function resize() {
-      W = canvas.width  = document.documentElement.clientWidth;
-      H = canvas.height = document.documentElement.clientHeight;
-    }
-
-    // state: 'alive' (normal), 'dissolving' (löst sich auf), 'spawning' (kommt neu hinzu)
-    function makeParticle(spawning) {
-      const baseR = R * (0.75 + Math.random() * 0.5);
-      return {
-        x:  Math.random() * W,
-        y:  Math.random() * H,
-        vx: (Math.random() - 0.5) * SPEED * 2,
-        vy: (Math.random() - 0.5) * SPEED * 2,
-        baseR,
-        r: spawning ? 0 : baseR,
-        targetR: baseR,
-        alpha: spawning ? 0 : 1,
-        state: spawning ? 'spawning' : 'alive',
-      };
-    }
-
-    function createParticles() {
-      particles = [];
-      for (let i = 0; i < COUNT; i++) particles.push(makeParticle(false));
-    }
-
-    function updateLifecycle(p) {
-      if (p.state === 'alive') {
-        if (Math.random() < DISSOLVE_CHANCE) p.state = 'dissolving';
-      } else if (p.state === 'dissolving') {
-        p.alpha = Math.max(0, p.alpha - FADE_STEP);
-        p.r += (0 - p.r) * 0.1;
-        if (p.alpha <= 0) Object.assign(p, makeParticle(true));
-      } else if (p.state === 'spawning') {
-        p.alpha = Math.min(1, p.alpha + FADE_STEP);
-        if (p.alpha >= 1) p.state = 'alive';
-      }
-    }
-
-    function step() {
-      // View was re-rendered (canvas detached) — stop this loop.
-      if (!canvas.isConnected) return;
-
-      ctx.clearRect(0, 0, W, H);
-
-      for (const p of particles) {
-        updateLifecycle(p);
-        p.x += p.vx;
-        p.y += p.vy;
-        if (p.x < 0 || p.x > W) p.vx *= -1;
-        if (p.y < 0 || p.y > H) p.vy *= -1;
-      }
-
-      // Verbindungen ermitteln + je Punkt zählen, wie viele er gerade hat
-      const links = [];
-      const connCount = new Array(particles.length).fill(0);
-      for (let i = 0; i < particles.length; i++) {
-        if (particles[i].alpha <= 0) continue;
-        for (let j = i + 1; j < particles.length; j++) {
-          if (particles[j].alpha <= 0) continue;
-          const dx = particles[i].x - particles[j].x;
-          const dy = particles[i].y - particles[j].y;
-          const dist = Math.sqrt(dx * dx + dy * dy);
-          if (dist < CONNECT) {
-            links.push(i, j, dist);
-            connCount[i]++;
-            connCount[j]++;
-          }
-        }
-      }
-
-      // Radius wächst/schrumpft mit der Anzahl aktueller Verbindungen
-      for (let i = 0; i < particles.length; i++) {
-        const p = particles[i];
-        if (p.state === 'dissolving') continue;
-        p.targetR = p.baseR + Math.min(connCount[i], MAX_GROWTH) * GROWTH_STEP;
-        p.r += (p.targetR - p.r) * EASE;
-      }
-
-      for (let k = 0; k < links.length; k += 3) {
-        const i = links[k], j = links[k + 1], dist = links[k + 2];
-        const alpha = (1 - dist / CONNECT) * (isDark() ? 0.28 : 0.18) * particles[i].alpha * particles[j].alpha;
-        ctx.beginPath();
-        ctx.moveTo(particles[i].x, particles[i].y);
-        ctx.lineTo(particles[j].x, particles[j].y);
-        ctx.strokeStyle = turquoiseColor(alpha);
-        ctx.lineWidth = 0.8;
-        ctx.stroke();
-      }
-
-      for (const p of particles) {
-        if (p.alpha <= 0) continue;
-        ctx.beginPath();
-        ctx.arc(p.x, p.y, Math.max(p.r, 0.3), 0, Math.PI * 2);
-        ctx.fillStyle = turquoiseColor((isDark() ? 0.55 : 0.38) * p.alpha);
-        ctx.fill();
-      }
-
-      requestAnimationFrame(step);
-    }
-
-    function onResize() {
-      // View was re-rendered (canvas detached) — drop this listener.
-      if (!canvas.isConnected) {
-        window.removeEventListener('resize', onResize);
-        return;
-      }
-      resize();
-    }
-
-    let resizeTicking = false;
-    window.addEventListener('resize', () => {
-      if (resizeTicking) return;
-      resizeTicking = true;
-      requestAnimationFrame(() => {
-        onResize();
-        resizeTicking = false;
-      });
-    });
-
-    resize();
-    createParticles();
-    step();
+    // Ein abgelehntes play() ist kein Fehler der Anwendung; die Ebene bleibt
+    // dann einfach unsichtbar. Es kommt aber nicht nur bei einer strengen
+    // Autoplay-Richtlinie vor: Wer die Anwendung in einem Hintergrund-Tab
+    // oeffnet, bekommt ein AbortError ("video-only background media was
+    // paused to save power") — und ohne Wiederholung bliebe das Video fuer
+    // diesen Besuch aus, auch wenn der Tab spaeter nach vorn kommt. Deshalb
+    // wird beim Sichtbarwerden nachgeholt. Das Gegenstueck, das Pausieren
+    // beim Wegwechseln, uebernimmt der Browser selbst und spart dabei Strom.
+    const starten = () => {
+      const start = video.play();
+      if (start && typeof start.catch === 'function') start.catch(() => {});
+    };
+    const beiSichtbarkeit = () => {
+      // Die Ansicht wurde neu gezeichnet: Dieses Video gibt es nicht mehr.
+      if (!wrap.isConnected) { document.removeEventListener('visibilitychange', beiSichtbarkeit); return; }
+      if (document.visibilityState === 'visible' && video.paused) starten();
+    };
+    document.addEventListener('visibilitychange', beiSichtbarkeit);
+    starten();
   }
 
   //  Projects view

@@ -52,6 +52,13 @@ jobs:
           src=slr-harvester_web
           mkdir -p _site
           cp "$src/index.html" "$src/favicon.svg" "$src/manifest.webmanifest" "$src/sw.js" _site/
+          # The Home background video is optional by design: the page does not
+          # depend on it. A missing file must not stop the whole deploy.
+          if [ -f "$src/video.mp4" ]; then
+            cp "$src/video.mp4" _site/
+          else
+            echo "::warning::slr-harvester_web/video.mp4 is missing - publishing without the Home background video."
+          fi
           cp -r "$src/css" "$src/js" _site/
           find _site -type f \( -name '*.md' -o -name '*.py' -o -name '*.ps1' -o -name '*.cmd' -o -name '*.bat' -o -name '*.sql' -o -name '*.log' -o -name '*.bak' \) -print -delete
           echo "Published files:"

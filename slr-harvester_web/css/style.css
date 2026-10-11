@@ -238,14 +238,16 @@ a:hover {
      the page geometry never moves.
      position:fixed also makes z-index apply, which the sidebar needs anyway
      so its opaque background paints over the Home view's viewport-fixed
-     particle canvas instead of the other way around. */
+     background (formerly a particle canvas, now a video) instead of the
+     other way around. */
   position: fixed;
   top: 0;
   left: 0;
   bottom: 0;
   z-index: 250;
   /* Promotes the sidebar to its own compositing layer, isolated from the
-     Home view's continuously-animating position:fixed particle canvas next
+     Home view's continuously-animating position:fixed layer (the particle
+     canvas then, the background video now — the same hazard) next
      to it. Without this, observed on Edge: the flex-stretched sidebar-nav
      goes stale and leaves a gap under the footer that only clears on a
      forced reflow (e.g. toggling fullscreen) — a compositor invalidation
@@ -509,7 +511,7 @@ a:hover {
   flex-shrink: 0;
   gap: 12px;
   /* Same fix as .sidebar above, same reason: without an explicit stacking
-     context the Home view's viewport-fixed particle canvas (z-index:-1
+     context the Home view's viewport-fixed background video (z-index:-1
      inside .welcome-view's own isolated context) can still show through
      this otherwise-opaque bar on some browsers/GPUs — observed on desktop,
      not mobile, which is exactly the kind of compositor-layering quirk
@@ -908,18 +910,115 @@ a:hover {
   gap: 32px;
 }
 
-/* Fixed to the true viewport (not absolute within .welcome-view) so its
-   coordinate space is completely independent of the sidebar's width — the
-   sidebar collapsing/expanding must not stretch or reflow the pattern.
-   The sidebar (given a real stacking position below) simply paints over
-   its own portion, exactly like an overlay. */
-.hero-particles-canvas {
+/* Hintergrundvideo. An den echten Bildschirm geheftet (nicht an .welcome-view),
+   damit seine Koordinaten von der Breite der Seitenleiste unabhaengig sind:
+   Ein- und Ausklappen darf das Bild weder strecken noch verschieben. Die
+   Seitenleiste liegt in ihrem eigenen Stapel darueber und deckt ihren Teil
+   einfach ab, wie bei jeder Ueberlagerung.
+
+   z-index -2, weil der Textschatten (.welcome-view::before) auf -1 liegt und
+   ueber dem Video stehen muss. Beides lebt im Stapelkontext von .welcome-view
+   (isolation: isolate), kann also nie hinter den Seitenrahmen rutschen.
+
+   Die zwei Werte je Thema sind keine Farben, sondern Staerken: wie viel vom
+   Video durchkommt und wie dunkel der Rand wird. Hell und dunkel brauchen
+   verschiedene, weil das Video ein helles Bild ist — auf dunklem Grund muss
+   es weit zurueck, auf hellem weniger. Gemessen an echten Bildpunkten, nicht
+   geschaetzt (siehe TASKS.md, 11.10.2026). */
+.home-bg {
+  --home-video-alpha: .5;
+  --home-vignette: .78;
   position: fixed;
   inset: 0;
   width: 100vw;
   height: 100dvh;
+  z-index: -2;
+  pointer-events: none;
+  overflow: hidden;
+}
+
+[data-theme="light"] .home-bg {
+  --home-video-alpha: .42;
+  --home-vignette: .7;
+}
+
+.home-bg-video {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  opacity: 0;
+}
+
+.home-bg.is-playing .home-bg-video {
+  opacity: var(--home-video-alpha);
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  .home-bg-video { transition: opacity 1.4s ease; }
+}
+
+/* Die Vignette: Rand und Ecken laufen in den Grund der Seite aus. Sie nimmt
+   --bg, keine feste Farbe, und folgt damit dem Thema von selbst. */
+.home-bg-vignette {
+  position: absolute;
+  inset: 0;
+  background: radial-gradient(
+    ellipse 80% 75% at 50% 48%,
+    transparent 38%,
+    color-mix(in srgb, var(--bg) calc(var(--home-vignette) * 55%), transparent) 72%,
+    color-mix(in srgb, var(--bg) calc(var(--home-vignette) * 100%), transparent) 100%
+  );
+}
+
+/* Die zwei grauen Textzeilen der Startseite — Beschreibung und Copyright —
+   steigen auf die volle Textfarbe, solange das Video laeuft.
+
+   Warum: --text-muted erreicht auf dem hellen Grund ohne Video nur 5,0:1 und
+   auf dem dunklen 6,2:1 — kaum Spielraum. Ueber bewegtem Bild fiel der helle
+   Fall in der Messung auf 3,8:1 (Beschreibung) und 2,6:1 (Copyright), also
+   unter die Schwelle von 4,5:1. Mehr Schatten haette das Video im hellen
+   Thema ausgeloescht und waere beim naechsten, dunkleren Video wieder zu
+   wenig gewesen. Die volle Textfarbe macht die Lesbarkeit dagegen weitgehend
+   unabhaengig davon, was im Video zu sehen ist: Sie braucht einen Grund, der
+   nicht heller als etwa Mittelgrau ist, statt eines fast schwarzen.
+
+   Nur "solange es laeuft": Ohne Video — Datensparmodus, reduzierte Bewegung,
+   offline — bleibt die Seite genau, wie sie war. :has() ist im Stylesheet
+   schon in Gebrauch (.view-head). */
+.welcome-view:has(.home-bg.is-playing) .welcome-hero p,
+.welcome-view:has(.home-bg.is-playing) .welcome-copyright {
+  color: var(--text);
+}
+
+/* Die Ueberblendung der Textfarbe gilt nur fuer das Erscheinen des Videos
+   (.is-fading-in steht die ersten 1,6 s). Dauerhaft haette sie auch den
+   Themenwechsel erfasst: Die Beschreibung lief dann 1,4 s lang nach, waehrend
+   die Ueberschrift sofort umschaltete, und stand fuer einen Augenblick als
+   hellgrauer Text auf hellem Grund da — gemessen: 219,226,232 nach 100 ms. */
+@media (prefers-reduced-motion: no-preference) {
+  .welcome-view:has(.home-bg.is-fading-in) .welcome-hero p,
+  .welcome-view:has(.home-bg.is-fading-in) .welcome-copyright { transition: color 1.4s ease; }
+}
+
+/* Textschatten: ein weicher Fleck des Seitengrunds hinter Titel und
+   Beschreibung. Ohne ihn ist der graue Fliesstext ueber dem hellen Whiteboard
+   nicht lesbar — eine gleichmaessige Abdunkelung des ganzen Bildes, die das
+   leisten wuerde, liesse vom Video nichts uebrig. Er sitzt in der Mitte von
+   .welcome-view und wandert deshalb mit dem Text, wenn die Seite scrollt. */
+.welcome-view::before {
+  content: "";
+  position: absolute;
+  inset: 0;
   z-index: -1;
   pointer-events: none;
+  background: radial-gradient(
+    ellipse 46% 44% at 50% 50%,
+    color-mix(in srgb, var(--bg) 82%, transparent) 0%,
+    color-mix(in srgb, var(--bg) 60%, transparent) 55%,
+    transparent 100%
+  );
 }
 
 .welcome-hero {
