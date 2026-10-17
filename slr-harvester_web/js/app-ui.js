@@ -146,6 +146,7 @@ window.SLRAppUI = (() => {
       workspace: SLRIcons.folder,
       account: SLRIcons.user,
       info: SLRIcons.info,
+      mic: SLRIcons.mic,
     };
 
     document.querySelectorAll('[data-icon]').forEach(el => {
@@ -175,6 +176,7 @@ window.SLRAppUI = (() => {
       about: 'About',
       databases: 'Databases',
       privacy: 'Privacy',
+      notes: 'Dictations',
     };
 
     if (refs.viewTitle) refs.viewTitle.textContent = titles[state.view] || 'SLR Harvester Web';
@@ -262,6 +264,7 @@ window.SLRAppUI = (() => {
     ['visualizations', 'Visualisations', 'charts prisma world map network years'],
     ['tags', 'Tags', 'labels colours schemes categories'],
     ['autotag-rules', 'Auto-Tag Rules', 'keywords disciplines automatic'],
+    ['notes', 'Dictations', 'dictation dictate notes note audio record voice whisper transcribe speech'],
     ['workspace', 'Workspace', 'folder local cloud storage'],
     ['account', 'Account', 'sign in login cloud'],
     ['settings', 'Settings', 'preferences options'],
@@ -285,6 +288,26 @@ window.SLRAppUI = (() => {
     if (!terms.length) return escHtml(text);
     const re = new RegExp('(' + terms.map(escRe).join('|') + ')', 'gi');
     return String(text).split(re).map((p, i) => (i % 2 ? '<mark>' + escHtml(p) + '</mark>' : escHtml(p))).join('');
+  }
+
+  // Database logos (views.js dbLogoImg): a loaded favicon of real size replaces the
+  // letter code in its badge. Listeners sit on the document in the capture phase
+  // because load/error do not bubble and the views are redrawn all the time.
+  function initDbLogos() {
+    const real = img => img.naturalWidth >= 32;
+    document.addEventListener('load', e => {
+      const img = e.target;
+      if (!(img instanceof HTMLImageElement)) return;
+      const badge = img.closest('.db-card-badge, .search-db-card-badge');
+      if (!badge) return;
+      if (real(img)) badge.classList.add('has-logo');
+      else if (img.dataset.alt && !img.dataset.tried) { img.dataset.tried = '1'; img.src = img.dataset.alt; }
+    }, true);
+    document.addEventListener('error', e => {
+      const img = e.target;
+      if (!(img instanceof HTMLImageElement) || !img.closest('.db-card-badge, .search-db-card-badge')) return;
+      if (img.dataset.alt && !img.dataset.tried) { img.dataset.tried = '1'; img.src = img.dataset.alt; }
+    }, true);
   }
 
   function initSearch({ state, navigate, openProjectDetail, collapseSidebar }) {
@@ -410,6 +433,11 @@ window.SLRAppUI = (() => {
       box.querySelectorAll('.sr').forEach(x => x.classList.toggle('on', x === sr));
     });
     document.addEventListener('click', ev => { if (!ev.target.closest('.find')) { box.hidden = true; q.setAttribute('aria-expanded', 'false'); } });
+    // Leaving the box by keyboard or programmatically (e.g. a view change) closes the list too.
+    const find = q.closest('.find');
+    if (find) find.addEventListener('focusout', () => setTimeout(() => {
+      if (!find.contains(document.activeElement)) { box.hidden = true; q.setAttribute('aria-expanded', 'false'); }
+    }, 0));
     // "/" jumps to the search box, like in the Dashboard
     document.addEventListener('keydown', ev => {
       if (ev.key === '/' && !ev.ctrlKey && !ev.metaKey && !ev.altKey && !/^(INPUT|TEXTAREA|SELECT)$/.test(document.activeElement.tagName) && !document.activeElement.isContentEditable) {
@@ -435,6 +463,7 @@ window.SLRAppUI = (() => {
     currentStyle,
     syncAppearanceControls,
     initSearch,
+    initDbLogos,
     STYLES,
     THEME_MODES,
   };

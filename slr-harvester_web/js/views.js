@@ -438,7 +438,7 @@ window.SLRViews = (() => {
               ${SLRIcons.user}
             </button>
             <div class="welcome-account-menu" id="welcome-account-menu" hidden role="menu">
-              <div class="account-menu-email">${esc(cloudUser.email)}</div>
+              <div class="account-menu-email">${esc(cloudUser.email).replace('@', '@<wbr>')}</div>
               <button class="account-menu-item" id="welcome-account-account-btn" role="menuitem">Account</button>
               <button class="account-menu-item account-menu-item--danger" id="welcome-account-signout-btn" role="menuitem">Sign Out</button>
             </div>
@@ -5616,8 +5616,32 @@ window.SLRViews = (() => {
     },
   ];
 
+  // Logos der Datenbanken. Sie werden beim Anzeigen von Googles Favicon-Dienst geholt
+  // (nichts wird gespeichert) und ueber das Buchstabenkuerzel gelegt; app-ui.js
+  // (initDbLogos) schaltet sie sichtbar, sobald ein echtes Bild da ist (Googles
+  // Platzhalter ist nur 16 px gross und zaehlt nicht). Dienste, fuer die der Favicon-
+  // Dienst nichts hat, bekommen die Adresse ihres Mutterhauses; Scopus sperrt
+  // Abrufe von aussen und behaelt deshalb das Kuerzel, wo kein Logo kommt.
+  const LOGO_HOST = {
+    'ieeexplore.ieee.org': 'ieee.org',
+    'www.webofscience.com': 'clarivate.com',
+    'www.lens.org': 'about.lens.org',
+    'research.ebsco.com': 'ebsco.com',
+    'www.tandfonline.com': 'taylorandfrancis.com',
+    'orcid.org': 'info.orcid.org',
+  };
+  const LOGO_DIRECT = { 'www.scopus.com': 'https://www.scopus.com/favicon.ico' };
+  function dbLogoImg(url) {
+    let host = '';
+    try { host = new URL(url).hostname; } catch (_) { return ''; }
+    const use = LOGO_HOST[host] || host;
+    const src = 'https://t0.gstatic.com/faviconV2?client=SOCIAL&type=FAVICON&fallback_opts=TYPE,SIZE,URL&url=http://' + encodeURIComponent(use) + '&size=64';
+    const alt = LOGO_DIRECT[host] ? ` data-alt="${esc(LOGO_DIRECT[host])}"` : '';
+    return `<img src="${src}"${alt} alt="" loading="lazy" decoding="async" referrerpolicy="no-referrer">`;
+  }
+
   function renderDatabases(container) {
-    const renderDbLogo = (db) => `<span class="db-card-badge-fallback">${esc(db.abbr)}</span>`;
+    const renderDbLogo = (db) => `<span class="db-card-badge-fallback">${esc(db.abbr)}</span>${dbLogoImg(db.url)}`;
 
     function makeCard(db) {
       return `
@@ -5649,7 +5673,7 @@ window.SLRViews = (() => {
           <p class="databases-section-note">Use your preferred reference manager to import the final corpus and manage citations for your research paper.</p>
           <div class="databases-grid">
             <button class="db-card" id="db-zotero-btn" style="--db-color:#CC2936" title="Opens Zotero if it is installed on this device — otherwise nothing happens">
-              <div class="db-card-badge" title="Zotero" aria-label="Zotero">${renderDbLogo({ label: 'Zotero', abbr: 'Zo' })}</div>
+              <div class="db-card-badge" title="Zotero" aria-label="Zotero">${renderDbLogo({ label: 'Zotero', abbr: 'Zo', url: 'https://www.zotero.org' })}</div>
               <div class="db-card-body">
                 <div class="db-card-name">Zotero</div>
                 <div class="db-card-desc">Opens the desktop app, if installed</div>
@@ -5657,7 +5681,7 @@ window.SLRViews = (() => {
               <div class="db-card-arrow">${SLRIcons.externalLink}</div>
             </button>
             <button class="db-card" id="db-citavi-btn" style="--db-color:#005A9E" title="Opens Citavi if it is installed on this device (Windows only) — otherwise nothing happens">
-              <div class="db-card-badge" title="Citavi" aria-label="Citavi">${renderDbLogo({ label: 'Citavi', abbr: 'Ci' })}</div>
+              <div class="db-card-badge" title="Citavi" aria-label="Citavi">${renderDbLogo({ label: 'Citavi', abbr: 'Ci', url: 'https://www.citavi.com' })}</div>
               <div class="db-card-body">
                 <div class="db-card-name">Citavi</div>
                 <div class="db-card-desc">Opens the desktop app, if installed (Windows)</div>
@@ -5967,11 +5991,11 @@ window.SLRViews = (() => {
   // DB_GROUPS' "Integrated" entries (Databases view) exactly, so the
   // search-database selector reads as the same card design, just compact.
   const DB_TABS = [
-    { key: 'scopus',    label: 'Scopus',    abbr: 'Sc', color: '#E47025', note: null },
-    { key: 'pubmed',    label: 'PubMed',    abbr: 'PM', color: '#326599', note: 'Free  No key required' },
-    { key: 'openalex',  label: 'OpenAlex',  abbr: 'OA', color: '#3ab09e', note: 'Free  No key required' },
-    { key: 'crossref',  label: 'Crossref',  abbr: 'CR', color: '#3EB1C8', note: 'Free  relevance search, no Boolean logic' },
-    { key: 'doaj',      label: 'DOAJ',      abbr: 'DJ', color: '#F58220', note: 'Free  open-access journals, max. 1,000 records per query' },
+    { key: 'scopus',    label: 'Scopus',    abbr: 'Sc', url: 'https://www.scopus.com', color: '#E47025', note: null },
+    { key: 'pubmed',    label: 'PubMed',    abbr: 'PM', url: 'https://pubmed.ncbi.nlm.nih.gov', color: '#326599', note: 'Free  No key required' },
+    { key: 'openalex',  label: 'OpenAlex',  abbr: 'OA', url: 'https://openalex.org', color: '#3ab09e', note: 'Free  No key required' },
+    { key: 'crossref',  label: 'Crossref',  abbr: 'CR', url: 'https://search.crossref.org', color: '#3EB1C8', note: 'Free  relevance search, no Boolean logic' },
+    { key: 'doaj',      label: 'DOAJ',      abbr: 'DJ', url: 'https://doaj.org', color: '#F58220', note: 'Free  open-access journals, max. 1,000 records per query' },
   ];
 
   // Welche Abfragesprache gerade gilt — steht klein neben der Ueberschrift
@@ -6092,7 +6116,7 @@ window.SLRViews = (() => {
     const tabsHTML = DB_TABS.map(t => `
       <button type="button" class="search-db-card${db === t.key ? ' active' : ''}" data-db="${esc(t.key)}"
               style="--db-color:${esc(t.color)}" title="${esc(t.label)}${t.note ? ' — ' + esc(t.note) : ''}">
-        <span class="search-db-card-badge">${esc(t.abbr)}</span>
+        <span class="search-db-card-badge"><span class="db-abbr">${esc(t.abbr)}</span>${dbLogoImg(t.url)}</span>
         <span class="search-db-card-name">${esc(t.label)}</span>
       </button>`
     ).join('');
@@ -7404,20 +7428,34 @@ window.SLRViews = (() => {
         </div>
       </div>`;
 
+    // Mail-Adressen duerfen am @ umbrechen, nicht mitten im Wort.
+    const emailHtml = cloudUser ? esc(cloudUser.email).replace('@', '@<wbr>') : '';
+    const fmtDate = iso => { const d = iso ? new Date(iso) : null; return d && !isNaN(d) ? d.toLocaleDateString('en-GB', { day: 'numeric', month: 'long', year: 'numeric' }) : ''; };
+    const fmtDateTime = iso => { const d = iso ? new Date(iso) : null; return d && !isNaN(d) ? d.toLocaleString('en-GB', { day: 'numeric', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' }) : ''; };
+    const accountMeta = cloudUser
+      ? [
+        'Cloud Sync account',
+        fmtDate(cloudUser.created_at) ? 'Member since ' + fmtDate(cloudUser.created_at) : '',
+        fmtDateTime(cloudUser.last_sign_in_at) ? 'Last sign-in ' + fmtDateTime(cloudUser.last_sign_in_at) : '',
+      ].filter(Boolean).join(' · ')
+      : '';
+
     container.innerHTML = `
       <div class="settings-view">
 
         ${cloudUser ? `
           <div class="account-identity-card">
-            <span class="account-identity-icon">${SLRIcons.user}</span>
+            <span class="account-identity-icon account-avatar" aria-hidden="true">${esc((cloudUser.email || '?').trim().charAt(0))}</span>
             <div class="account-identity-body">
               <p class="account-identity-label">Signed in as</p>
-              <p class="account-identity-email">${esc(cloudUser.email)}</p>
+              <p class="account-identity-email">${emailHtml}</p>
+              <p class="account-identity-meta">${accountMeta}</p>
             </div>
             <button class="btn-secondary" id="settings-supabase-signout-btn">Sign Out</button>
           </div>
 
           <p class="settings-group-label">Sign-in details</p>
+          <div class="account-grid">
           <div class="account-credentials">
             <h4>Change password</h4>
             <div class="form-field">
@@ -7440,7 +7478,7 @@ window.SLRViews = (() => {
           <div class="account-credentials">
             <h4>Change email address</h4>
             <p class="field-hint" style="margin-top:0">
-              Currently <strong>${esc(cloudUser.email)}</strong>. Changing it is not immediate:
+              Currently <strong class="account-email-now">${emailHtml}</strong>. Changing it is not immediate:
               Supabase sends a confirmation link to the new address &mdash; and, with the default
               "Secure email change" setting, to the current one as well. The change takes effect
               once the link(s) have been opened; until then you keep signing in with the old
@@ -7456,6 +7494,7 @@ window.SLRViews = (() => {
               <span class="settings-saved-msg" id="account-email-msg">Sent!</span>
             </div>
             <p class="settings-error" id="account-email-error" hidden></p>
+          </div>
           </div>
 
           <p class="settings-group-label">Danger zone</p>
@@ -7982,6 +8021,8 @@ window.SLRViews = (() => {
             <li><span class="about-li-icon" aria-hidden="true">${SLRIcons.databases}</span><span><strong>OpenAlex</strong> (api.openalex.org) &mdash; your search query, and your OpenAlex key/contact email as a parameter, only if you've set them in Settings.</span></li>
             <li><span class="about-li-icon" aria-hidden="true">${SLRIcons.refresh}</span><span><strong>Crossref</strong> (api.crossref.org) &mdash; your search query when you search Crossref, and DOI-based lookups when you use Fetch Abstracts/Authors/Types/Affiliations (also run automatically after a search if auto-fetch is on). A fixed placeholder contact address is sent as Crossref's polite-pool parameter, never your own email.</span></li>
             <li><span class="about-li-icon" aria-hidden="true">${SLRIcons.databases}</span><span><strong>DOAJ</strong> (doaj.org) &mdash; your search query when you search DOAJ. No key required or sent.</span></li>
+            <li><span class="about-li-icon" aria-hidden="true">${SLRIcons.databases}</span><span><strong>Database logos</strong> (Google&rsquo;s favicon service, <code>t0.gstatic.com</code>, and <code>www.scopus.com</code>) &mdash; the Databases and Search views load each logo from there when they are shown, and keep none. The service sees your IP address and which database sites are listed; nothing about your searches or projects.</span></li>
+            <li><span class="about-li-icon" aria-hidden="true">${SLRIcons.speaker}</span><span><strong>OpenAI Whisper</strong> (api.openai.com) &mdash; only in Dictations, only when you press <em>Transcribe</em> and have entered your own key: the audio of that dictation. The key stays in this browser. Without a key nothing is sent.</span></li>
           </ul>
         </div>
 

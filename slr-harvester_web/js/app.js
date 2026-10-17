@@ -781,6 +781,9 @@ window.SLRApp = (() => {
 			case 'databases':
 				SLRViews.renderDatabases(_container);
 				break;
+			case 'notes':
+				SLRNotes.render(_container);
+				break;
 			case 'search':
 				SLRViews.renderSearch(_container, state.projectData, state.settings, state.search);
 				break;
@@ -4226,6 +4229,7 @@ window.SLRApp = (() => {
 		SLRAppUI.setSidebarCollapsed(state, _sidebar, $);
 		SLRAppUI.updateFullscreenButton($);
 		bindEvents();
+		SLRAppUI.initDbLogos();
 		SLRAppUI.initSearch({
 			state,
 			navigate,

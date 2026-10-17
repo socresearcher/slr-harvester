@@ -47,6 +47,7 @@ const SHELL = [
   'js/world-map.js',
   'js/tts.js',
   'js/views.js',
+  'js/notes.js',
   'js/app-ui.js',
   'js/app.js',
   'js/vendor/piper/piper-tts-web.js',

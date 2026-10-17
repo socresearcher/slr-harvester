@@ -599,7 +599,7 @@ a:hover {
   color: var(--text-muted);
   border-bottom: 1px solid var(--border-subtle);
   margin-bottom: 4px;
-  word-break: break-all;
+  overflow-wrap: break-word;
 }
 
 .account-menu-item {
@@ -9741,4 +9741,592 @@ body.has-progress-footer .slr-guide {
   #topbar .project-badge {
     display: none;
   }
+}
+
+/* ══ Runde 2: Kopfzeile, Seitenleistenkopf, Hoehen, Zugangsdaten-Schalter, Logos, Konto ══ */
+
+/* Suchfeld schmaler, damit der Projekt-Badge wieder Platz hat */
+.find {
+  width: clamp(140px, 22vw, 300px);
+  min-width: 120px;
+}
+
+#topbar .project-badge {
+  max-width: 280px;
+  flex-shrink: 1;
+  min-width: 0;
+}
+
+@media (max-width: 900px) {
+  .find {
+    width: clamp(120px, 28vw, 220px);
+  }
+
+  #topbar .project-badge {
+    max-width: 30vw;
+  }
+}
+
+@media (max-width: 640px) {
+  #topbar .find {
+    width: 88px;
+    min-width: 0;
+  }
+
+  #topbar .project-badge {
+    max-width: 26vw;
+  }
+}
+
+@media (max-width: 520px) {
+  #topbar .project-badge {
+    display: inline-flex;
+    max-width: 24vw;
+  }
+
+  #topbar .project-badge:empty {
+    display: none;
+  }
+}
+
+/* Logo in der ausgeklappten Seitenleiste etwas groesser; die Mitte bleibt
+   auf der Achse der Symbole (x = 28 px), der Name beginnt an derselben Stelle. */
+.sidebar:not(.collapsed) .sidebar-header {
+  padding-left: 14px;
+}
+
+.sidebar:not(.collapsed) .app-logo {
+  gap: 10px;
+}
+
+.sidebar:not(.collapsed) .logo-icon,
+.sidebar:not(.collapsed) .logo-icon svg {
+  width: 28px;
+  height: 28px;
+}
+
+/* Menueknopf am Handy: gross, ohne Rahmen, in der Akzentfarbe (wie im Dashboard) */
+@media (max-width: 640px) {
+  .menu-btn {
+    width: 44px;
+    height: 44px;
+    margin-left: -8px;
+    border-radius: 12px;
+    color: var(--accent);
+    background: none;
+  }
+
+  .menu-btn svg {
+    width: 28px;
+    height: 28px;
+    stroke-width: 2.2;
+  }
+
+  .menu-btn:hover,
+  .menu-btn:active,
+  .menu-btn:focus-visible {
+    background: var(--accent-subtle);
+    color: var(--accent);
+  }
+}
+
+/* Eine Hoehe fuer Felder, Auswahllisten und Knoepfe, wo sie nebeneinander stehen
+   (wie im Dashboard: Knopfhoehe = Hoehe der Auswahlliste) */
+:root {
+  --ctl-form-h: 36px;
+}
+
+.form-input:not(textarea) {
+  height: var(--ctl-form-h);
+}
+
+.btn-primary,
+.btn-secondary,
+.btn-danger,
+.btn-warn {
+  min-height: var(--ctl-form-h);
+}
+
+.btn-sm.btn-primary,
+.btn-sm.btn-secondary,
+.btn-sm.btn-danger,
+.btn-sm.btn-warn,
+.btn-sm {
+  min-height: 32px;
+}
+
+.articles-action-btn {
+  height: 32px;
+}
+
+@media (max-width: 900px) {
+  .form-input:not(textarea) {
+    height: 40px;
+  }
+}
+
+/* "Show"-Schalter fuer Zugangsdaten: quadratisch, nur das Auge; so hoch wie das Feld daneben */
+.secret-toggle-btn {
+  position: relative;
+  width: var(--ctl-form-h);
+  height: var(--ctl-form-h);
+  min-width: 0;
+  padding: 0;
+  justify-content: center;
+  color: var(--text-muted);
+}
+
+.secret-toggle-btn svg {
+  width: 17px;
+  height: 17px;
+}
+
+.secret-toggle-btn .secret-toggle-label {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+}
+
+.secret-toggle-btn:hover,
+.secret-toggle-btn[aria-pressed="true"] {
+  color: var(--accent);
+  border-color: var(--accent);
+}
+
+@media (max-width: 900px) {
+  .secret-toggle-btn {
+    width: 40px;
+    height: 40px;
+  }
+}
+
+/* Logos der Datenbanken: werden beim Anzeigen von der Dienstseite geholt, nichts wird gespeichert.
+   Bis ein Logo geladen ist (oder wenn keines zu bekommen ist), steht das Buchstabenkuerzel da. */
+.db-card-badge,
+.search-db-card-badge {
+  position: relative;
+  overflow: hidden;
+}
+
+.db-card-badge img,
+.search-db-card-badge img {
+  position: absolute;
+  inset: 0;
+  margin: auto;
+  width: 28px;
+  height: 28px;
+  object-fit: contain;
+  opacity: 0;
+}
+
+.search-db-card-badge img {
+  width: 15px;
+  height: 15px;
+}
+
+.db-card-badge.has-logo,
+.search-db-card-badge.has-logo {
+  background: var(--on-brand);
+  box-shadow: inset 0 0 0 1px var(--border);
+}
+
+.has-logo img {
+  opacity: 1;
+}
+
+.has-logo .db-card-badge-fallback,
+.has-logo .db-abbr {
+  opacity: 0;
+}
+
+/* Konto */
+.account-identity-card {
+  flex-wrap: wrap;
+}
+
+.account-avatar {
+  width: 42px;
+  height: 42px;
+  font-size: 17px;
+  font-weight: 700;
+  text-transform: uppercase;
+}
+
+.account-identity-meta {
+  margin: 4px 0 0;
+  font-size: 12px;
+  color: var(--text-muted);
+  line-height: 1.5;
+}
+
+.account-identity-email {
+  overflow-wrap: break-word;
+}
+
+.account-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
+  gap: 14px;
+  align-items: start;
+}
+
+.account-grid .account-credentials {
+  margin-top: 0;
+  padding: 16px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  background: var(--surface);
+}
+
+.account-grid .account-credentials h4 {
+  font-size: 14px;
+  margin-bottom: 8px;
+}
+
+.account-grid .account-email-now {
+  overflow-wrap: break-word;
+}
+
+@media (max-width: 420px) {
+  .account-grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+/* ══ Dictations & Notes (js/notes.js) ══════════════════════════════════════ */
+.nt-view {
+  display: grid;
+  gap: 14px;
+  max-width: 900px;
+}
+
+.nt-view > * {
+  min-width: 0;
+  margin: 0;
+}
+
+.nt-recbox {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 12px 16px;
+}
+
+.nt-mic {
+  width: 56px;
+  height: 56px;
+  border-radius: 50%;
+  display: grid;
+  place-items: center;
+  flex: none;
+  background: var(--accent);
+  color: var(--accent-ink);
+  box-shadow: var(--shadow-lg);
+}
+
+.nt-mic svg {
+  width: 26px;
+  height: 26px;
+}
+
+.nt-mic:hover {
+  background: var(--accent-hover);
+}
+
+.nt-mic.rec {
+  background: var(--danger);
+  color: var(--on-brand);
+  animation: nt-pulse 1.4s ease-out infinite;
+}
+
+@keyframes nt-pulse {
+  0% { box-shadow: 0 0 0 0 color-mix(in srgb, var(--danger) 55%, transparent); }
+  100% { box-shadow: 0 0 0 18px transparent; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .nt-mic.rec { animation: none; }
+}
+
+.nt-info {
+  display: grid;
+  gap: 2px;
+  flex: 1 1 200px;
+  min-width: 0;
+}
+
+.nt-info b {
+  font-size: 15px;
+  font-variant-numeric: tabular-nums;
+}
+
+.nt-hint {
+  font-size: 12px;
+  color: var(--text-muted);
+  line-height: 1.45;
+}
+
+.nt-err {
+  font-size: 12.5px;
+  color: var(--danger);
+  margin: 0;
+}
+
+.nt-empty {
+  color: var(--text-muted);
+  font-size: 13.5px;
+  padding: 18px 4px;
+}
+
+.nt-f {
+  display: grid;
+  gap: 4px;
+  font-size: 12px;
+  color: var(--text-muted);
+  min-width: 0;
+}
+
+.nt-f-inline {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.nt-f .form-input,
+.nt-f textarea {
+  width: 100%;
+}
+
+textarea.form-input {
+  resize: vertical;
+  line-height: 1.5;
+}
+
+.nt-lang {
+  min-width: 130px;
+}
+
+.nt-result,
+.nt-editing {
+  display: grid;
+  gap: 12px;
+}
+
+.nt-fields {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(170px, 1fr));
+  gap: 12px;
+}
+
+.nt-audio {
+  width: 100%;
+  max-width: 560px;
+  height: 38px;
+}
+
+.nt-btnrow {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+
+.nt-busy {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--text-muted);
+  font-size: 12.5px;
+  margin: 0;
+}
+
+.nt-spin {
+  width: 14px;
+  height: 14px;
+  border: 2px solid var(--border);
+  border-top-color: var(--accent);
+  border-radius: 50%;
+  animation: nt-spin .8s linear infinite;
+}
+
+@keyframes nt-spin {
+  to { transform: rotate(360deg); }
+}
+
+.nt-key-head {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  width: 100%;
+  text-align: left;
+  font-weight: 600;
+  font-size: 14px;
+}
+
+.nt-key-head .nt-hint {
+  flex: 1;
+  font-weight: 400;
+}
+
+.nt-chev svg {
+  width: 16px;
+  height: 16px;
+  display: block;
+}
+
+.nt-key-body {
+  margin-top: 12px;
+  display: grid;
+  gap: 10px;
+}
+
+.nt-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 12px;
+}
+
+.nt-search {
+  flex: 1 1 200px;
+  min-width: 0;
+}
+
+.nt-sel {
+  width: auto;
+  max-width: 180px;
+}
+
+.nt-items {
+  display: grid;
+  gap: 10px;
+}
+
+.nt-item {
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  background: var(--surface-2);
+  padding: 10px 12px;
+  display: grid;
+  gap: 8px;
+  min-width: 0;
+}
+
+.nt-item > header {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+}
+
+.nt-head {
+  display: grid;
+  gap: 2px;
+  flex: 1;
+  min-width: 0;
+}
+
+.nt-head b {
+  font-size: 14px;
+  overflow-wrap: anywhere;
+}
+
+.nt-head small {
+  color: var(--text-muted);
+  font-size: 11.5px;
+}
+
+.nt-acts {
+  display: flex;
+  gap: 2px;
+  flex: none;
+}
+
+.nt-ib,
+.nt-fav {
+  display: inline-grid;
+  place-items: center;
+  width: 30px;
+  height: 30px;
+  border-radius: var(--radius);
+  color: var(--text-muted);
+  flex: none;
+}
+
+.nt-ib:hover,
+.nt-fav:hover {
+  background: var(--surface-3);
+  color: var(--text);
+}
+
+.nt-ib.danger:hover {
+  color: var(--danger);
+}
+
+.nt-ib svg,
+.nt-fav svg {
+  width: 16px;
+  height: 16px;
+}
+
+.nt-ib[aria-expanded="true"],
+.nt-ib[aria-pressed="true"],
+.nt-fav[aria-pressed="true"] {
+  color: var(--accent);
+}
+
+.nt-fav[aria-pressed="true"] svg,
+.nt-favf[aria-pressed="true"] svg {
+  fill: currentColor;
+}
+
+.nt-favf {
+  border: 1px solid var(--border);
+  background: var(--surface-2);
+  width: var(--ctl-form-h);
+  height: var(--ctl-form-h);
+}
+
+.nt-text {
+  margin: 0;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  font-size: 13.5px;
+  line-height: 1.55;
+  display: -webkit-box;
+  -webkit-line-clamp: 4;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  cursor: pointer;
+}
+
+.nt-text.open {
+  display: block;
+}
+
+.nt-text.empty {
+  color: var(--text-faint);
+  cursor: default;
+}
+
+@media (max-width: 640px) {
+  .nt-toolbar .segc {
+    order: 3;
+  }
+
+  .nt-sel {
+    flex: 1 1 120px;
+    max-width: none;
+  }
+}
+
+/* Konto: Loeschbereich als abgesetzte Karte */
+.danger-zone {
+  padding: 16px;
+  border: 1px solid color-mix(in srgb, var(--danger) 40%, var(--border));
+  border-radius: var(--radius-md);
+  background: var(--surface);
 }
