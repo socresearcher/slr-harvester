@@ -48,6 +48,7 @@ const SHELL = [
   'js/tts.js',
   'js/views.js',
   'js/notes.js',
+  'js/whisper-worker.js',
   'js/app-ui.js',
   'js/app.js',
   'js/vendor/piper/piper-tts-web.js',
@@ -59,6 +60,7 @@ const SHELL = [
 const ENGINE_HOSTS = [
   { host: 'cdnjs.cloudflare.com', path: '/ajax/libs/onnxruntime-web/' },
   { host: 'cdn.jsdelivr.net',     path: '/npm/@diffusionstudio/piper-wasm@' },
+  { host: 'cdn.jsdelivr.net',     path: '/npm/@huggingface/transformers@' },
 ];
 
 self.addEventListener('install', event => {

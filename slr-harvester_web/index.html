@@ -13,13 +13,13 @@
        this hash must be recomputed (SHA-256 of the text between the tags).
        'wasm-unsafe-eval' lets the voice engine compile WebAssembly; it does
        not allow eval(). style-src needs 'unsafe-inline' for style attributes. -->
-  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'wasm-unsafe-eval' 'sha256-YLs+T+FgxcIei7NqLvaWJAs+9cC27eorwbW1makPliw='; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https://*.gstatic.com https://www.scopus.com; font-src 'self'; media-src 'self' blob: data:; connect-src 'self' https://api.openai.com https://api.zotero.org https://api.elsevier.com https://eutils.ncbi.nlm.nih.gov https://api.openalex.org https://api.crossref.org https://doaj.org https://*.supabase.co wss://*.supabase.co https://cdn.jsdelivr.net https://cdnjs.cloudflare.com https://huggingface.co https://*.huggingface.co https://*.hf.co; worker-src 'self' blob:; frame-src zotero: citavi:; object-src 'none'; base-uri 'self'; form-action 'self'">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'wasm-unsafe-eval' 'sha256-YLs+T+FgxcIei7NqLvaWJAs+9cC27eorwbW1makPliw='; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https://*.gstatic.com; font-src 'self'; media-src 'self' blob: data:; connect-src 'self' https://api.openai.com https://api.zotero.org https://api.elsevier.com https://eutils.ncbi.nlm.nih.gov https://api.openalex.org https://api.crossref.org https://doaj.org https://*.supabase.co wss://*.supabase.co https://cdn.jsdelivr.net https://cdnjs.cloudflare.com https://huggingface.co https://*.huggingface.co https://*.hf.co; worker-src 'self' blob:; frame-src zotero: citavi:; object-src 'none'; base-uri 'self'; form-action 'self'">
   <title>SLR Harvester Web (Beta)</title>
-  <link rel="icon" type="image/svg+xml" href="favicon.svg?v=20261017f">
+  <link rel="icon" type="image/svg+xml" href="favicon.svg?v=20261018c">
   <link rel="manifest" href="manifest.webmanifest">
-  <link rel="stylesheet" href="css/style.css?v=20261017f">
-  <link rel="stylesheet" href="css/themes.css?v=20261017f">
-  <script src="js/theme-early.js?v=20261017f"></script>
+  <link rel="stylesheet" href="css/style.css?v=20261018c">
+  <link rel="stylesheet" href="css/themes.css?v=20261018c">
+  <script src="js/theme-early.js?v=20261018c"></script>
   <!-- Read-aloud: the neural voice engine (Piper) imports "onnxruntime-web/wasm"
        as a bare module specifier, which a browser cannot resolve without a
        bundler. This map supplies it — from the vendored copy, not a CDN
@@ -81,23 +81,12 @@
 
         <div class="nav-separator" role="separator"></div>
 
-        <button class="nav-item" data-view="articles" title="Articles" aria-label="Articles">
+        <button class="nav-item" data-view="articles" title="Results" aria-label="Results">
           <span class="nav-icon" data-icon="articles"></span>
-          <span class="nav-label sidebar-label">Articles</span>
+          <span class="nav-label sidebar-label">Results</span>
         </button>
-        <button class="nav-item" data-view="selected" title="Selected" aria-label="Selected">
-          <span class="nav-icon" data-icon="selected"></span>
-          <span class="nav-label sidebar-label">Selected</span>
-        </button>
-        <button class="nav-item" data-view="corpus" title="Corpus" aria-label="Corpus">
-          <span class="nav-icon" data-icon="corpus"></span>
-          <span class="nav-label sidebar-label">Corpus</span>
-        </button>
-        <!-- Visualisations belongs with the three screening stages, not with
-             Tags: it reads whatever Articles/Selected/Corpus currently hold
-             (its All/Selected/Corpus tabs are exactly those three subsets),
-             so it is the last step of that group rather than the first of
-             the next one. -->
+        <!-- Results holds the three screening lists (Initial / Selected / Corpus)
+             as tabs; Visualisations reads whichever of them it is told to. -->
         <button class="nav-item" data-view="visualizations" title="Visualisations" aria-label="Visualisations">
           <span class="nav-icon" data-icon="chart"></span>
           <span class="nav-label sidebar-label">Visualisations</span>
@@ -146,13 +135,13 @@
           <span id="view-title" class="view-title"></span>
         </div>
         <div class="topbar-right">
-          <button id="project-badge" class="project-badge" title="Go to Project Info" aria-label="Go to Project Info"></button>
           <div class="find" role="search">
             <svg viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="7"/><path d="m21 21-4.3-4.3"/></svg>
             <span class="findlbl" aria-hidden="true">Search</span>
-            <input id="q" type="text" placeholder="Search views, projects and articles …" aria-label="Search this app" autocomplete="off" spellcheck="false" role="combobox" aria-controls="sres" aria-expanded="false"><kbd>/</kbd>
+            <input id="q" type="text" placeholder="Search views, projects and records …" aria-label="Search this app" autocomplete="off" spellcheck="false" role="combobox" aria-controls="sres" aria-expanded="false"><kbd>/</kbd>
             <div class="sres" id="sres" role="listbox" hidden></div>
           </div>
+          <button id="project-badge" class="project-badge" title="Go to Project Info" aria-label="Go to Project Info"></button>
           <button id="fullscreen-toggle" class="theme-switch fullscreen-switch" title="Toggle fullscreen" aria-label="Toggle fullscreen">
             <span class="theme-switch-knob">
               <span id="fullscreen-icon" class="theme-switch-icon"></span>
@@ -176,7 +165,7 @@
   <!-- Modal overlay (rendered dynamically) -->
   <div id="modal-overlay" class="modal-overlay hidden" role="dialog" aria-modal="true"></div>
 
-  <script src="js/icons.js?v=20261017f"></script>
+  <script src="js/icons.js?v=20261018c"></script>
   <!-- Cloud sync (optional): Supabase JS SDK v2.112.3, vendored locally
        (js/vendor/supabase.js) rather than loaded from a CDN. This used to
        be cdn.jsdelivr.net, which browser tracking-prevention features
@@ -187,19 +176,19 @@
        Same-origin now, so that entire class of blocking can't happen.
        To update: download a newer dist/umd/supabase.js build and replace
        the vendored file; nothing else needs to change. -->
-  <script src="js/vendor/supabase.js?v=20261017f"></script>
-  <script src="js/data-local.js?v=20261017f"></script>
-  <script src="js/data-supabase.js?v=20261017f"></script>
-  <script src="js/data.js?v=20261017f"></script>
-  <script src="js/world-map-data.js?v=20261017f"></script>
-  <script src="js/world-map-outline-data.js?v=20261017f"></script>
-  <script src="js/world-map-paths-data.js?v=20261017f"></script>
-  <script src="js/world-map.js?v=20261017f"></script>
-  <script src="js/tts.js?v=20261017f"></script>
-  <script src="js/views.js?v=20261017f"></script>
-  <script src="js/notes.js?v=20261017f"></script>
-  <script src="js/app-ui.js?v=20261017f"></script>
-  <script src="js/app.js?v=20261017f"></script>
+  <script src="js/vendor/supabase.js?v=20261018c"></script>
+  <script src="js/data-local.js?v=20261018c"></script>
+  <script src="js/data-supabase.js?v=20261018c"></script>
+  <script src="js/data.js?v=20261018c"></script>
+  <script src="js/world-map-data.js?v=20261018c"></script>
+  <script src="js/world-map-outline-data.js?v=20261018c"></script>
+  <script src="js/world-map-paths-data.js?v=20261018c"></script>
+  <script src="js/world-map.js?v=20261018c"></script>
+  <script src="js/tts.js?v=20261018c"></script>
+  <script src="js/views.js?v=20261018c"></script>
+  <script src="js/notes.js?v=20261018c"></script>
+  <script src="js/app-ui.js?v=20261018c"></script>
+  <script src="js/app.js?v=20261018c"></script>
 
 </body>
 </html>

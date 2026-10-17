@@ -81,7 +81,7 @@ window.SLRApp = (() => {
 
 		// Shared across Articles/Selected/Corpus (one preference, not per-view)
 		// so the tag-breakdown show/hide toggle behaves identically everywhere.
-		tagBreakdownVisible: localStorage.getItem('slr-tag-breakdown-visible') !== '0',
+		tagBreakdownVisible: localStorage.getItem('slr-tag-breakdown-visible') === '1',
 
 		monoHue: Math.floor(Math.random() * 360),
 
@@ -4159,6 +4159,10 @@ window.SLRApp = (() => {
 		} catch (e) { /* aeltere Browser: kein Live-Wechsel */ }
 		// Settings > Appearance (Farbschema und Theme), per Delegation, weil die
 		// Ansicht bei jedem Aufruf neu gezeichnet wird.
+		$('view-container')?.addEventListener('change', e => {
+			const nav = e.target.closest('[data-nav-toggle]');
+			if (nav) SLRAppUI.setNavHidden(nav.dataset.navToggle, !nav.checked);
+		});
 		$('view-container')?.addEventListener('click', e => {
 			const mode = e.target.closest('[data-theme-mode]');
 			if (mode) {
@@ -4166,6 +4170,8 @@ window.SLRApp = (() => {
 				afterThemeChange();
 				return;
 			}
+			const rt = e.target.closest('[data-results-tab]');
+			if (rt) { navigate(rt.dataset.resultsTab); return; }
 			const style = e.target.closest('[data-style-key]');
 			if (style) {
 				SLRAppUI.applyStyle(style.dataset.styleKey, $);
@@ -4229,6 +4235,7 @@ window.SLRApp = (() => {
 		SLRAppUI.setSidebarCollapsed(state, _sidebar, $);
 		SLRAppUI.updateFullscreenButton($);
 		bindEvents();
+		SLRAppUI.applyNavVisibility();
 		SLRAppUI.initDbLogos();
 		SLRAppUI.initSearch({
 			state,

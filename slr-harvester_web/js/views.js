@@ -1056,6 +1056,22 @@ window.SLRViews = (() => {
       </div>`;
   }
 
+  // Results = one menu item with three lists. Internally the lists keep the view
+  // names articles / selected / corpus; the tabs are plain navigation (app.js
+  // handles [data-results-tab] by delegation).
+  function buildResultsTabsHTML(active, articles) {
+    const nAll = articles.length, nSel = articles.filter(a => a.selected).length, nCor = articles.filter(a => a.corpus).length;
+    const tab = (view, label, n, title) => `<button type="button" role="tab" data-results-tab="${view}" aria-pressed="${active === view}" aria-selected="${active === view}" title="${esc(title)}">${label}<span class="results-count">${n}</span></button>`;
+    return `
+        <div class="results-tabs">
+          <div class="segc" role="tablist" aria-label="Result lists">
+            ${tab('articles', 'Initial', nAll, 'Everything the searches returned')}
+            ${tab('selected', 'Selected', nSel, 'Records you picked after screening')}
+            ${tab('corpus', 'Corpus', nCor, 'The final set')}
+          </div>
+        </div>`;
+  }
+
   function renderArticles(container, articles, filter, projectData) {
     // Apply filters (Articles always operates on the full list — the old
     // All/Selected/Corpus mode switch was removed in favor of separate tabs)
@@ -1082,7 +1098,7 @@ window.SLRViews = (() => {
       : filtered.length === 0
       ? `<div class="article-list-empty">
            ${SLRIcons.articles}
-           <p>No articles match the current filters.</p>
+           <p>No results match the current filters.</p>
          </div>`
       : visible.map(a => articleItemHTML(a, projectData, buildCitationNetworkIndex(articles))).join('');
 
@@ -1091,24 +1107,7 @@ window.SLRViews = (() => {
 
         
         ${buildQueryFilterBannerHTML(filter, projectData)}
-        <div class="corpus-banner">
-          <span class="corpus-banner-stat">
-            ${SLRIcons.articles}
-            <span><strong>${totalAll}</strong> article${totalAll !== 1 ? 's' : ''} total</span>
-          </span>
-          <span class="corpus-banner-stat" style="color:var(--text-muted)">
-            ${SLRIcons.selected}
-            <span><strong>${totalSelected}</strong> selected</span>
-          </span>
-          <span class="corpus-banner-stat" style="color:var(--text-muted)">
-            ${SLRIcons.corpus}
-            <span><strong>${totalCorpus}</strong> in corpus</span>
-          </span>
-          <span class="corpus-banner-stat" style="color:var(--text-muted)">
-            ${SLRIcons.tag}
-            <span><strong>${totalTagged}</strong> tag${totalTagged !== 1 ? 's' : ''} used</span>
-          </span>
-        </div>
+        ${buildResultsTabsHTML('articles', articles)}
 
         <div class="list-header-collapsible"><div class="list-header-collapsible-inner">
 
@@ -1147,14 +1146,10 @@ window.SLRViews = (() => {
       if (e.target.tagName === 'A') return;
       if (e.target.closest('[data-action]')) return;
       if (e.target.closest('.article-id-copy')) return;
-      const swipeEl = item.closest('.article-item-swipe');
-      if (swipeEl && swipeEl.dataset.suppressClick === '1') { delete swipeEl.dataset.suppressClick; return; }
       item.classList.toggle('expanded');
     });
     wireArticleActions(container.querySelector('#article-list'), projectData);
     restoreKbdFocus(container.querySelector('#article-list'));
-    wireArticleSwipeGestures(container.querySelector('#article-list'), projectData, 'all');
-    wireListHeaderCollapse(container, container.querySelector('#article-list'));
     wireInfiniteScroll(container.querySelector('#article-list'), hasMore, () => SLRApp.bumpArticlesRenderLimit());
 
     const clearQueryBtn = container.querySelector('[data-action="clear-query-filter"]');
@@ -1254,7 +1249,10 @@ window.SLRViews = (() => {
     const sourceBadge = `<span class="badge badge-source badge-source-${esc(source)}" title="Source: ${esc(SOURCE_LABELS[source] || source)}">${esc(SOURCE_LABELS[source] || source)}</span>`;
     const docType = normalizeDocTypeKey(a.docType, source);
     const docTypeLabel = formatDocTypeLabel(docType);
-    const docTypeBadge = docType ? `<span class="badge badge-doctype badge-doctype-${esc(docTypeClassKey(docType))}">${esc(docTypeLabel)}</span>` : '';
+    const DOC_ICONS = { article: 'docArticle', review: 'docReview', book: 'docBook', chapter: 'docChapter', preprint: 'docPreprint', dataset: 'docDataset', dissertation: 'docThesis', report: 'docReport', 'journal-issue': 'docIssue' };
+    const docTypeBadge = docType
+      ? `<span class="badge badge-doctype badge-doctype-${esc(docTypeClassKey(docType))}" title="Document type: ${esc(docTypeLabel)}"><span class="doctype-ico" aria-hidden="true">${SLRIcons[DOC_ICONS[docType] || 'docOther']}</span>${esc(docTypeLabel)}</span>`
+      : `<span class="badge badge-doctype badge-doctype-unknown" title="Document type not known (use Fetch &rarr; Types)"><span class="doctype-ico" aria-hidden="true">${SLRIcons.docOther}</span>?</span>`;
     const affiliationBadge = (() => {
       const badge = getAffiliationBadgeState(a);
       return `<span class="affiliation-indicator ${esc(badge.state)}" title="${esc(badge.title)}" aria-label="${esc(badge.title)}">${SLRIcons.globe}</span>`;
@@ -1384,31 +1382,7 @@ window.SLRViews = (() => {
     const comment = a.comment
       ? `<div class="article-comment">${esc(a.comment)}</div>` : '';
 
-    // Swipe right moves an article forward (select, then add to corpus);
-    // swipe left undoes in reverse (remove from corpus first, then
-    // deselect) — whichever step applies next is derived from the
-    // article's current selected/corpus flags, so there's no separate
-    // undo-stack to track: state itself is the source of truth.
-    const swipeRight = (a.selected && a.corpus) ? null
-      : !a.selected ? { action: 'select',      icon: SLRIcons.selected, label: 'Select',         cls: 'accent', title: 'Mark as Selected' }
-      :                { action: 'add-corpus',  icon: SLRIcons.corpus,  label: 'Add to Corpus',   cls: 'accent', title: 'Add to Corpus' };
-    const swipeLeft = a.corpus ? { action: 'remove-corpus', icon: SLRIcons.close, label: 'Remove Corpus', cls: 'danger', title: 'Remove from Corpus' }
-      : a.selected              ? { action: 'deselect',      icon: SLRIcons.close, label: 'Deselect',      cls: 'danger', title: 'Remove from Selected' }
-      : null;
-    const eidAttr = esc(eidId);
-    const swipeLeftHTML = swipeLeft ? `
-          <div class="article-swipe-action article-swipe-reveal-left article-swipe-${swipeLeft.cls}" data-swipe-action="${swipeLeft.action}" data-eid="${eidAttr}" title="${esc(swipeLeft.title)}">
-            ${swipeLeft.icon}<span>${esc(swipeLeft.label)}</span>
-          </div>` : '';
-    const swipeRightHTML = swipeRight ? `
-          <div class="article-swipe-action article-swipe-reveal-right article-swipe-${swipeRight.cls}" data-swipe-action="${swipeRight.action}" data-eid="${eidAttr}" title="${esc(swipeRight.title)}">
-            ${swipeRight.icon}<span>${esc(swipeRight.label)}</span>
-          </div>` : '';
-
     return `
-      <div class="article-item-swipe">
-        ${swipeLeftHTML}
-        ${swipeRightHTML}
         <div class="article-item" ${styleAttr}
              data-eid="${esc(a.eid || a._id || '')}"
              data-selected="${a.selected ? 'true' : 'false'}"
@@ -1472,8 +1446,7 @@ window.SLRViews = (() => {
             ${idRow}
             ${comment}
           </div>
-        </div>
-      </div>`;
+        </div>`;
   }
 
   //  Article action helpers 
@@ -1780,192 +1753,6 @@ window.SLRViews = (() => {
         shareArticle(eid, btn);
       }
     });
-  }
-
-  // Swipe right selects, then adds to corpus; swipe left undoes the same
-  // steps in reverse (see the swipeLeft/swipeRight computation in
-  // articleItemHTML). Mirrors the touch-only swipe used by the History view
-  // (mouse/pen still use the tap-visible badge buttons instead — dragging
-  // the header with a mouse would fight with click-to-expand).
-  //
-  // listMode identifies which filtered list this is wired into ('all' |
-  // 'selected' | 'corpus') — a left-swipe that would remove the article
-  // from the list currently being viewed (deselecting in the Selected list,
-  // removing from corpus in the Corpus list) asks for confirmation first,
-  // since that swipe makes the card disappear immediately; the same actions
-  // performed from the main Articles list never need confirmation because
-  // the article stays visible there regardless of its selected/corpus state.
-  function wireArticleSwipeGestures(listEl, projectData, listMode) {
-    if (!listEl || !projectData) return;
-    const REVEAL = 96, THRESHOLD = 56;
-
-    const runSwipeAction = (action, eid) => {
-      if (!eid) return false;
-      if (action === 'select') {
-        SLRApp.updateAnnotation(eid, { selected: true });
-        return true;
-      }
-      if (action === 'add-corpus') {
-        SLRApp.updateAnnotation(eid, { corpus: true });
-        return true;
-      }
-      if (action === 'deselect') {
-        if (listMode !== 'selected') { SLRApp.updateAnnotation(eid, { selected: false }); return true; }
-        return confirmDialog({ title: 'Remove from Selected?', message: 'The article disappears from this list. You can select it again from Articles.', confirmLabel: 'Remove' })
-          .then(ok => { if (ok) SLRApp.updateAnnotation(eid, { selected: false }); return ok; });
-      }
-      if (action === 'remove-corpus') {
-        if (listMode !== 'corpus') { SLRApp.updateAnnotation(eid, { corpus: false }); return true; }
-        return confirmDialog({ title: 'Remove from Corpus?', message: 'The article disappears from this list. You can add it again from Articles or Selected.', confirmLabel: 'Remove' })
-          .then(ok => { if (ok) SLRApp.updateAnnotation(eid, { corpus: false }); return ok; });
-      }
-      return false;
-    };
-
-    listEl.addEventListener('click', ev => {
-      const swipeAction = ev.target.closest('.article-swipe-action');
-      if (!swipeAction) return;
-      ev.stopPropagation();
-      const swipeEl = swipeAction.closest('.article-item-swipe');
-      const card = swipeEl ? swipeEl.querySelector('.article-item') : null;
-      if (!card) return;
-      Promise.resolve(runSwipeAction(swipeAction.dataset.swipeAction, swipeAction.dataset.eid)).then(ok => {
-        if (!ok) {
-          card.style.transition = 'transform .2s ease';
-          card.style.transform = '';
-        }
-      });
-    });
-
-    // Delegated to listEl itself instead of one set of listeners per
-    // article card — at large list sizes (thousands of articles), binding
-    // 4 listeners per card on every render was the single biggest render
-    // cost in the app. Only one touch gesture can ever be in progress at
-    // once, so a single "active drag" record here does the same job every
-    // one of those per-item closures used to. Each card's open/closed
-    // state (needed so a second swipe starting from an already-revealed
-    // position computes the right baseX) persists across separate gestures
-    // via a data attribute on the card instead of a closure variable.
-    const setX = (card, x, animate) => {
-      card.style.transition = animate ? 'transform .2s ease' : 'none';
-      card.style.transform = x ? `translateX(${x}px)` : '';
-    };
-
-    let active = null;
-
-    listEl.addEventListener('pointerdown', e => {
-      if (e.pointerType !== 'touch') return;
-      const header = e.target.closest('.article-item-header');
-      if (!header) return;
-      const swipeEl = header.closest('.article-item-swipe');
-      const card = swipeEl ? swipeEl.querySelector('.article-item') : null;
-      if (!swipeEl || !card) return;
-      const hasLeft  = !!swipeEl.querySelector('.article-swipe-reveal-left');
-      const hasRight = !!swipeEl.querySelector('.article-swipe-reveal-right');
-      if (!hasLeft && !hasRight) return;
-      const openDir = Number(swipeEl.dataset.openDir) || 0;
-      active = {
-        swipeEl, card, header, hasLeft, hasRight, openDir,
-        pointerId: e.pointerId,
-        startX: e.clientX, startY: e.clientY,
-        baseX: openDir === -1 ? -REVEAL : openDir === 1 ? REVEAL : 0,
-        dx: 0, dragging: false,
-      };
-    });
-
-    listEl.addEventListener('pointermove', e => {
-      if (!active || e.pointerType !== 'touch' || e.pointerId !== active.pointerId) return;
-      const rawDx = e.clientX - active.startX;
-      if (!active.dragging) {
-        if (Math.abs(rawDx) < 8 || Math.abs(rawDx) < Math.abs(e.clientY - active.startY)) return;
-        active.dragging = true;
-        try { active.header.setPointerCapture(e.pointerId); } catch (_) { /* ignore */ }
-      }
-      const minX = active.hasLeft ? -REVEAL : 0;
-      const maxX = active.hasRight ? REVEAL : 0;
-      active.dx = Math.max(minX, Math.min(maxX, active.baseX + rawDx));
-      setX(active.card, active.dx, false);
-      e.preventDefault();
-    });
-
-    const finishSwipe = e => {
-      if (!active || (e && e.pointerId !== active.pointerId)) return;
-      const { swipeEl, card, hasLeft, hasRight, dx, dragging, openDir } = active;
-      if (dragging) {
-        let newDir = 0;
-        if (dx <= -THRESHOLD && hasLeft) { setX(card, -REVEAL, true); newDir = -1; }
-        else if (dx >= THRESHOLD && hasRight) { setX(card, REVEAL, true); newDir = 1; }
-        else { setX(card, 0, true); newDir = 0; }
-        swipeEl.dataset.openDir = String(newDir);
-        swipeEl.dataset.suppressClick = '1';
-      } else if (openDir !== 0) {
-        setX(card, 0, true);
-        swipeEl.dataset.openDir = '0';
-        swipeEl.dataset.suppressClick = '1';
-      }
-      active = null;
-    };
-    listEl.addEventListener('pointerup', finishSwipe);
-    listEl.addEventListener('pointercancel', finishSwipe);
-  }
-
-  // Hides the stats banner / toolbar / search row above an article list
-  // while the user scrolls the list down, and brings it back on scroll-up
-  // or once back near the top — a window is only so tall, and there's room
-  // to show the header stack OR a useful number of article cards, not both.
-  // That is as true of a desktop window as of a phone, so it now applies at
-  // every width; the listener always ran everywhere, only the CSS was scoped
-  // to max-width:900px. The animation is driven from here rather than left
-  // to CSS because the grid-template-rows 1fr/0fr transition it used to rely
-  // on is one Chrome declines to run when the grid's height is indefinite —
-  // measured, the computed value simply stayed at 262.75px. See the note on
-  // .list-header-collapsible in style.css.
-  function wireListHeaderCollapse(container, listEl) {
-    const wrap = container.querySelector('.list-header-collapsible');
-    if (!wrap || !listEl) return;
-
-    // max-height braucht eine Zahl, um sich bewegen zu koennen — 'auto' laesst
-    // sich nicht animieren. Der Ausgangswert wird deshalb bei jedem Wechsel
-    // frisch gemessen (die Kopfhoehe schwankt: der Filterbereich klappt eigene
-    // Zeilen auf) und nach dem Ausklappen wieder abgenommen, damit die
-    // Deckelung nicht stehen bleibt und spaeteres Wachstum abschneidet.
-    let collapsed = wrap.classList.contains('is-collapsed');
-    const setCollapsed = (on) => {
-      if (on === collapsed) return;
-      collapsed = on;
-      const hoehe = wrap.scrollHeight;
-      wrap.style.maxHeight = hoehe + 'px';
-      void wrap.offsetHeight;                       // Zwischenstand festhalten
-      wrap.classList.toggle('is-collapsed', on);
-      wrap.style.maxHeight = on ? '0px' : hoehe + 'px';
-      clearTimeout(aufraeumer);
-      if (!on) aufraeumer = setTimeout(deckelAbnehmen, 400);
-    };
-    // Den Deckel nach dem Ausklappen wieder abnehmen. `transitionend` ist
-    // dafuer der genaue, aber nicht der verlaessliche Weg: bei
-    // `prefers-reduced-motion` laeuft gar kein Uebergang, und ein verdecktes
-    // Fenster fuehrt ihn nicht aus — dann bliebe die Deckelung auf der
-    // gemessenen Hoehe stehen und wuerde den Kopf abschneiden, sobald der
-    // Filterbereich eigene Zeilen aufklappt. Der Zeitgeber laeuft deshalb
-    // mit; wer zuerst kommt, raeumt auf.
-    let aufraeumer = 0;
-    const deckelAbnehmen = () => {
-      if (!wrap.classList.contains('is-collapsed')) wrap.style.maxHeight = '';
-    };
-    wrap.addEventListener('transitionend', ev => {
-      if (ev.propertyName !== 'max-height') return;
-      deckelAbnehmen();
-    });
-
-    let lastTop = listEl.scrollTop;
-    listEl.addEventListener('scroll', () => {
-      const top = listEl.scrollTop;
-      const delta = top - lastTop;
-      if (top <= 8) setCollapsed(false);
-      else if (delta > 6) setCollapsed(true);
-      else if (delta < -6) setCollapsed(false);
-      lastTop = top;
-    }, { passive: true });
   }
 
   // Grows a paginated article list's render limit (see ARTICLE_PAGE_SIZE /
@@ -3135,30 +2922,10 @@ window.SLRViews = (() => {
     const activeCount = (activeTags || []).length;
     const fields = (Array.isArray(searchFields) && searchFields.length) ? searchFields : DEFAULT_SEARCH_FIELDS;
 
+    const filterCount = activeCount + (yearFromValue ? 1 : 0) + (yearToValue ? 1 : 0);
+
     return `
-      <div class="list-toolbar">
-        <div class="list-toolbar-row">
-          <button type="button" class="list-filter-toggle${filterVisible ? ' active' : ''}" id="list-filter-toggle"
-                  title="${filterVisible ? 'Hide' : 'Show'} tag filters" aria-label="Toggle tag filters" aria-expanded="${filterVisible ? 'true' : 'false'}">
-            ${SLRIcons.filter}
-            <span>Filter${activeCount ? ` (${activeCount})` : ''}</span>
-          </button>
-          <button class="articles-action-btn" id="fetch-menu-btn"
-                  title="Fetch missing abstracts, authors, document types, or affiliations">
-            ${SLRIcons.refresh} Fetch
-          </button>
-          <button class="articles-action-btn" id="tag-menu-btn"
-                  title="Automatically tag articles by journal name">
-            ${SLRIcons.tag} Tag
-          </button>
-          <button class="articles-action-btn" id="export-list-btn"
-              title="${esc(exportTitle || 'Download current list as .bib, .ris, or .csv')}">
-            ${SLRIcons.download} Export
-          </button>
-        </div>
-
-        ${filterVisible && breakdown ? `<div class="corpus-tag-breakdown">${breakdown}</div>` : ''}
-
+      <div class="list-toolbar list-toolbar--compact">
         <div class="list-toolbar-row">
           <div class="search-input-wrap">
             ${SLRIcons.search}
@@ -3170,20 +2937,41 @@ window.SLRViews = (() => {
                   data-fields="${esc(fields.join(','))}" title="Choose which fields the search box matches against">
             ${SLRIcons.filter} Fields (${fields.length})
           </button>
-        </div>
-
-        <div class="list-toolbar-row">
-          <div class="filter-year-wrap">
-            ${buildYearFieldHTML(yearFromId, yearFromValue, 1900, 'Earliest publication year')}
-            <span class="year-dash">–</span>
-            ${buildYearFieldHTML(yearToId, yearToValue, new Date().getFullYear(), 'Latest publication year')}
-          </div>
           <select class="filter-select" id="${sortId}" title="Sort order">
             <option value="newest" ${sortValue==='newest'?'selected':''}>Newest first</option>
             <option value="oldest" ${sortValue==='oldest'?'selected':''}>Oldest first</option>
             <option value="cited"  ${sortValue==='cited' ?'selected':''}>Most cited</option>
             <option value="title"  ${sortValue==='title' ?'selected':''}>Title A-Z</option>
           </select>
+          <button type="button" class="list-filter-toggle${filterVisible || filterCount ? ' active' : ''}" id="list-filter-toggle"
+                  title="${filterVisible ? 'Hide' : 'Show'} year and tag filters" aria-label="Toggle year and tag filters" aria-expanded="${filterVisible ? 'true' : 'false'}">
+            ${SLRIcons.filter}
+            <span>Filters${filterCount ? ` (${filterCount})` : ''}</span>
+          </button>
+          <button class="articles-action-btn" id="fetch-menu-btn"
+                  title="Fetch missing abstracts, authors, document types, or affiliations">
+            ${SLRIcons.refresh}<span class="btn-label"> Fetch</span>
+          </button>
+          <button class="articles-action-btn" id="tag-menu-btn"
+                  title="Automatically tag articles by journal name">
+            ${SLRIcons.tag}<span class="btn-label"> Tag</span>
+          </button>
+          <button class="articles-action-btn" id="export-list-btn"
+              title="${esc(exportTitle || 'Download current list as .bib, .ris, or .csv')}">
+            ${SLRIcons.download}<span class="btn-label"> Export</span>
+          </button>
+        </div>
+
+        <div class="list-filter-panel"${filterVisible ? '' : ' hidden'}>
+          <div class="list-toolbar-row">
+            <span class="list-filter-label">Years</span>
+            <div class="filter-year-wrap">
+              ${buildYearFieldHTML(yearFromId, yearFromValue, 1900, 'Earliest publication year')}
+              <span class="year-dash">–</span>
+              ${buildYearFieldHTML(yearToId, yearToValue, new Date().getFullYear(), 'Latest publication year')}
+            </div>
+          </div>
+          ${breakdown ? `<div class="corpus-tag-breakdown">${breakdown}</div>` : ''}
         </div>
       </div>`;
   }
@@ -3727,20 +3515,7 @@ window.SLRViews = (() => {
       <div class="articles-view">
 
         
-        <div class="corpus-banner">
-          <span class="corpus-banner-stat">
-            ${SLRIcons.corpus}
-            <span><strong>${stats.corpus}</strong> article${stats.corpus !== 1 ? 's' : ''} in corpus</span>
-          </span>
-          <span class="corpus-banner-stat" style="color:var(--text-muted)">
-            ${SLRIcons.articles}
-            <span>from ${articles.length} total</span>
-          </span>
-          <span class="corpus-banner-stat" style="color:var(--text-muted)">
-            ${SLRIcons.tag}
-            <span><strong>${Object.keys(stats.byTag).filter(t => t !== 'None').length}</strong> tag${Object.keys(stats.byTag).filter(t => t !== 'None').length !== 1 ? 's' : ''} used</span>
-          </span>
-        </div>
+        ${buildResultsTabsHTML('corpus', articles)}
 
         <div class="list-header-collapsible"><div class="list-header-collapsible-inner">
 
@@ -3777,14 +3552,10 @@ window.SLRViews = (() => {
       if (!item || e.target.tagName === 'A') return;
       if (e.target.closest('[data-action]')) return;
       if (e.target.closest('.article-id-copy')) return;
-      const swipeEl = item.closest('.article-item-swipe');
-      if (swipeEl && swipeEl.dataset.suppressClick === '1') { delete swipeEl.dataset.suppressClick; return; }
       item.classList.toggle('expanded');
     });
     wireArticleActions(container.querySelector('#corpus-list'), projectData);
     restoreKbdFocus(container.querySelector('#corpus-list'));
-    wireArticleSwipeGestures(container.querySelector('#corpus-list'), projectData, 'corpus');
-    wireListHeaderCollapse(container, container.querySelector('#corpus-list'));
     wireInfiniteScroll(container.querySelector('#corpus-list'), hasMore, () => SLRApp.bumpCorpusRenderLimit());
   }
 
@@ -3807,24 +3578,7 @@ window.SLRViews = (() => {
     container.innerHTML = `
       <div class="articles-view">
         
-        <div class="corpus-banner" style="border-left-color:var(--accent)">
-          <span class="corpus-banner-stat">
-            ${SLRIcons.selected}
-            <span><strong>${selectedArticles.length}</strong> article${selectedArticles.length !== 1 ? 's' : ''} selected</span>
-          </span>
-          <span class="corpus-banner-stat" style="color:var(--text-muted)">
-            ${SLRIcons.articles}
-            <span>from ${articles.length} total</span>
-          </span>
-          <span class="corpus-banner-stat" style="color:var(--text-muted)">
-            ${SLRIcons.corpus}
-            <span><strong>${stats.corpus}</strong> in corpus</span>
-          </span>
-          <span class="corpus-banner-stat" style="color:var(--text-muted)">
-            ${SLRIcons.tag}
-            <span><strong>${Object.keys(stats.byTag).filter(t => t !== 'None').length}</strong> tag${Object.keys(stats.byTag).filter(t => t !== 'None').length !== 1 ? 's' : ''} used</span>
-          </span>
-        </div>
+        ${buildResultsTabsHTML('selected', articles)}
 
         <div class="list-header-collapsible"><div class="list-header-collapsible-inner">
 
@@ -3859,14 +3613,10 @@ window.SLRViews = (() => {
       if (!item || e.target.tagName === 'A') return;
       if (e.target.closest('[data-action]')) return;
       if (e.target.closest('.article-id-copy')) return;
-      const swipeEl = item.closest('.article-item-swipe');
-      if (swipeEl && swipeEl.dataset.suppressClick === '1') { delete swipeEl.dataset.suppressClick; return; }
       item.classList.toggle('expanded');
     });
     wireArticleActions(container.querySelector('#selected-list'), projectData);
     restoreKbdFocus(container.querySelector('#selected-list'));
-    wireArticleSwipeGestures(container.querySelector('#selected-list'), projectData, 'selected');
-    wireListHeaderCollapse(container, container.querySelector('#selected-list'));
     wireInfiniteScroll(container.querySelector('#selected-list'), hasMore, () => SLRApp.bumpSelectedRenderLimit());
   }
 
@@ -5620,8 +5370,8 @@ window.SLRViews = (() => {
   // (nichts wird gespeichert) und ueber das Buchstabenkuerzel gelegt; app-ui.js
   // (initDbLogos) schaltet sie sichtbar, sobald ein echtes Bild da ist (Googles
   // Platzhalter ist nur 16 px gross und zaehlt nicht). Dienste, fuer die der Favicon-
-  // Dienst nichts hat, bekommen die Adresse ihres Mutterhauses; Scopus sperrt
-  // Abrufe von aussen und behaelt deshalb das Kuerzel, wo kein Logo kommt.
+  // Dienst nichts hat, bekommen die Adresse ihres Mutterhauses; wo trotzdem kein
+  // Logo kommt (u.a. Scopus: sperrt Abrufe von aussen), bleibt das Kuerzel.
   const LOGO_HOST = {
     'ieeexplore.ieee.org': 'ieee.org',
     'www.webofscience.com': 'clarivate.com',
@@ -5630,14 +5380,12 @@ window.SLRViews = (() => {
     'www.tandfonline.com': 'taylorandfrancis.com',
     'orcid.org': 'info.orcid.org',
   };
-  const LOGO_DIRECT = { 'www.scopus.com': 'https://www.scopus.com/favicon.ico' };
   function dbLogoImg(url) {
     let host = '';
     try { host = new URL(url).hostname; } catch (_) { return ''; }
     const use = LOGO_HOST[host] || host;
     const src = 'https://t0.gstatic.com/faviconV2?client=SOCIAL&type=FAVICON&fallback_opts=TYPE,SIZE,URL&url=http://' + encodeURIComponent(use) + '&size=64';
-    const alt = LOGO_DIRECT[host] ? ` data-alt="${esc(LOGO_DIRECT[host])}"` : '';
-    return `<img src="${src}"${alt} alt="" loading="lazy" decoding="async" referrerpolicy="no-referrer">`;
+    return `<img src="${src}" alt="" loading="lazy" decoding="async" referrerpolicy="no-referrer">`;
   }
 
   function renderDatabases(container) {
@@ -7640,48 +7388,26 @@ window.SLRViews = (() => {
       </div>
       <div id="settings-openalex-test-result" class="scopus-test-result" hidden></div>`;
 
+    // Dashboard-style rows with a toggle (title and short explanation on the left).
+    const tgRow = (id, title, desc, on, extraAttr) => `
+      <div class="srow">
+        <div class="stxt"><b>${title}</b>${desc ? `<small>${desc}</small>` : ''}</div>
+        <div class="sctl"><label class="tg"><input type="checkbox" role="switch" id="${id}"${on ? ' checked' : ''} aria-label="${esc(title)}"${extraAttr || ''}><span class="sl"></span></label></div>
+      </div>`;
+
     const automationBody = `
-      <p class="field-hint" style="margin-top:0">Configure how metadata enrichment runs by default in the Articles view and after new searches.</p>
+      <p class="field-hint" style="margin-top:0">Configure how metadata enrichment runs by default in the result lists and after new searches.</p>
 
-      <div class="form-field" style="margin-top:14px">
-        <label for="settings-auto-fetch-enabled">Auto-fetch metadata (Crossref) after search</label>
-        <select class="form-input" id="settings-auto-fetch-enabled">
-          <option value="off" ${autoFetchEnabled ? '' : 'selected'}>Disabled</option>
-          <option value="on" ${autoFetchEnabled ? 'selected' : ''}>Enabled</option>
-        </select>
-        <p class="field-hint">When enabled, abstracts/authors/types/affiliation fetching starts automatically after each successful search run.</p>
-        <p class="field-hint"><strong>Worth switching off for large result sets.</strong> Enrichment queries Crossref once per
-          record, so a few hundred articles take a while and a few thousand can run for several minutes — during which the
-          search you just started is still busy. With big lists it is usually better to leave this off and run
-          <em>Fetch metadata</em> from the Articles view later, once you have screened out what you do not need.</p>
+      <div class="srow-list">
+        ${tgRow('settings-auto-fetch-enabled', 'Auto-fetch metadata (Crossref) after search', 'Abstracts, authors, types and affiliations are fetched automatically after each successful search.', autoFetchEnabled)}
+        ${tgRow('settings-auto-tag-enabled', 'Auto-tag after search', 'Journal-keyword auto-tagging runs after each successful search, like the Tag button in the result lists.', autoTagEnabled)}
+        ${tgRow('settings-auto-run-scope', 'Only for newly added articles', 'Off: the automatic actions cover every eligible article in the project. On: only what the last search added. The manual Fetch and Tag buttons always cover the whole project.', autoRunScope === 'new')}
+        ${tgRow('settings-fetch-mode', 'Re-fetch records that already have data', 'Off: Fetch only fills what is missing. On: Fetch overwrites everything eligible (the default for the Fetch actions and Fetch All).', fetchMode === 'all')}
       </div>
-
-      <div class="form-field">
-        <label for="settings-auto-tag-enabled">Auto-tag after search</label>
-        <select class="form-input" id="settings-auto-tag-enabled">
-          <option value="off" ${autoTagEnabled ? '' : 'selected'}>Disabled</option>
-          <option value="on" ${autoTagEnabled ? 'selected' : ''}>Enabled</option>
-        </select>
-        <p class="field-hint">When enabled, journal-keyword auto-tagging runs automatically after each successful search run, same as the Articles-view button.</p>
-      </div>
-
-      <div class="form-field">
-        <label for="settings-auto-run-scope">Apply automatic actions to</label>
-        <select class="form-input" id="settings-auto-run-scope">
-          <option value="all" ${autoRunScope === 'new' ? '' : 'selected'}>All eligible articles in the project</option>
-          <option value="new" ${autoRunScope === 'new' ? 'selected' : ''}>Only articles newly added by that search</option>
-        </select>
-        <p class="field-hint">Controls the scope of the two automatic actions above. Manual Fetch/Auto-tag buttons in Articles are unaffected and always cover the whole project.</p>
-      </div>
-
-      <div class="form-field">
-        <label for="settings-fetch-mode">Default fetch mode</label>
-        <select class="form-input" id="settings-fetch-mode">
-          <option value="missing" ${fetchMode === 'all' ? '' : 'selected'}>Missing only</option>
-          <option value="all" ${fetchMode === 'all' ? 'selected' : ''}>Re-fetch all eligible</option>
-        </select>
-        <p class="field-hint">Applies to Fetch actions and the Fetch All button.</p>
-      </div>
+      <p class="field-hint"><strong>Worth switching auto-fetch off for large result sets.</strong> Enrichment queries Crossref once per
+        record, so a few hundred articles take a while and a few thousand can run for several minutes, during which the
+        search you just started is still busy. With big lists it is usually better to leave it off and run
+        <em>Fetch</em> from the result lists later, once you have screened out what you do not need.</p>
 
       <div class="form-field">
         <label>Auto-tag disciplines</label>
@@ -7717,6 +7443,38 @@ window.SLRViews = (() => {
     // view is redrawn on every visit.
     const themeMode = (function () { try { return localStorage.getItem('slr-theme') || 'dark'; } catch (e) { return 'dark'; } })();
     const themeStyle = SLRAppUI.currentStyle();
+    const hiddenNav = new Set(SLRAppUI.navHidden());
+    const sidebarHtml = `
+        <p class="settings-group-label">Sidebar</p>
+        <div class="settings-card" id="settings-nav">
+          <p class="field-hint" style="margin-top:0">Choose which menu items the sidebar shows. Settings and About always stay. Hidden views remain reachable through the search box.</p>
+          ${SLRAppUI.NAV_ITEMS.map(([id, label]) => tgRow('settings-nav-' + id, label, '', !hiddenNav.has(id), ` data-nav-toggle="${id}"`)).join('')}
+        </div>`;
+
+    const stt = SLRNotes.config();
+    const dictationsHtml = `
+        <p class="settings-group-label">Dictations</p>
+        <div class="settings-card" id="settings-dict">
+          <p class="field-hint" style="margin-top:0">Dictations are recorded in the browser and turned into text with Whisper. By default Whisper runs <strong>on this device</strong>: free, no key, and the audio never leaves the browser. The first time, the speech engine (about 21 MB) and the model you choose are downloaded and kept in the browser, after that it also works offline. It runs a little slower than real time on most machines; the larger the model, the better the result and the longer the wait. Chrome, Edge and Safari work; very old browsers may not.</p>
+          ${tgRow('settings-stt-auto', 'Transcribe automatically after recording', 'Off: you press Transcribe yourself. The first transcription on this device always asks before it downloads the model.', stt.auto)}
+          <div class="srow"><div class="stxt"><b>Engine</b><small>On this device is the default. OpenAI is faster and usually more accurate, but sends the audio of each dictation to OpenAI and needs your own API key (billed by OpenAI to you).</small></div>
+            <div class="sctl"><div class="segc" role="group" aria-label="Transcription engine">
+              <button type="button" data-stt-engine="device" aria-pressed="${stt.engine === 'device'}">On this device</button>
+              <button type="button" data-stt-engine="openai" aria-pressed="${stt.engine === 'openai'}">OpenAI</button>
+            </div></div></div>
+          ${stt.engine === 'device' ? `<div class="srow"><div class="stxt"><b>Model</b><small>${SLRNotes.MODELS.map(m => `${m[2]} ${m[3]}: ${m[4]}`).join(' · ')}</small></div>
+            <div class="sctl"><div class="segc" role="group" aria-label="Model size">
+              ${SLRNotes.MODELS.map(m => `<button type="button" data-stt-model="${m[0]}" aria-pressed="${stt.model === m[0]}">${m[2]}</button>`).join('')}
+            </div></div></div>` : `<div class="form-field" style="margin-top:12px">
+            <label for="settings-openai-key">OpenAI API key</label>
+            <div class="secret-input-row">
+              <input class="form-input monospace" id="settings-openai-key" type="password" autocomplete="off" spellcheck="false" placeholder="sk-…" value="${esc(stt.key)}">
+              <button class="btn-secondary secret-toggle-btn" type="button" data-target="settings-openai-key" aria-label="Show OpenAI key" aria-pressed="false"><span class="secret-toggle-icon">${SLRIcons.eye}</span><span class="secret-toggle-label">Show</span></button>
+            </div>
+            <p class="field-hint">Kept only in this browser (<code>localStorage</code>), never in the workspace or the cloud account. Without a key this engine cannot transcribe.</p>
+          </div>`}
+        </div>`;
+
     const appearanceHtml = `
         <p class="settings-group-label">Appearance</p>
         <div class="settings-card">
@@ -7744,6 +7502,7 @@ window.SLRViews = (() => {
           </p>
         </div>
         ${appearanceHtml}
+        ${sidebarHtml}
 
         <p class="settings-group-label">Database access</p>
         ${collapseSection({
@@ -7775,22 +7534,14 @@ window.SLRViews = (() => {
 
         <p class="settings-group-label">Guidance</p>
         <div class="settings-card">
-          <div class="form-field">
-            <label for="settings-guided-mode">Guided mode</label>
-            <select class="form-input" id="settings-guided-mode">
-              <option value="off" ${guidedMode ? '' : 'selected'}>Disabled</option>
-              <option value="on" ${guidedMode ? 'selected' : ''}>Enabled</option>
-            </select>
-            <p class="field-hint">When enabled, each view explains itself once with a short
-              set of cards — what the page is for and what to do here first. Page through
-              them with &lsaquo; and &rsaquo; or by swiping, skip them for now, or silence
-              them for a single view.</p>
-          </div>
-          <button type="button" class="btn-secondary" id="settings-guided-reset">Show all guides again</button>
+          ${tgRow('settings-guided-mode', 'Guided mode', 'Each view explains itself once with a short set of cards: what the page is for and what to do here first. Page through them with &lsaquo; and &rsaquo; or by swiping, skip them for now, or silence them for a single view.', guidedMode)}
+          <div class="srow"><div class="stxt"><b>Show all guides again</b><small>Brings back the cards you have already dismissed.</small></div><div class="sctl"><button type="button" class="btn-secondary" id="settings-guided-reset">Reset guides</button></div></div>
         </div>
 
         <p class="settings-group-label">Reading</p>
         ${renderReadAloudSection()}
+
+        ${dictationsHtml}
 
         <p class="settings-group-label">Tags</p>
         <div id="settings-tags-mount"></div>
@@ -7809,12 +7560,12 @@ window.SLRViews = (() => {
         instToken: container.querySelector('#settings-insttoken').value.trim(),
         openAlexKey: container.querySelector('#settings-openalex-key').value.trim(),
         openAlexEmail: container.querySelector('#settings-openalex-email').value.trim(),
-        autoFetchEnabled: container.querySelector('#settings-auto-fetch-enabled').value === 'on',
-        autoTagEnabled: container.querySelector('#settings-auto-tag-enabled').value === 'on',
-        autoRunScope: container.querySelector('#settings-auto-run-scope').value === 'new' ? 'new' : 'all',
+        autoFetchEnabled: container.querySelector('#settings-auto-fetch-enabled').checked,
+        autoTagEnabled: container.querySelector('#settings-auto-tag-enabled').checked,
+        autoRunScope: container.querySelector('#settings-auto-run-scope').checked ? 'new' : 'all',
         autoTagCategories: autoTagCategoriesValue,
-        fetchMode: container.querySelector('#settings-fetch-mode').value === 'all' ? 'all' : 'missing',
-        guidedMode: (container.querySelector('#settings-guided-mode') || {}).value !== 'off',
+        fetchMode: container.querySelector('#settings-fetch-mode').checked ? 'all' : 'missing',
+        guidedMode: !!(container.querySelector('#settings-guided-mode') || { checked: true }).checked,
       };
     }
 
@@ -7843,6 +7594,32 @@ window.SLRViews = (() => {
     });
     container.querySelectorAll('#settings-autotag-categories input[type="checkbox"]')
       .forEach(cb => cb.addEventListener('change', sofortSpeichern));
+
+    // Dictations: engine, model, automatic mode and the OpenAI key save immediately.
+    const keepScroll = fn => {
+      const vc = document.getElementById('view-container');
+      const top = vc ? vc.scrollTop : 0;
+      fn();
+      if (vc) requestAnimationFrame(() => { vc.scrollTop = top; });
+    };
+    const dict = container.querySelector('#settings-dict');
+    if (dict) {
+      dict.addEventListener('click', ev => {
+        const eng = ev.target.closest('[data-stt-engine]');
+        if (eng) { SLRNotes.setConfig({ engine: eng.dataset.sttEngine }); keepScroll(() => SLRApp.navigate('settings')); return; }
+        const mod = ev.target.closest('[data-stt-model]');
+        if (mod) { SLRNotes.setConfig({ model: mod.dataset.sttModel }); keepScroll(() => SLRApp.navigate('settings')); }
+      });
+      const auto = dict.querySelector('#settings-stt-auto');
+      if (auto) auto.addEventListener('change', () => SLRNotes.setConfig({ auto: auto.checked }));
+      const key = dict.querySelector('#settings-openai-key');
+      if (key) key.addEventListener('change', () => {
+        const v = key.value.trim();
+        if (v && !/^sk-[A-Za-z0-9_\-]{16,}$/.test(v)) { SLRApp.showToast('That does not look like an OpenAI key (it starts with sk-).', true); return; }
+        SLRNotes.setConfig({ key: v });
+        SLRApp.showToast(v ? 'Key saved in this browser.' : 'Key removed.', false);
+      });
+    }
 
     const fuehrungKnopf = container.querySelector('#settings-guided-reset');
     if (fuehrungKnopf) {
@@ -8021,8 +7798,8 @@ window.SLRViews = (() => {
             <li><span class="about-li-icon" aria-hidden="true">${SLRIcons.databases}</span><span><strong>OpenAlex</strong> (api.openalex.org) &mdash; your search query, and your OpenAlex key/contact email as a parameter, only if you've set them in Settings.</span></li>
             <li><span class="about-li-icon" aria-hidden="true">${SLRIcons.refresh}</span><span><strong>Crossref</strong> (api.crossref.org) &mdash; your search query when you search Crossref, and DOI-based lookups when you use Fetch Abstracts/Authors/Types/Affiliations (also run automatically after a search if auto-fetch is on). A fixed placeholder contact address is sent as Crossref's polite-pool parameter, never your own email.</span></li>
             <li><span class="about-li-icon" aria-hidden="true">${SLRIcons.databases}</span><span><strong>DOAJ</strong> (doaj.org) &mdash; your search query when you search DOAJ. No key required or sent.</span></li>
-            <li><span class="about-li-icon" aria-hidden="true">${SLRIcons.databases}</span><span><strong>Database logos</strong> (Google&rsquo;s favicon service, <code>t0.gstatic.com</code>, and <code>www.scopus.com</code>) &mdash; the Databases and Search views load each logo from there when they are shown, and keep none. The service sees your IP address and which database sites are listed; nothing about your searches or projects.</span></li>
-            <li><span class="about-li-icon" aria-hidden="true">${SLRIcons.speaker}</span><span><strong>OpenAI Whisper</strong> (api.openai.com) &mdash; only in Dictations, only when you press <em>Transcribe</em> and have entered your own key: the audio of that dictation. The key stays in this browser. Without a key nothing is sent.</span></li>
+            <li><span class="about-li-icon" aria-hidden="true">${SLRIcons.databases}</span><span><strong>Database logos</strong> (Google&rsquo;s favicon service, <code>t0.gstatic.com</code>) &mdash; the Databases and Search views load each logo from there when they are shown, and keep none. The service sees your IP address and which database sites are listed; nothing about your searches or projects.</span></li>
+            <li><span class="about-li-icon" aria-hidden="true">${SLRIcons.speaker}</span><span><strong>Dictations (Whisper)</strong> &mdash; by default the transcription runs <em>on this device</em>: the audio never leaves the browser. The first use downloads the speech engine (<code>cdn.jsdelivr.net</code>, ~21 MB) and the model you chose (<code>huggingface.co</code>, 40&ndash;250 MB), which see your IP address and are kept in the browser afterwards. Only if you switch the engine to <strong>OpenAI</strong> in Settings and enter your own key is the audio of a dictation sent to <code>api.openai.com</code>, when you transcribe it. The key stays in this browser.</span></li>
           </ul>
         </div>
 
@@ -10030,7 +9807,7 @@ window.SLRViews = (() => {
       ],
     },
     articles: {
-      titel: 'Articles',
+      titel: 'Results · Initial',
       karten: [
         'Everything the project has collected, from every search run. Duplicates across runs are merged.',
         'Use <strong>Fetch</strong> to fill in what the database left out — abstracts, authors, document types, affiliations — and <strong>Tag</strong> to sort articles into disciplines automatically.',
@@ -10039,14 +9816,14 @@ window.SLRViews = (() => {
       ],
     },
     corpus: {
-      titel: 'Corpus',
+      titel: 'Results · Corpus',
       karten: [
         'The corpus is what survived your first pass: the articles you consider worth reading in full.',
         'The same filters as in Articles work here, and the tag breakdown at the top shows how the corpus is distributed across disciplines.',
       ],
     },
     selected: {
-      titel: 'Selected',
+      titel: 'Results · Selected',
       karten: [
         'The articles you marked as belonging in the review itself — the ones your findings will rest on.',
         'Export from here when you need the final reference list.',

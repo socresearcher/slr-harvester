@@ -18,6 +18,16 @@ ad-blockers, which is what broke sign-in when the Supabase SDK still came from
 | `piper/piper-o91UDS6e.js` | same package, phonemizer glue chunk | 1.0.5 | MIT | `b5ac96981729547606fd026b8e3829aad81e9e3c22308869d50473259c563283` |
 | `piper/voices_static-D_OtJDHM.js` | same package, voice list chunk | 1.0.5 | MIT | `72cbd46fecaa067a09ed9455ca04b970d722810905d90bb2421e0911a5c4d758` |
 | `onnxruntime/ort.wasm.min.js` | `onnxruntime-web` (dist/esm) | 1.18.0 | MIT, see `onnxruntime/LICENSE` | `d02079ae1c4143f3a555a1dff86ba523b92022d8fe519263a34cf88675738753` |
+| `transformers/transformers.min.js` | `@huggingface/transformers` (dist) | 3.7.6 | Apache-2.0, see `transformers/LICENSE` | `13746ae88695b62e431fc5ebe3beb10a080d2081406047670639ce8c10a9ba25` |
+| `transformers/ort-wasm-simd-threaded.jsep.mjs` | same package, ONNX Runtime glue | 3.7.6 | Apache-2.0 / MIT | `08fb86ec433c78bfb032c5d84a68b8e8e5a8d81268fa39e24314179a5767a5b9` |
+
+The two Transformers.js files (on-device Whisper for Dictations, run by
+`js/whisper-worker.js`) were compared with the registry tarball
+`registry.npmjs.org/@huggingface/transformers/-/transformers-3.7.6.tgz`
+(2026-10-17). The worker points ONNX Runtime at the vendored glue file and
+fetches the matching `.wasm` binary (~21 MB) from `cdn.jsdelivr.net` and the
+Whisper model from `huggingface.co` (tiny ~40 MB, base ~80 MB, small ~250 MB);
+the browser keeps both, so only the first use needs a connection.
 
 The three Piper files must stay together under their original names:
 `piper-tts-web.js` imports the other two by relative path.

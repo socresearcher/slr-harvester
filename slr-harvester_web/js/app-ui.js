@@ -164,9 +164,9 @@ window.SLRAppUI = (() => {
       projects: 'Projects',
       search: 'Search',
       history: 'History',
-      articles: 'Articles',
-      selected: 'Selected',
-      corpus: 'Corpus',
+      articles: 'Results',
+      selected: 'Results',
+      corpus: 'Results',
       visualizations: 'Visualisations',
       tags: 'Tags',
       'autotag-rules': 'Auto-Tag Rules',
@@ -182,8 +182,10 @@ window.SLRAppUI = (() => {
     if (refs.viewTitle) refs.viewTitle.textContent = titles[state.view] || 'SLR Harvester Web';
     if (refs.projectBadge) refs.projectBadge.textContent = state.currentProject ? state.currentProject.name : '';
 
+    // The three result lists live under one menu item.
+    const navView = (state.view === 'selected' || state.view === 'corpus') ? 'articles' : state.view;
     document.querySelectorAll('.nav-item[data-view]').forEach(btn => {
-      btn.classList.toggle('active', btn.dataset.view === state.view);
+      btn.classList.toggle('active', btn.dataset.view === navView);
     });
   }
 
@@ -247,20 +249,49 @@ window.SLRAppUI = (() => {
     updateFullscreenButton($);
   }
 
+  // ── Sidebar items: show / hide (like the Dashboard) ───────────────────────
+  // Settings and About are not in the list and always stay, so the menu can
+  // never be hidden away completely. Hidden views remain reachable by search.
+  const NAV_ITEMS = [
+    ['welcome', 'Home'], ['databases', 'Databases'], ['projects', 'Projects'], ['search', 'Search'], ['history', 'History'],
+    ['articles', 'Results'], ['visualizations', 'Visualisations'], ['notes', 'Dictations'], ['workspace', 'Workspace'], ['account', 'Account'],
+  ];
+  function navHidden() {
+    try { const v = JSON.parse(localStorage.getItem('slr-navhide') || '[]'); return Array.isArray(v) ? v.filter(x => NAV_ITEMS.some(n => n[0] === x)) : []; }
+    catch (_) { return []; }
+  }
+  function setNavHidden(id, hide) {
+    const set = new Set(navHidden());
+    if (hide) set.add(id); else set.delete(id);
+    try { localStorage.setItem('slr-navhide', JSON.stringify([...set])); } catch (_) { /* storage blocked */ }
+    applyNavVisibility();
+  }
+  function applyNavVisibility() {
+    const hid = new Set(navHidden());
+    document.querySelectorAll('.sidebar-nav .nav-item[data-view]').forEach(b => { b.hidden = hid.has(b.dataset.view); });
+    // A separator stays only between two visible groups and never trails.
+    let sep = null, seen = false;
+    document.querySelectorAll('.sidebar-nav > *').forEach(el => {
+      if (el.classList.contains('nav-separator')) { el.hidden = true; sep = el; }
+      else if (el.classList.contains('nav-push')) { sep = null; }
+      else if (el.classList.contains('nav-item') && !el.hidden) { if (sep && seen) sep.hidden = false; sep = null; seen = true; }
+    });
+  }
+
   // ── Header search (layout and behaviour ported from the Dashboard) ───────
   // One box for the whole app: views, a few settings, the projects of the
   // workspace and — when a project is open — its articles by title. Nothing
   // is fetched; it only reads what the app already holds.
-  const SEARCH_GROUPS = ['Views', 'Settings', 'Projects', 'Articles'];
+  const SEARCH_GROUPS = ['Views', 'Settings', 'Projects', 'Records'];
   const SEARCH_VIEWS = [
     ['welcome', 'Home', 'start welcome'],
     ['databases', 'Databases', 'scopus pubmed openalex arxiv semantic scholar sources'],
     ['projects', 'Projects', 'project folder cards'],
     ['search', 'Search', 'query boolean harvest databases run'],
     ['history', 'History', 'query history runs past searches'],
-    ['articles', 'Articles', 'papers results screening list'],
-    ['selected', 'Selected', 'shortlist chosen screening'],
-    ['corpus', 'Corpus', 'final included set'],
+    ['articles', 'Results · Initial', 'articles papers records screening list all'],
+    ['selected', 'Results · Selected', 'shortlist chosen screening'],
+    ['corpus', 'Results · Corpus', 'final included set'],
     ['visualizations', 'Visualisations', 'charts prisma world map network years'],
     ['tags', 'Tags', 'labels colours schemes categories'],
     ['autotag-rules', 'Auto-Tag Rules', 'keywords disciplines automatic'],
@@ -301,12 +332,6 @@ window.SLRAppUI = (() => {
       const badge = img.closest('.db-card-badge, .search-db-card-badge');
       if (!badge) return;
       if (real(img)) badge.classList.add('has-logo');
-      else if (img.dataset.alt && !img.dataset.tried) { img.dataset.tried = '1'; img.src = img.dataset.alt; }
-    }, true);
-    document.addEventListener('error', e => {
-      const img = e.target;
-      if (!(img instanceof HTMLImageElement) || !img.closest('.db-card-badge, .search-db-card-badge')) return;
-      if (img.dataset.alt && !img.dataset.tried) { img.dataset.tried = '1'; img.src = img.dataset.alt; }
     }, true);
   }
 
@@ -326,7 +351,7 @@ window.SLRAppUI = (() => {
         if (p && p.workspace_folder) add('Projects', p.name || p.workspace_folder, 'Project', 'project ' + (p.description || ''), { project: p.workspace_folder });
       });
       (state.articles || []).forEach(a => {
-        if (a && a.title) add('Articles', a.title, [a.year, a.journal].filter(Boolean).join(' · '), (a.authors || '') + '', { article: a.title });
+        if (a && a.title) add('Records', a.title, [a.year, a.journal].filter(Boolean).join(' · '), (a.authors || '') + '', { article: a.title });
       });
       return list;
     }
@@ -463,6 +488,10 @@ window.SLRAppUI = (() => {
     currentStyle,
     syncAppearanceControls,
     initSearch,
+    NAV_ITEMS,
+    navHidden,
+    setNavHidden,
+    applyNavVisibility,
     initDbLogos,
     STYLES,
     THEME_MODES,

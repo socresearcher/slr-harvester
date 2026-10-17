@@ -1,7 +1,9 @@
 /**
  * SLR Harvester Web - Dictations & Notes
- * Voice dictations (recorded in the browser, transcribed with OpenAI Whisper
- * when the user has entered their own key) and plain notes. Ported in spirit
+ * Voice dictations (recorded in the browser, transcribed with Whisper) and plain
+ * notes. Whisper runs ON THE DEVICE by default (vendored Transformers.js in a
+ * worker, no key, audio never leaves the browser); OpenAI's Whisper API is an
+ * optional second engine for users who bring their own key. Ported in spirit
  * from the Dashboard's "Diktate" page; same behaviour where it makes sense
  * (record, transcribe, edit, favourite, folder, search, filter, audio playback).
  *
@@ -10,9 +12,10 @@
  *   - Cloud Sync:   table public.dictations + private bucket "dictations"
  *                   (one-time SQL, see the project owner's setup notes)
  *
- * The OpenAI key stays in this browser's localStorage (key slr-openai-key),
- * never in the workspace or in Supabase. Audio leaves the device only when
- * "Transcribe" is used, and then goes to api.openai.com only.
+ * Engine, model and the optional OpenAI key stay in this browser's localStorage
+ * (slr-stt-*, slr-openai-key), never in the workspace or in Supabase. With the
+ * OpenAI engine, audio leaves the device only when "Transcribe" runs, and then
+ * goes to api.openai.com only. Settings > Dictations edits these values.
  *
  * Global: window.SLRNotes
  */
@@ -29,6 +32,33 @@ window.SLRNotes = (() => {
     : 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, c => { const r = Math.random() * 16 | 0; return (c === 'x' ? r : (r & 3 | 8)).toString(16); }));
   const toast = (m, err) => { try { SLRApp.showToast(m, !!err); } catch (_) { /* no toast available */ } };
   const getKey = () => { try { return localStorage.getItem(KEY_OPENAI) || ''; } catch (_) { return ''; } };
+  // ── Transcription settings ────────────────────────────────────────────────
+  const MODELS = [
+    ['tiny', 'Xenova/whisper-tiny', 'Tiny', '≈ 40 MB', 'fastest, rough on difficult audio'],
+    ['base', 'Xenova/whisper-base', 'Base', '≈ 80 MB', 'good balance (default)'],
+    ['small', 'Xenova/whisper-small', 'Small', '≈ 250 MB', 'most accurate, slowest'],
+  ];
+  const lsGet = k => { try { return localStorage.getItem(k); } catch (_) { return null; } };
+  const lsSet = (k, v) => { try { if (v === null) localStorage.removeItem(k); else localStorage.setItem(k, v); } catch (_) { /* blocked */ } };
+  function config() {
+    const m = lsGet('slr-stt-model');
+    return {
+      engine: lsGet('slr-stt-engine') === 'openai' ? 'openai' : 'device',
+      model: MODELS.some(x => x[0] === m) ? m : 'base',
+      auto: lsGet('slr-stt-auto') !== '0',
+      key: getKey(),
+    };
+  }
+  function setConfig(p) {
+    if ('engine' in p) lsSet('slr-stt-engine', p.engine === 'openai' ? 'openai' : null);
+    if ('model' in p) lsSet('slr-stt-model', p.model === 'base' ? null : p.model);
+    if ('auto' in p) lsSet('slr-stt-auto', p.auto ? null : '0');
+    if ('key' in p) lsSet(KEY_OPENAI, p.key ? p.key : null);
+  }
+  const deviceOK = () => !!(window.Worker && (window.AudioContext || window.webkitAudioContext));
+  const canTranscribe = () => { const c = config(); return c.engine === 'openai' ? !!c.key : deviceOK(); };
+  const engineLabel = () => { const c = config(); return c.engine === 'openai' ? 'OpenAI Whisper' : 'Whisper ' + (MODELS.find(m => m[0] === c.model) || MODELS[1])[2] + ' on this device'; };
+
   const fmtDur = s => { s = Math.max(0, Math.round(s || 0)); return Math.floor(s / 60) + ':' + String(s % 60).padStart(2, '0'); };
   const fmtDate = iso => { const d = new Date(iso); return isNaN(d) ? '' : d.toLocaleString('en-GB', { day: 'numeric', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' }); };
   const extOf = m => /mp4|m4a/.test(m || '') ? 'm4a' : /ogg/.test(m || '') ? 'ogg' : 'webm';
@@ -38,7 +68,7 @@ window.SLRNotes = (() => {
     list: null, loading: false, error: '',
     kind: '*', folder: '*', fav: false, q: '', sort: 'new',
     open: new Set(), edit: null, draft: null, busyId: null,
-    rec: null, result: null, lang: 'auto', keyOpen: false, keyShown: false,
+    rec: null, result: null, lang: 'auto', sttStatus: '',
     urls: {}, container: null,
   };
 
@@ -153,10 +183,10 @@ window.SLRNotes = (() => {
     await localWrite((await localRead()).filter(x => x.id !== n.id));
   }
 
-  // ── Whisper ───────────────────────────────────────────────────────────────
-  async function whisper(blob, lang) {
+  // ── Whisper: OpenAI (own key) ─────────────────────────────────────────────
+  async function openaiTranscribe(blob, lang) {
     const key = getKey();
-    if (!key) throw new Error('No OpenAI key set. Add it under "Transcription" below.');
+    if (!key) throw new Error('No OpenAI key set. Add it in Settings > Dictations, or switch to transcription on this device.');
     if (blob.size > MAX_AUDIO) throw new Error('This recording is larger than 24 MB, the limit of the transcription service.');
     const fd = new FormData();
     fd.append('file', blob, 'dictation.' + extOf(blob.type));
@@ -172,6 +202,86 @@ window.SLRNotes = (() => {
     }
     return ((await r.json()).text || '').trim();
   }
+
+  // ── Whisper: on this device (js/whisper-worker.js) ────────────────────────
+  let worker = null, loadedModel = '';
+
+  async function decode16k(blob) {
+    const Ctx = window.AudioContext || window.webkitAudioContext;
+    const ac = new Ctx();
+    let buf;
+    try { buf = await ac.decodeAudioData(await blob.arrayBuffer()); }
+    catch (_) { throw new Error('This recording could not be decoded by the browser.'); }
+    finally { try { ac.close(); } catch (_) { /* ignore */ } }
+    const off = new OfflineAudioContext(1, Math.max(1, Math.ceil(buf.duration * 16000)), 16000);
+    const src = off.createBufferSource(); src.buffer = buf; src.connect(off.destination); src.start();
+    return (await off.startRendering()).getChannelData(0);
+  }
+
+  function workerCall(msg, onMessage) {
+    return new Promise((resolve, reject) => {
+      if (!worker) {
+        try { worker = new Worker('js/whisper-worker.js', { type: 'module' }); }
+        catch (e) { reject(new Error('This browser cannot run the on-device speech engine.')); return; }
+      }
+      const w = worker;
+      w.onmessage = e => {
+        const m = e.data;
+        if (m.type === 'progress') { if (onMessage) onMessage(m.p); return; }
+        if (m.type === 'error') { reject(new Error(m.message)); return; }
+        resolve(m);
+      };
+      w.onerror = e => { worker = null; loadedModel = ''; reject(new Error('The on-device speech engine failed to start' + (e && e.message ? ': ' + e.message : '') + '.')); };
+      w.postMessage(msg);
+    });
+  }
+
+  async function ensureModel(setStatus) {
+    const c = config();
+    const m = MODELS.find(x => x[0] === c.model) || MODELS[1];
+    if (worker && loadedModel === m[1]) return;
+    const files = {};
+    setStatus('Preparing the speech engine …');
+    await workerCall({ type: 'load', model: m[1] }, p => {
+      if (p.status === 'progress' && p.file && p.total) {
+        files[p.file] = { loaded: p.loaded || 0, total: p.total };
+        const all = Object.values(files);
+        const tot = all.reduce((x, f) => x + f.total, 0), got = all.reduce((x, f) => x + f.loaded, 0);
+        setStatus(`Downloading the speech model (${m[2]}, ${m[3]}) … ${tot ? Math.round(100 * got / tot) : 0} %`);
+      } else if (p.status === 'ready') setStatus('Loading the speech model …');
+    });
+    loadedModel = m[1];
+    lsSet('slr-stt-ok-' + m[0], '1');
+  }
+
+  async function deviceTranscribe(blob, lang, setStatus) {
+    setStatus('Reading the recording …');
+    const audio = await decode16k(blob);
+    await ensureModel(setStatus);
+    setStatus('Transcribing … (runs on this device; long recordings take a while)');
+    const lc = lang && lang !== 'auto' ? ({ de: 'german', en: 'english', es: 'spanish', fr: 'french', it: 'italian', hr: 'croatian' })[lang] || null : null;
+    const r = await workerCall({ type: 'run', audio, language: lc }, null);
+    return r.text || '';
+  }
+
+  // One entry for both engines. The first run of a model on this device asks
+  // before it downloads anything.
+  async function transcribe(blob, lang, setStatus) {
+    const c = config();
+    if (c.engine === 'openai') { setStatus('Sending the audio to OpenAI …'); return openaiTranscribe(blob, lang); }
+    const m = MODELS.find(x => x[0] === c.model) || MODELS[1];
+    if (!lsGet('slr-stt-ok-' + m[0]) && !(worker && loadedModel === m[1])) {
+      const ok = await SLRViews.confirmDialog({
+        title: 'Download the speech model?',
+        message: `Transcription runs on this device. The first time, the speech engine (about 21 MB) and the ${m[2]} model (${m[3]}) are downloaded and kept in this browser; after that it works offline. Nothing you record is uploaded. You can change the model or switch to OpenAI in Settings.`,
+        confirmLabel: 'Download and transcribe',
+      });
+      if (!ok) throw new Error('Cancelled. Press Transcribe when you want to download the model.');
+    }
+    return deviceTranscribe(blob, lang, setStatus);
+  }
+
+  const setStatusFn = () => { return t => { S.sttStatus = t; const el = document.getElementById('nt-status'); if (el) el.textContent = t; }; };
 
   // ── Recording ─────────────────────────────────────────────────────────────
   async function recStart() {
@@ -192,7 +302,7 @@ window.SLRNotes = (() => {
       const blob = new Blob(rec.chunks, { type: rec.mime || 'audio/webm' });
       S.result = { blob, url: URL.createObjectURL(blob), dur: (Date.now() - rec.start) / 1000, title: '', text: '', lang: S.lang, busy: false, err: '' };
       draw();
-      if (getKey()) transcribeResult();
+      if (config().auto && canTranscribe() && (config().engine === 'openai' || lsGet('slr-stt-ok-' + config().model))) transcribeResult();
     };
     S.rec = rec;
     mr.start(1000);
@@ -208,10 +318,10 @@ window.SLRNotes = (() => {
 
   async function transcribeResult() {
     const r = S.result; if (!r || r.busy) return;
-    syncFields(); r.busy = true; r.err = ''; draw();
-    try { r.text = await whisper(r.blob, r.lang); if (!r.title) r.title = autoTitle(r.text, 'Dictation'); if (!r.text) r.err = 'No speech was recognised.'; }
+    syncFields(); r.busy = true; r.err = ''; S.sttStatus = 'Starting …'; draw();
+    try { r.text = await transcribe(r.blob, r.lang, setStatusFn()); if (!r.title) r.title = autoTitle(r.text, 'Dictation'); if (!r.text) r.err = 'No speech was recognised.'; }
     catch (e) { r.err = e.message || String(e); }
-    r.busy = false; draw();
+    r.busy = false; S.sttStatus = ''; draw();
   }
 
   function discardResult() {
@@ -317,12 +427,12 @@ window.SLRNotes = (() => {
           <label class="nt-f">Folder<input class="form-input" id="nt-r-folder" type="text" maxlength="60" list="nt-folders" value="${esc(r.folder || '')}" placeholder="No folder"></label>
           <label class="nt-f">Language<span>${langSelect('nt-r-lang', r.lang)}</span></label>
         </div>
-        <label class="nt-f">Text${r.busy ? ' <span class="nt-busy"><span class="nt-spin"></span> working …</span>' : ''}
-          <textarea class="form-input" id="nt-r-text" rows="6" placeholder="${getKey() ? 'The transcript appears here.' : 'No OpenAI key set: type the text yourself, or add a key under Transcription to transcribe automatically.'}">${esc(r.text)}</textarea></label>
+        <label class="nt-f">Text${r.busy ? ' <span class="nt-busy"><span class="nt-spin"></span> <span id="nt-status">' + esc(S.sttStatus || 'working …') + '</span></span>' : ''}
+          <textarea class="form-input" id="nt-r-text" rows="6" placeholder="${canTranscribe() ? 'The transcript appears here. Press Transcribe if it does not start by itself.' : 'Transcription is not available with the current settings (Settings > Dictations): type the text yourself.'}">${esc(r.text)}</textarea></label>
         ${r.err ? `<p class="nt-err" role="alert">${esc(r.err)}</p>` : ''}
         <div class="nt-btnrow">
           <button type="button" class="btn-primary" data-nt="res-save"${r.busy ? ' disabled' : ''}>Save dictation</button>
-          <button type="button" class="btn-secondary" data-nt="res-transcribe"${r.busy || !getKey() ? ' disabled' : ''}>${r.text ? 'Transcribe again' : 'Transcribe'}</button>
+          <button type="button" class="btn-secondary" data-nt="res-transcribe"${r.busy || !canTranscribe() ? ' disabled' : ''}>${r.text ? 'Transcribe again' : 'Transcribe'}</button>
           <button type="button" class="btn-secondary" data-nt="res-discard"${r.busy ? ' disabled' : ''}>Discard</button>
           <span class="nt-hint">${fmtDur(r.dur)} · ${(r.blob.size / 1024).toFixed(0)} KB</span>
         </div>
@@ -330,28 +440,20 @@ window.SLRNotes = (() => {
     }
     return `<div class="nt-recbox">
       <button type="button" class="nt-mic" data-nt="rec-start" aria-label="Start recording" title="Start recording">${I().mic}</button>
-      <div class="nt-info"><b>Dictate</b><span class="nt-hint">${getKey() ? 'Recorded here, transcribed with Whisper.' : 'Recorded here. Add an OpenAI key under Transcription to get text automatically.'}</span></div>
+      <div class="nt-info"><b>Dictate</b><span class="nt-hint">${canTranscribe() ? 'Recorded here, transcribed with ' + esc(engineLabel()) + '.' : 'Recorded here. Transcription is off with the current settings.'}</span></div>
       <label class="nt-f nt-f-inline">Language${langSelect('nt-lang', S.lang)}</label>
       <button type="button" class="btn-secondary" data-nt="new">${I().plus} New note</button>
     </div>`;
   }
 
-  function keyHtml() {
-    const k = getKey();
+  function statusHtml() {
+    const c = config();
     return `<div class="settings-card nt-key">
-      <button type="button" class="nt-key-head" data-nt="key-toggle" aria-expanded="${S.keyOpen}">
-        <span>Transcription</span><span class="nt-hint">${k ? 'OpenAI key set — dictations are transcribed with Whisper' : 'No key — dictations are saved as audio only'}</span>
-        <span class="nt-chev">${S.keyOpen ? I().chevronUp : I().chevronDown}</span></button>
-      ${S.keyOpen ? `<div class="nt-key-body">
-        <p class="field-hint" style="margin-top:0">Transcription uses OpenAI&rsquo;s Whisper service with <strong>your own API key</strong>. The key is kept only in this browser (<code>localStorage</code>), never in the workspace or in the cloud account. The audio of a dictation is sent to <code>api.openai.com</code> only when it is transcribed, and OpenAI bills that use to your key. Without a key you can still record, play back and write the text yourself.</p>
-        <div class="secret-input-row">
-          <input class="form-input monospace" id="nt-key-input" type="${S.keyShown ? 'text' : 'password'}" autocomplete="off" spellcheck="false" placeholder="sk-…" value="${esc(k)}">
-          <button class="btn-secondary secret-toggle-btn" type="button" data-nt="key-show" aria-label="${S.keyShown ? 'Hide key' : 'Show key'}" aria-pressed="${S.keyShown}"><span class="secret-toggle-icon">${S.keyShown ? I().eyeOff : I().eye}</span><span class="secret-toggle-label">${S.keyShown ? 'Hide' : 'Show'}</span></button>
-        </div>
-        <div class="settings-save-row">
-          <button type="button" class="btn-primary" data-nt="key-save">Save key</button>
-          <button type="button" class="btn-secondary" data-nt="key-remove"${k ? '' : ' disabled'}>Remove key</button>
-        </div></div>` : ''}
+      <div class="nt-key-head">
+        <span>Transcription</span>
+        <span class="nt-hint">${esc(engineLabel())}${c.engine === 'device' ? ' · free, private, no key' : ''}${c.auto ? ' · automatic' : ' · manual'}</span>
+        <button type="button" class="btn-secondary btn-sm" data-nt="settings">Change in Settings</button>
+      </div>
     </div>`;
   }
 
@@ -363,7 +465,7 @@ window.SLRNotes = (() => {
       <div class="nt-btnrow">
         <button type="button" class="btn-primary" data-nt="edit-save">${isNew ? 'Save note' : 'Save'}</button>
         <button type="button" class="btn-secondary" data-nt="edit-cancel">Cancel</button>
-        ${!isNew && n && n.audio && getKey() ? `<button type="button" class="btn-secondary" data-nt="retr" data-id="${esc(n.id)}">Transcribe audio again</button>` : ''}
+        ${!isNew && n && n.audio && canTranscribe() ? `<button type="button" class="btn-secondary" data-nt="retr" data-id="${esc(n.id)}">Transcribe audio again</button>` : ''}
       </div></article>`;
   }
 
@@ -383,9 +485,9 @@ window.SLRNotes = (() => {
           <button type="button" class="nt-ib danger" data-nt="del" data-id="${esc(n.id)}" aria-label="Delete" title="Delete">${I().trash}</button>
         </div>
       </header>
-      ${busy ? '<p class="nt-busy"><span class="nt-spin"></span> transcribing …</p>' : ''}
+      ${busy ? '<p class="nt-busy"><span class="nt-spin"></span> <span id="nt-status">' + esc(S.sttStatus || 'transcribing …') + '</span></p>' : ''}
       ${n.text ? `<p class="nt-text${open ? ' open' : ''}" data-nt="open-text" data-id="${esc(n.id)}">${esc(n.text)}</p>` : '<p class="nt-text empty">No text.</p>'}
-      ${open && n.audio ? (url ? `<audio class="nt-audio" controls autoplay preload="metadata" src="${esc(url)}"></audio><div class="nt-btnrow">${getKey() ? `<button type="button" class="btn-secondary btn-sm" data-nt="retr" data-id="${esc(n.id)}">Transcribe again</button>` : ''}<button type="button" class="btn-secondary btn-sm" data-nt="delaudio" data-id="${esc(n.id)}">Delete audio, keep text</button></div>` : '<p class="nt-busy"><span class="nt-spin"></span> loading audio …</p>') : ''}
+      ${open && n.audio ? (url ? `<audio class="nt-audio" controls autoplay preload="metadata" src="${esc(url)}"></audio><div class="nt-btnrow">${canTranscribe() ? `<button type="button" class="btn-secondary btn-sm" data-nt="retr" data-id="${esc(n.id)}">Transcribe again</button>` : ''}<button type="button" class="btn-secondary btn-sm" data-nt="delaudio" data-id="${esc(n.id)}">Delete audio, keep text</button></div>` : '<p class="nt-busy"><span class="nt-spin"></span> loading audio …</p>') : ''}
     </article>`;
   }
 
@@ -420,7 +522,7 @@ window.SLRNotes = (() => {
       <datalist id="nt-folders">${folders().map(f => `<option value="${esc(f)}">`).join('')}</datalist>
       <section class="settings-card nt-rec">${recorderHtml()}</section>
       ${S.edit === '__new' ? `<section class="settings-card">${editHtml(S.draft, true)}</section>` : ''}
-      ${keyHtml()}
+      ${statusHtml()}
       ${listCardHtml()}
     </div>`;
     c.scrollTop = keep;
@@ -462,16 +564,7 @@ window.SLRNotes = (() => {
       case 'edit-cancel': syncFields(); S.edit = null; S.draft = null; return draw();
       case 'kind': S.kind = el.dataset.k; return draw();
       case 'favfilter': S.fav = !S.fav; return draw();
-      case 'key-toggle': syncFields(); S.keyOpen = !S.keyOpen; return draw();
-      case 'key-show': { const cur = (document.getElementById('nt-key-input') || {}).value || ''; S.keyShown = !S.keyShown; draw(); const i2 = document.getElementById('nt-key-input'); if (i2) i2.value = cur; return; }
-      case 'key-save': {
-        const v = (document.getElementById('nt-key-input') || {}).value || '';
-        const key = v.trim();
-        if (key && !/^sk-[A-Za-z0-9_\-]{16,}$/.test(key)) { toast('That does not look like an OpenAI key (it starts with sk-).', true); return; }
-        try { if (key) localStorage.setItem(KEY_OPENAI, key); else localStorage.removeItem(KEY_OPENAI); } catch (_) { toast('This browser blocks local storage.', true); return; }
-        toast(key ? 'Key saved in this browser.' : 'Key removed.'); return draw();
-      }
-      case 'key-remove': try { localStorage.removeItem(KEY_OPENAI); } catch (_) { /* ignore */ } toast('Key removed.'); return draw();
+      case 'settings': return SLRApp.navigate('settings');
       case 'fav': if (!n) return; n.fav = !n.fav; try { await putNote(n); } catch (e) { n.fav = !n.fav; toast('Could not save: ' + (e.message || e), true); } return drawList();
       case 'copy': if (!n) return; try { await navigator.clipboard.writeText(n.text || ''); toast('Text copied.'); } catch (_) { toast('Copying is blocked in this browser.', true); } return;
       case 'open-text': if (!n) return; if (S.open.has(id)) S.open.delete(id); else S.open.add(id); return drawList();
@@ -501,8 +594,8 @@ window.SLRNotes = (() => {
       case 'retr': {
         if (!n || !n.audio) return;
         if (n.text && !(await SLRViews.confirmDialog({ title: 'Replace the text?', message: 'The audio is transcribed again and the current text is overwritten.', confirmLabel: 'Transcribe', danger: true }))) return;
-        syncFields(); S.busyId = id; draw();
-        try { const text = await whisper(await getAudio(n), n.lang); n.text = text; if (S.edit === id && S.draft) S.draft.text = text; await putNote(n); toast('Transcribed.'); }
+        syncFields(); S.busyId = id; S.sttStatus = 'Starting …'; draw();
+        try { const text = await transcribe(await getAudio(n), n.lang, setStatusFn()); n.text = text; if (S.edit === id && S.draft) S.draft.text = text; await putNote(n); toast('Transcribed.'); }
         catch (e) { toast(e.message || String(e), true); }
         S.busyId = null; return draw();
       }
@@ -553,6 +646,6 @@ window.SLRNotes = (() => {
     Object.values(S.urls).forEach(u => URL.revokeObjectURL(u)); S.urls = {};
   }
 
-  return { render, reset };
+  return { render, reset, config, setConfig, MODELS, deviceOK };
 
 })();

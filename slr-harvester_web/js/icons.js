@@ -99,6 +99,18 @@ window.SLRIcons = (() => {
       `<path d="M3 12h18M3 6h18M3 18h18"/>`
     ),
 
+    // Document types (article cards): one glyph per type, readable at a glance
+    docArticle: base(`<path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8z"/><path d="M14 3v5h5M9 13h6M9 17h6"/>`),
+    docReview: base(`<path d="M3 6h11M3 12h7M3 18h7"/><path d="m14 15 2.5 2.5L21 13"/>`),
+    docBook: base(`<path d="M4 5a2 2 0 0 1 2-2h13v16H6a2 2 0 0 0-2 2z"/><path d="M4 19V5M9 8h6"/>`),
+    docChapter: base(`<path d="M5 4h11a3 3 0 0 1 3 3v13H8a3 3 0 0 1-3-3z"/><path d="M9 4v8l2.5-2L14 12V4"/>`),
+    docPreprint: base(`<path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h4"/><path d="M14 3v5h5"/><circle cx="17" cy="17" r="4"/><path d="M17 15v2l1.5 1"/>`),
+    docDataset: base(`<ellipse cx="12" cy="6" rx="8" ry="3"/><path d="M4 6v6c0 1.7 3.6 3 8 3s8-1.3 8-3V6M4 12v6c0 1.7 3.6 3 8 3s8-1.3 8-3v-6"/>`),
+    docThesis: base(`<path d="M2 9l10-5 10 5-10 5z"/><path d="M6 11v5c0 1 2.7 3 6 3s6-2 6-3v-5M22 9v6"/>`),
+    docReport: base(`<path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8z"/><path d="M14 3v5h5M9 17v-3M12 17v-5M15 17v-2"/>`),
+    docIssue: base(`<path d="M12 3 3 8l9 5 9-5z"/><path d="M3 13l9 5 9-5"/>`),
+    docOther: base(`<path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8z"/><path d="M14 3v5h5"/>`),
+
     // Microphone (Dictations)
     mic: base(
       `<rect x="9" y="2" width="6" height="12" rx="3"/>
