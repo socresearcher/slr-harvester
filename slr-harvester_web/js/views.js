@@ -451,8 +451,7 @@ window.SLRViews = (() => {
           <p>A browser tool for managing
              <span style="white-space:nowrap">Systematic Literature Reviews</span>.<br>
              Connect a workspace below to get started.</p>
-          <p class="welcome-beta"><span class="beta-pill">Beta</span><span>A test project &mdash; so far used only by its author.
-             <button type="button" class="link-btn" id="welcome-beta-link">What that means</button></span></p>
+          <p class="welcome-beta"><button type="button" class="beta-pill beta-pill-btn" id="welcome-beta-link" title="Beta: a test project, not a finished product. Click to see what that means." aria-label="Beta: a test project, not a finished product. Open the details.">Beta</button></p>
         </div>
 
         <div class="welcome-actions">
@@ -6658,7 +6657,7 @@ window.SLRViews = (() => {
       // vendor's server (Edge "Online (Natural)", Chrome "Google ..."): the
       // text being read goes to Microsoft or Google. Marked so that this is
       // a visible choice, not a silent one.
-      list.map(v => `<option value="${esc(v.voiceURI)}" ${v.voiceURI === cur ? 'selected' : ''}>${SLRTts.voiceQualityScore(v) > 0 ? '\u2728 ' : ''}${esc(v.name)} — ${esc(v.lang)}${v.localService === false ? ' — online' : ''}</option>`).join('');
+      list.map(v => `<option value="${esc(v.voiceURI)}" ${v.voiceURI === cur ? 'selected' : ''}>${SLRTts.isNatural(v) ? '\u2728 ' : ''}${esc(v.name)} — ${esc(v.lang)}${v.localService === false ? ' — online' : ''}</option>`).join('');
   }
 
   function piperVoiceOptions(lang, stored) {
@@ -6704,6 +6703,15 @@ window.SLRViews = (() => {
           <button class="btn-secondary tts-test-btn" type="button" data-tts-test="de">${SLRIcons.speaker} Test</button>
         </div>
       </div>
+
+      ${!neural ? `<div class="form-field">
+        <div class="settings-save-row" style="margin-top:0">
+          <button class="btn-secondary" type="button" id="tts-reload-voices">${SLRIcons.refresh} Reload voice list</button>
+        </div>
+        <p class="field-hint">${SLRTts.IOS
+          ? 'On iPhone and iPad the list often fills in after a few seconds, and better voices (Enhanced, Premium, Siri) appear only once they are downloaded in iOS Settings &rarr; Accessibility &rarr; Spoken Content &rarr; Voices. Then reload the list here.'
+          : 'If a voice you installed is missing, reload the list.'}</p>
+      </div>` : ''}
 
       <div class="form-field">
         <label for="tts-rate">Speed — <span id="tts-rate-label">${(t.rate || 1).toFixed(2)}\u00d7</span></label>
@@ -6819,6 +6827,22 @@ window.SLRViews = (() => {
     });
 
     $$('#tts-stop')?.addEventListener('click', () => SLRTts.stop());
+
+    // Device voices: refill both pickers whenever the browser reports a new list
+    // (iOS in particular delivers it late), unless one is open right now.
+    const fillVoices = () => {
+      if (SLRTts.getSettings().engine === 'neural') return;
+      ['de', 'en'].forEach(lang => {
+        const sel = $$(`#tts-voice-${lang}`);
+        if (sel && document.activeElement !== sel) sel.innerHTML = systemVoiceOptions(lang);
+      });
+    };
+    const stopWatching = SLRTts.onVoicesChanged(() => {
+      if (!container.isConnected || !$$('#tts-engine')) { stopWatching(); return; }
+      fillVoices();
+    });
+    $$('#tts-reload-voices')?.addEventListener('click', () => { SLRTts.refreshVoices(); showToastSafe('Asking the browser for its voices again …'); });
+    SLRTts.refreshVoices(true);
 
     $$('#tts-download')?.addEventListener('click', async () => {
       const btn = $$('#tts-download');

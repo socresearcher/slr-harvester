@@ -213,7 +213,18 @@ window.SLRTts = (() => {
   }
 
   // ── Engine 1: device voices ───────────────────────────────────────
+  // iPhone/iPad (Safari, also as a Home-Screen app) start speaking only when
+  // speak() is called inside the tap that asked for it. A timer in between
+  // (the pause that Chrome needs after cancel()) silently swallows the
+  // utterance there, which is why reading aloud did nothing on iOS.
+  const UA = navigator.userAgent || '';
+  const IOS = /iPhone|iPad|iPod/.test(UA) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+  const SAFARI = /^((?!chrome|android|crios|fxios|edg).)*safari/i.test(UA);
+  const SYNC_START = IOS || SAFARI;
+
   let availableVoices = [];
+  const voiceListeners = new Set();
+  const notifyVoices = () => voiceListeners.forEach(fn => { try { fn(availableVoices); } catch (e) { /* listener's problem */ } });
 
   function loadVoices() {
     if (window.speechSynthesis) availableVoices = window.speechSynthesis.getVoices() || [];
@@ -221,26 +232,56 @@ window.SLRTts = (() => {
   }
   if (window.speechSynthesis) {
     loadVoices();
-    window.speechSynthesis.onvoiceschanged = loadVoices;
+    window.speechSynthesis.onvoiceschanged = () => { loadVoices(); notifyVoices(); };
   }
+
+  // Browsers cannot download voices themselves, and iOS often reports its list
+  // only after several asks (or after the app was restarted). Ask again over a
+  // few seconds; whoever shows the list hears about every change.
+  function onVoicesChanged(fn) { voiceListeners.add(fn); return () => voiceListeners.delete(fn); }
+  function refreshVoices(quiet) {
+    const synth = window.speechSynthesis;
+    if (!synth) return;
+    let last = -1;
+    const look = () => {
+      const n = loadVoices().length;
+      if (n !== last) { last = n; notifyVoices(); }
+    };
+    if (!quiet) { try { synth.cancel(); } catch (e) { /* ignore */ } }
+    look();
+    [250, 900, 2200, 4500, 8000].forEach(ms => setTimeout(look, ms));
+  }
+  if (IOS) refreshVoices(true);
 
   // Not every system voice is equal: the neural online ones (Edge "Natural",
   // Google, Siri "Enhanced") are worlds apart from the legacy local engines
   // (SAPI "Desktop", eSpeak, "Compact"), which is exactly the difference
   // between "a voice" and "a robot".
+  // Quality can sit in the name or, on iOS, only in the voiceURI
+  // (com.apple.voice.premium.de-DE.Anna). Apple's novelty voices (Zarvox,
+  // Bells ...) are marked down so "Automatic" never lands on them.
+  const NOVELTY_VOICE = /^(Albert|Bad News|Bahh|Bells|Boing|Bubbles|Cellos|Deranged|Good News|Hysterical|Jester|Junior|Organ|Superstar|Trinoids|Whisper|Wobble|Zarvox|Fred|Ralph|Kathy)\b/i;
   function voiceQualityScore(v) {
-    const n = (v && v.name || '').toLowerCase();
+    const n = ((v && v.name) || '') + ' ' + ((v && v.voiceURI) || '');
     let score = 0;
-    if (/natural|neural/.test(n))        score += 6;
-    if (/siri|premium|enhanced/.test(n)) score += 5;
-    if (/online/.test(n))                score += 4;
-    if (/google/.test(n))                score += 4;
-    if (v && v.localService === false)   score += 2;
-    if (/compact/.test(n))               score -= 3;
-    if (/desktop/.test(n))               score -= 4;
-    if (/espeak|festival|pico/.test(n))  score -= 8;
+    if (/\.premium\./i.test(n))                       score += 90;
+    if (/\.enhanced\./i.test(n))                      score += 70;
+    if (/ttsbundle\.siri|\.siri[._]/i.test(n))        score += 80;
+    if (/\.compact\./i.test(n))                       score -= 10;
+    if (/natural|neural|online/i.test(n))             score += 100;
+    if (/premium/i.test(n))                           score += 90;
+    if (/siri/i.test(n))                              score += 80;
+    if (/enhanced|erweitert|verbessert|hochwertig/i.test(n)) score += 70;
+    if (/google/i.test(n))                            score += 40;
+    if (v && v.localService === false)                score += 25;
+    if (/compact/i.test(n))                           score -= 3;
+    if (/desktop/i.test(n))                           score -= 4;
+    if (/espeak|festival|pico/i.test(n))              score -= 8;
+    if (NOVELTY_VOICE.test(n))                        score -= 200;
     return score;
   }
+  // "Natural-sounding" for the sparkle in the voice lists.
+  const isNatural = v => voiceQualityScore(v) >= 70;
 
   function voicesForLang(lang) {
     return loadVoices()
@@ -390,8 +431,9 @@ window.SLRTts = (() => {
     // which is why the first sentence of an abstract regularly went missing.
     // A paused engine (it can get stuck that way) never starts at all.
     synth.cancel();
-    if (synth.paused) synth.resume();
-    setTimeout(() => startChunk(0), 160);
+    if (synth.paused || SYNC_START) synth.resume();
+    // iOS and Safari: start inside the tap (see SYNC_START above).
+    if (SYNC_START) startChunk(0); else setTimeout(() => startChunk(0), 160);
   }
 
   // ── Engine 2: Piper (neural, in-browser) ──────────────────────────
@@ -824,7 +866,9 @@ window.SLRTts = (() => {
   }
 
   function toggle(text, opts) {
-    if (isSpeaking()) { stop(); return false; }
+    // Own flag only: on iOS the engine can report speaking/pending for a while
+    // after a read that never started, and the next tap must then read, not stop.
+    if (speaking) { stop(); return false; }
     speak(text, opts);
     return true;
   }
@@ -875,7 +919,7 @@ window.SLRTts = (() => {
   return {
     getSettings, set,
     detectLang, splitIntoChunks, systemChunkLimit, isGoogleNetworkVoice,
-    loadVoices, voicesForLang, voiceQualityScore, pickSystemVoice,
+    loadVoices, voicesForLang, voiceQualityScore, isNatural, pickSystemVoice, refreshVoices, onVoicesChanged, IOS,
     PIPER_VOICES, voiceKey, piperVoice, voiceLabel,
     NEURAL_REMOTE_HOSTS, fallbackMessage,
     speak, toggle, stop, isSpeaking, onStateChange, resetSession,

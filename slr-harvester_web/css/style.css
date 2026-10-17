@@ -10509,3 +10509,19 @@ textarea.form-input {
 .tg input:disabled + .sl {
   opacity: .45;
 }
+
+/* Home: die Beta-Pille ist jetzt der Knopf zu den Erklaerungen (Aussehen unveraendert) */
+button.beta-pill-btn {
+  cursor: pointer;
+  font-family: inherit;
+}
+
+button.beta-pill-btn:hover {
+  background: color-mix(in srgb, var(--warning) 26%, var(--surface));
+  border-color: var(--warning);
+}
+
+button.beta-pill-btn:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
