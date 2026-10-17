@@ -34,6 +34,8 @@ const SHELL = [
   'favicon.svg',
   'manifest.webmanifest',
   'css/style.css',
+  'css/themes.css',
+  'js/theme-early.js',
   'js/icons.js',
   'js/vendor/supabase.js',
   'js/data-local.js',

@@ -4137,18 +4137,46 @@ window.SLRApp = (() => {
 	}
 
 	function bindEvents() {
+		// Die Diagramme lesen die Themenfarben beim Zeichnen aus und backen
+		// sie in ihr SVG ein. Ohne Neuzeichnen blieben sie nach dem Wechsel
+		// in den alten Farben stehen, bis man die Ansicht verliess. Nur diese
+		// Ansicht: Anderswo wuerde ein Neuzeichnen offene Eingaben verwerfen.
+		const afterThemeChange = () => { if (state.view === 'visualizations') renderCurrentView(); };
 		$('theme-toggle')?.addEventListener('click', () => {
 			SLRAppUI.toggleTheme(state, $);
-			// Die Diagramme lesen die Themenfarben beim Zeichnen aus und backen
-			// sie in ihr SVG ein. Ohne Neuzeichnen blieben sie nach dem Wechsel
-			// in den alten Farben stehen, bis man die Ansicht verliess. Nur diese
-			// Ansicht: Anderswo wuerde ein Neuzeichnen offene Eingaben verwerfen.
-			if (state.view === 'visualizations') renderCurrentView();
+			afterThemeChange();
+		});
+		// "Automatic" folgt dem Betriebssystem, auch waehrend die App offen ist.
+		try {
+			window.matchMedia('(prefers-color-scheme: dark)').addEventListener('change', () => {
+				if (state.theme !== 'auto') return;
+				SLRAppUI.applyTheme(state, $);
+				afterThemeChange();
+			});
+		} catch (e) { /* aeltere Browser: kein Live-Wechsel */ }
+		// Settings > Appearance (Farbschema und Theme), per Delegation, weil die
+		// Ansicht bei jedem Aufruf neu gezeichnet wird.
+		$('view-container')?.addEventListener('click', e => {
+			const mode = e.target.closest('[data-theme-mode]');
+			if (mode) {
+				SLRAppUI.setThemeMode(state, $, mode.dataset.themeMode);
+				afterThemeChange();
+				return;
+			}
+			const style = e.target.closest('[data-style-key]');
+			if (style) {
+				SLRAppUI.applyStyle(style.dataset.styleKey, $);
+				afterThemeChange();
+			}
 		});
 		$('fullscreen-toggle')?.addEventListener('click', () => SLRAppUI.toggleFullscreen(showToast, $));
 		$('project-badge')?.addEventListener('click', () => openProjectDetail(state.currentFolder));
-		$('beta-badge')?.addEventListener('click', () => navigate('about'));
 		$('sidebar-toggle')?.addEventListener('click', () => SLRAppUI.toggleSidebar(state, _sidebar, $));
+		// Handy: Der Menueknopf in der Kopfzeile faehrt die Seitenleiste aus.
+		$('menu-btn')?.addEventListener('click', () => {
+			state.sidebarCollapsed = false;
+			SLRAppUI.setSidebarCollapsed(state, _sidebar, $);
+		});
 
 		// Clicking the dimmed content, or Escape, closes the sidebar.
 		$('sidebar-backdrop')?.addEventListener('click', () => SLRAppUI.collapseSidebar(state, _sidebar, $));
@@ -4198,6 +4226,12 @@ window.SLRApp = (() => {
 		SLRAppUI.setSidebarCollapsed(state, _sidebar, $);
 		SLRAppUI.updateFullscreenButton($);
 		bindEvents();
+		SLRAppUI.initSearch({
+			state,
+			navigate,
+			openProjectDetail,
+			collapseSidebar: () => SLRAppUI.collapseSidebar(state, _sidebar, $),
+		});
 
 		registerServiceWorker();
 

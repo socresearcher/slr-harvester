@@ -7673,6 +7673,30 @@ window.SLRViews = (() => {
     // question a user is actually asking when they come here: "how do I reach
     // the databases", "what should the app do on its own", "where does my
     // data live" — rather than mirroring the order the features were built in.
+    // Appearance (colour scheme + visual theme). The buttons carry data-
+    // attributes only; app.js handles the clicks by delegation, because this
+    // view is redrawn on every visit.
+    const themeMode = (function () { try { return localStorage.getItem('slr-theme') || 'dark'; } catch (e) { return 'dark'; } })();
+    const themeStyle = SLRAppUI.currentStyle();
+    const appearanceHtml = `
+        <p class="settings-group-label">Appearance</p>
+        <div class="settings-card">
+          <div class="form-field">
+            <label>Colour scheme</label>
+            <div class="segc" role="group" aria-label="Colour scheme">
+              ${SLRAppUI.THEME_MODES.map(([k, t]) => `<button type="button" data-theme-mode="${k}" aria-pressed="${k === themeMode}">${t}</button>`).join('')}
+            </div>
+            <p class="field-hint">&ldquo;Automatic&rdquo; follows the operating system. The switch in the header flips between light and dark.</p>
+          </div>
+          <div class="form-field">
+            <label>Theme</label>
+            <div class="style-grid" role="group" aria-label="Theme">
+              ${SLRAppUI.STYLES.map(([k, t]) => `<button type="button" class="style-tile" data-style-key="${k}" aria-pressed="${k === themeStyle}"><span class="style-preview ${k}"><i></i></span>${t}</button>`).join('')}
+            </div>
+            <p class="field-hint">Changes the look only (surfaces, corners, shadows); colours stay, and light/dark works in every theme.</p>
+          </div>
+        </div>`;
+
     container.innerHTML = `
       <div class="settings-view">
         <div class="view-head">
@@ -7680,6 +7704,7 @@ window.SLRViews = (() => {
             <button type="button" class="link-btn" id="settings-privacy-link">See what's stored and why</button>
           </p>
         </div>
+        ${appearanceHtml}
 
         <p class="settings-group-label">Database access</p>
         ${collapseSection({

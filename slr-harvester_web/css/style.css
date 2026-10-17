@@ -56,6 +56,8 @@
   --sidebar-w:    228px;
   --sidebar-collapsed-w: 56px;
   --topbar-h:     52px;
+  /* Eine Hoehe fuer Suchfeld und Schalter in der Kopfzeile (wie im Dashboard). */
+  --ctl-h:        32px;
   /* Shared left inset for the sidebar's icon column (logo, nav icons,
      copyright ©) so everything lines up on the same vertical axis. A single
      source of truth — override this one variable per breakpoint instead of
@@ -271,15 +273,20 @@ a:hover {
   display: none;
 }
 
-.sidebar.collapsed .app-name {
+.sidebar.collapsed .app-logo {
   display: none;
+}
+
+.sidebar.collapsed .sidebar-header {
+  justify-content: center;
+  padding: 12px 0;
 }
 
 /* Sidebar header */
 .sidebar-header {
   display: flex;
   align-items: center;
-  justify-content: flex-start;
+  justify-content: space-between;
   /* Left padding chosen so the logo icon's horizontal center (17 + 22/2 = 28px)
      matches the nav icons' center below it (padding-left 19 + 18/2 = 28px). */
   padding: 12px 10px 12px 17px;
@@ -358,18 +365,6 @@ a:hover {
   justify-content: center;
 }
 
-/* Der Schalter sitzt dauerhaft unten. Seine Mitte liegt auf derselben Linie wie
-   die des Logos und der Navigationssymbole (x = 28px): (56 - 30) / 2 = 13px
-   Abstand links bei 30px Breite. Das Logo oben steht in beiden Zustaenden an
-   derselben Stelle; was beim Einklappen verschwindet, ist allein der Name. */
-.sidebar-footer {
-  flex-shrink: 0;
-  display: flex;
-  align-items: center;
-  padding: 8px 0 max(8px, env(safe-area-inset-bottom, 0px)) 13px;
-  border-top: 1px solid var(--border);
-}
-
 /* The chevron direction is set by swapping the icon in JS (app-ui.js:
    setSidebarCollapsed/injectIcons use chevronLeft/chevronRight directly) — do
    NOT also rotate it here via CSS, that cancels the swap and points it the
@@ -379,10 +374,18 @@ a:hover {
 .sidebar-nav {
   flex: 1;
   min-height: 0; /* Safari: a scrollable flex:1 child needs this to actually fill (not just wrap) available height */
-  padding: 8px 0;
+  padding: 8px 0 max(8px, env(safe-area-inset-bottom, 0px));
   overflow-y: auto;
   overflow-x: hidden;
   -webkit-overflow-scrolling: touch;
+  display: flex;
+  flex-direction: column;
+}
+
+/* Schiebt den letzten Block (Workspace, Account, Settings, About) an den
+   unteren Rand, wie Einstellungen und Info im Dashboard. */
+.nav-push {
+  flex: 1;
 }
 
 /* Fixed height + identical padding-left in both collapsed and expanded modes:
@@ -397,6 +400,7 @@ a:hover {
   gap: 10px;
   width: 100%;
   height: 34px;
+  flex: none;
   padding: 0 10px 0 var(--sidebar-icon-pad-left);
   border-radius: 0;
   color: var(--text-muted);
@@ -780,10 +784,8 @@ a:hover {
   }
 
   #topbar {
-    height: auto;
-    min-height: var(--topbar-h);
-    padding: 8px 12px;
-    align-items: center;
+    padding-left: 12px;
+    padding-right: 12px;
     gap: 8px;
   }
 
@@ -816,9 +818,6 @@ a:hover {
      Auto-Tag-Karte im Hochformat 70px statt 55px hoch, ohne dass sie dadurch
      leichter zu treffen waeren — die Zeile bleibt ja gleich hoch. Freistehende
      Knoepfe behalten ihr Beruehrziel. */
-  .sidebar-header,
-  .nav-item,
-  .icon-btn,
   .btn-primary,
   .btn-secondary,
   .btn-danger,
@@ -856,30 +855,56 @@ a:hover {
      unconditional rule. Keeping every side-padding override together at
      the end guarantees it always wins. */
 
-  .theme-switch,
-  .fullscreen-switch {
-    min-height: 0;
-    height: 28px;
-  }
+}
+
+/* Smartphone (bis 640 px): wie im Dashboard faehrt die Seitenleiste als Menue
+   von links ein; geschlossen ist sie ganz verschwunden (kein Symbolstreifen),
+   der Menueknopf in der Kopfzeile oeffnet sie. */
+.menu-btn {
+  display: none;
 }
 
 @media (max-width: 640px) {
   :root {
-    /* Was 56px here — for BOTH states, which is what made the sidebar
-       effectively un-expandable on phones: the toggle ran, but the expanded
-       width stayed that of the icon rail, and the labels were forced to
-       display:none on top of that. 56px now applies only to the collapsed
-       rail (via --sidebar-collapsed-w); expanded is 216px, labels and all. */
     --sidebar-w: 216px;
-    /* In the collapsed rail the nav icons and the footer's © are the only
-       remaining alignment targets. */
     --sidebar-icon-pad-left: 17px;
   }
 
-  /* Only the collapsed state is the icon-only rail. The header is NOT
-     re-centred there any more: the logo stays where it is. */
-  .sidebar.collapsed .nav-item {
-    padding: 10px 0 10px var(--sidebar-icon-pad-left);
+  .menu-btn {
+    display: flex;
+    margin-left: -4px;
+    -webkit-tap-highlight-color: transparent;
+  }
+
+  .sidebar,
+  .sidebar.collapsed {
+    width: min(var(--sidebar-w), 82vw);
+    min-width: 0;
+    transform: translateX(-100%);
+    transition: transform var(--transition);
+    box-shadow: none;
+  }
+
+  .sidebar:not(.collapsed) {
+    transform: translateX(0);
+    box-shadow: var(--shadow-lg);
+  }
+
+  .sidebar.collapsed .sidebar-label {
+    display: inline;
+  }
+
+  .sidebar.collapsed .app-logo {
+    display: flex;
+  }
+
+  .sidebar.collapsed .sidebar-header {
+    justify-content: space-between;
+    padding: 12px 10px 12px 17px;
+  }
+
+  #main {
+    margin-left: 0;
   }
 
   .sidebar .nav-item::before {
@@ -9328,11 +9353,10 @@ body.has-progress-footer .slr-guide {
 
 
 /* ── Beta-Kennzeichnung ────────────────────────────────────────────────────
-   Dieselbe Amberfarbe (--warning) in allen vier Auftritten, damit sie als ein
-   Zeichen gelesen wird: Pille in der Kopfleiste (jede Ansicht), Zeile auf der
-   Startseite, Abschnitt in About, Zeile im Registrierungsfenster. */
-.beta-pill,
-.beta-badge {
+   Dieselbe Amberfarbe (--warning) in allen Auftritten, damit sie als ein
+   Zeichen gelesen wird: Zeile auf der Startseite, Abschnitt in About, Zeile
+   im Registrierungsfenster. (Die Pille in der Kopfzeile ist entfallen.) */
+.beta-pill {
   display: inline-flex;
   align-items: center;
   box-sizing: border-box;
@@ -9356,21 +9380,6 @@ body.has-progress-footer .slr-guide {
   border-radius: 10px;
   font-size: 11px;
   flex-shrink: 0;
-}
-
-/* Gleiche Hoehe und Form wie .project-badge daneben. */
-.beta-badge {
-  height: 28px;
-  padding: 0 11px;
-  border-radius: 14px;
-  font-size: 11px;
-  flex-shrink: 0;
-  cursor: pointer;
-}
-
-.beta-badge:hover {
-  background: color-mix(in srgb, var(--warning) 26%, var(--surface));
-  border-color: var(--warning);
 }
 
 /* Auf der Startseite in voller Textfarbe, nicht gedaempft: Es ist ein Hinweis,
@@ -9431,5 +9440,305 @@ body.has-progress-footer .slr-guide {
   .welcome-hero p.welcome-beta {
     flex-direction: column;
     gap: 6px;
+  }
+}
+
+/* ══ Kopfzeile wie im Dashboard: Suche und Schalter ══════════════════════
+   Uebernommen aus Dashboard/dashboard.css (Kopfzeile, Suche, Schalter): gleiche
+   Hoehen (32 px), gleiche Abstaende (8 px), gleiches Verhalten am Handy. Steht
+   am Dateiende, damit es aeltere Einzelregeln oben sicher uebersteuert. */
+#topbar .topbar-right {
+  gap: 8px;
+}
+
+#topbar .project-badge {
+  height: var(--ctl-h);
+  border-radius: calc(var(--ctl-h) / 2);
+}
+
+#topbar .theme-switch,
+#topbar .fullscreen-switch {
+  width: 56px;
+  height: var(--ctl-h);
+  border-radius: calc(var(--ctl-h) / 2);
+}
+
+#topbar .theme-switch-knob {
+  width: 24px;
+  height: 24px;
+  top: 3px;
+}
+
+#topbar .theme-switch.is-light .theme-switch-knob,
+#topbar .fullscreen-switch.is-active .theme-switch-knob {
+  transform: translateX(24px);
+}
+
+.theme-switch[hidden] {
+  display: none;
+}
+
+.find {
+  position: relative;
+  flex: 0 1 auto;
+  width: clamp(190px, 38vw, 520px);
+  min-width: 140px;
+  margin: 0;
+}
+
+.find > svg {
+  position: absolute;
+  left: 10px;
+  top: 50%;
+  transform: translateY(-50%);
+  width: 15px;
+  height: 15px;
+  color: var(--text-muted);
+  pointer-events: none;
+}
+
+.find input {
+  width: 100%;
+  height: var(--ctl-h);
+  padding: 0 30px 0 32px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--surface-2);
+  color: var(--text);
+  font: inherit;
+  font-size: .85rem;
+  text-overflow: ellipsis;
+}
+
+.find input:focus {
+  border-color: var(--accent);
+  outline: none;
+}
+
+.find kbd {
+  position: absolute;
+  right: 8px;
+  top: 50%;
+  transform: translateY(-50%);
+  font: 11px system-ui, sans-serif;
+  color: var(--text-muted);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  padding: 0 5px;
+  pointer-events: none;
+}
+
+.find .findlbl {
+  display: none;
+}
+
+.sres {
+  position: absolute;
+  top: calc(100% + 6px);
+  right: 0;
+  width: min(640px, 92vw);
+  max-height: min(72vh, 580px);
+  overflow: auto;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  box-shadow: 0 12px 36px rgba(0, 0, 0, .35);
+  z-index: 1200;
+  padding: 6px;
+}
+
+.sres[hidden] {
+  display: none;
+}
+
+.sgh {
+  display: flex;
+  justify-content: space-between;
+  font-size: .7rem;
+  text-transform: uppercase;
+  letter-spacing: .08em;
+  color: var(--text-muted);
+  font-weight: 600;
+  padding: 9px 10px 3px;
+}
+
+.sgh span {
+  font-weight: 500;
+}
+
+.sr {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 1px 10px;
+  padding: 7px 10px;
+  border-radius: 8px;
+  color: var(--text);
+  text-decoration: none;
+  align-items: center;
+  width: 100%;
+  text-align: left;
+  cursor: pointer;
+}
+
+.sr.on,
+.sr:hover {
+  background: var(--surface-2);
+  text-decoration: none;
+  color: var(--text);
+}
+
+.sr .srt {
+  font-weight: 500;
+  font-size: .9rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.sr .srs {
+  grid-column: 1;
+  color: var(--text-muted);
+  font-size: .76rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.sres mark {
+  background: color-mix(in srgb, var(--accent) 30%, transparent);
+  color: inherit;
+  border-radius: 3px;
+  padding: 0 1px;
+}
+
+.smehr {
+  display: block;
+  width: 100%;
+  text-align: left;
+  color: var(--accent);
+  font-size: .8rem;
+  padding: 5px 10px;
+  border-radius: 8px;
+}
+
+.smehr:hover {
+  background: var(--surface-2);
+}
+
+.sleer {
+  padding: 14px 12px;
+  color: var(--text-muted);
+  font-size: .9rem;
+}
+
+@media (max-width: 900px) {
+  .find kbd {
+    display: none;
+  }
+
+  .find {
+    width: clamp(150px, 40vw, 300px);
+  }
+
+  .sres {
+    position: fixed;
+    top: calc(var(--topbar-h) + 6px);
+    left: 8px;
+    right: 8px;
+    width: auto;
+  }
+}
+
+/* Handy: Suche als Feld mit Beschriftung, beim Antippen ueber die ganze Breite;
+   Vollbild-Schalter entfaellt, Hell/Dunkel-Schalter schmaler (wie im Dashboard) */
+@media (max-width: 640px) {
+  #topbar {
+    padding-left: 10px;
+    padding-right: 10px;
+    gap: 6px;
+  }
+
+  #topbar .topbar-left {
+    flex: 1 1 auto;
+    max-width: none;
+    min-width: 0;
+    gap: 8px;
+  }
+
+  #topbar .topbar-right {
+    flex: none;
+    gap: 6px;
+  }
+
+  .view-title {
+    font-size: 14px;
+  }
+
+  .find {
+    flex: none;
+    width: 88px;
+    min-width: 0;
+  }
+
+  .find input {
+    width: 88px;
+    padding: 0 8px 0 30px;
+  }
+
+  .find .findlbl {
+    display: block;
+    position: absolute;
+    left: 30px;
+    top: 50%;
+    transform: translateY(-50%);
+    font-size: .85rem;
+    color: var(--text-muted);
+    pointer-events: none;
+  }
+
+  .find:focus-within .findlbl {
+    display: none;
+  }
+
+  .find input::placeholder {
+    color: transparent;
+  }
+
+  .find:focus-within {
+    position: fixed;
+    top: calc(env(safe-area-inset-top, 0px) + 6px);
+    left: 8px;
+    right: 8px;
+    width: auto;
+    z-index: 400;
+  }
+
+  .find:focus-within input {
+    width: 100%;
+    height: 36px;
+    padding: 0 10px 0 32px;
+    box-shadow: var(--shadow-lg);
+  }
+
+  .find:focus-within input::placeholder {
+    color: var(--text-faint);
+  }
+
+  #topbar .theme-switch {
+    width: 44px;
+  }
+
+  #topbar .theme-switch.is-light .theme-switch-knob {
+    transform: translateX(12px);
+  }
+
+  #fullscreen-toggle {
+    display: none;
+  }
+}
+
+@media (max-width: 520px) {
+  #topbar .project-badge {
+    display: none;
   }
 }

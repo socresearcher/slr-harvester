@@ -7,16 +7,34 @@
 
 window.SLRAppUI = (() => {
 
+  // Visual themes (ported from the Dashboard). The keys are what goes into
+  // html[data-style] and localStorage 'slr-style'; css/themes.css and
+  // js/theme-early.js use the same list. 'standard' = no attribute.
+  const STYLES = [
+    ['standard', 'Default'], ['glass', 'Glass'], ['aurora', 'Aurora'], ['sunset', 'Sunset'], ['gloss', 'Gloss'],
+    ['soft', 'Soft'], ['paper', 'Paper'], ['neon', 'Neon'], ['mono', 'Mono'], ['contour', 'Contour'],
+  ];
+  const THEME_MODES = [['auto', 'Automatic'], ['light', 'Light'], ['dark', 'Dark']];
+
+  const prefersDark = () => !!(window.matchMedia && matchMedia('(prefers-color-scheme: dark)').matches);
+  // state.theme is the CHOICE (auto | light | dark); the attribute on <html>
+  // always carries the RESULT (light | dark), so every [data-theme] rule works
+  // unchanged.
+  function resolvedTheme(state) {
+    return state.theme === 'light' ? 'light' : state.theme === 'auto' ? (prefersDark() ? 'dark' : 'light') : 'dark';
+  }
+
   function applyTheme(state, $) {
-    state.theme = state.theme === 'light' ? 'light' : 'dark';
-    document.documentElement.setAttribute('data-theme', state.theme);
-    localStorage.setItem('slr-theme', state.theme);
+    if (state.theme !== 'light' && state.theme !== 'auto') state.theme = 'dark';
+    const resolved = resolvedTheme(state);
+    document.documentElement.setAttribute('data-theme', resolved);
+    try { localStorage.setItem('slr-theme', state.theme); } catch (e) { /* storage blocked */ }
 
     const icon = $('theme-icon');
-    if (icon) icon.innerHTML = state.theme === 'dark' ? SLRIcons.moon : SLRIcons.sun;
+    if (icon) icon.innerHTML = resolved === 'dark' ? SLRIcons.moon : SLRIcons.sun;
 
     const themeBtn = $('theme-toggle');
-    if (themeBtn) themeBtn.classList.toggle('is-light', state.theme === 'light');
+    if (themeBtn) themeBtn.classList.toggle('is-light', resolved === 'light');
 
     // Keep the browser chrome (status bar / safe-area fill) in sync with the
     // app background so mobile browsers don't paint that area white.
@@ -25,11 +43,49 @@ window.SLRAppUI = (() => {
       const bg = getComputedStyle(document.documentElement).getPropertyValue('--bg').trim();
       if (bg) meta.setAttribute('content', bg);
     }
+    syncAppearanceControls();
   }
 
+  // The header switch flips between the two RESULTS and makes the choice
+  // explicit (an 'auto' user who flips it gets a fixed light/dark afterwards).
   function toggleTheme(state, $) {
-    state.theme = state.theme === 'dark' ? 'light' : 'dark';
+    state.theme = resolvedTheme(state) === 'dark' ? 'light' : 'dark';
     applyTheme(state, $);
+  }
+
+  function setThemeMode(state, $, mode) {
+    state.theme = mode === 'light' || mode === 'auto' ? mode : 'dark';
+    applyTheme(state, $);
+  }
+
+  function currentStyle() {
+    const v = document.documentElement.getAttribute('data-style');
+    return STYLES.some(x => x[0] === v && v !== 'standard') ? v : 'standard';
+  }
+
+  function applyStyle(style, $) {
+    const valid = STYLES.some(x => x[0] === style) && style !== 'standard' ? style : 'standard';
+    if (valid === 'standard') document.documentElement.removeAttribute('data-style');
+    else document.documentElement.setAttribute('data-style', valid);
+    try {
+      if (valid === 'standard') localStorage.removeItem('slr-style');
+      else localStorage.setItem('slr-style', valid);
+    } catch (e) { /* storage blocked */ }
+    // Some themes redefine --bg: refresh the browser-chrome colour.
+    const meta = $ ? $('theme-color-meta') : null;
+    if (meta) {
+      const bg = getComputedStyle(document.documentElement).getPropertyValue('--bg').trim();
+      if (bg) meta.setAttribute('content', bg);
+    }
+    syncAppearanceControls();
+  }
+
+  // Settings > Appearance controls (rendered by views.js) reflect the state.
+  function syncAppearanceControls() {
+    const style = currentStyle();
+    document.querySelectorAll('[data-style-key]').forEach(b => b.setAttribute('aria-pressed', String(b.dataset.styleKey === style)));
+    const mode = (function () { try { return localStorage.getItem('slr-theme') || 'dark'; } catch (e) { return 'dark'; } })();
+    document.querySelectorAll('[data-theme-mode]').forEach(b => b.setAttribute('aria-pressed', String(b.dataset.themeMode === mode)));
   }
 
   function setSidebarCollapsed(state, sidebarEl, $) {
@@ -50,6 +106,8 @@ window.SLRAppUI = (() => {
       btn.setAttribute('aria-label', was);
       btn.setAttribute('aria-expanded', String(!state.sidebarCollapsed));
     }
+    const menu = $('menu-btn');
+    if (menu) menu.setAttribute('aria-expanded', String(!state.sidebarCollapsed));
   }
 
   function toggleSidebar(state, sidebarEl, $) {
@@ -187,6 +245,180 @@ window.SLRAppUI = (() => {
     updateFullscreenButton($);
   }
 
+  // ── Header search (layout and behaviour ported from the Dashboard) ───────
+  // One box for the whole app: views, a few settings, the projects of the
+  // workspace and — when a project is open — its articles by title. Nothing
+  // is fetched; it only reads what the app already holds.
+  const SEARCH_GROUPS = ['Views', 'Settings', 'Projects', 'Articles'];
+  const SEARCH_VIEWS = [
+    ['welcome', 'Home', 'start welcome'],
+    ['databases', 'Databases', 'scopus pubmed openalex arxiv semantic scholar sources'],
+    ['projects', 'Projects', 'project folder cards'],
+    ['search', 'Search', 'query boolean harvest databases run'],
+    ['history', 'History', 'query history runs past searches'],
+    ['articles', 'Articles', 'papers results screening list'],
+    ['selected', 'Selected', 'shortlist chosen screening'],
+    ['corpus', 'Corpus', 'final included set'],
+    ['visualizations', 'Visualisations', 'charts prisma world map network years'],
+    ['tags', 'Tags', 'labels colours schemes categories'],
+    ['autotag-rules', 'Auto-Tag Rules', 'keywords disciplines automatic'],
+    ['workspace', 'Workspace', 'folder local cloud storage'],
+    ['account', 'Account', 'sign in login cloud'],
+    ['settings', 'Settings', 'preferences options'],
+    ['about', 'About', 'beta version license credits'],
+    ['privacy', 'Privacy', 'data stored localstorage cookies'],
+  ];
+  const SEARCH_SETTINGS = [
+    ['Appearance', 'Colour scheme and theme', 'theme dark light glass aurora neon mono paper soft contour sunset gloss style'],
+    ['Scopus API', 'API key and institutional token', 'elsevier key token'],
+    ['OpenAlex API', 'Key and e-mail', 'polite pool email key'],
+    ['Fetch & auto-tag', 'Automation', 'auto fetch tag automation'],
+    ['Guided mode', 'Short guides in each view', 'guide help tour'],
+    ['Reading', 'Read-aloud voices', 'read aloud voice speech tts'],
+  ];
+
+  const norm = t => String(t == null ? '' : t).toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '');
+  const escHtml = t => String(t).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+  const escRe = t => t.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+
+  function highlight(text, terms) {
+    if (!terms.length) return escHtml(text);
+    const re = new RegExp('(' + terms.map(escRe).join('|') + ')', 'gi');
+    return String(text).split(re).map((p, i) => (i % 2 ? '<mark>' + escHtml(p) + '</mark>' : escHtml(p))).join('');
+  }
+
+  function initSearch({ state, navigate, openProjectDetail, collapseSidebar }) {
+    const q = document.getElementById('q');
+    const box = document.getElementById('sres');
+    if (!q || !box) return;
+    const open = new Set();
+    let selected = 0;
+
+    function entries() {
+      const list = [];
+      const add = (g, t, s, k, act) => list.push({ g, t: String(t), s: s ? String(s) : '', tw: norm(t), h: norm([t, s, k].join(' ')), act });
+      SEARCH_VIEWS.forEach(([view, title, kw]) => add('Views', title, '', kw, { view }));
+      SEARCH_SETTINGS.forEach(([title, sub, kw]) => add('Settings', title, sub, kw, { view: 'settings' }));
+      (state.projects || []).forEach(p => {
+        if (p && p.workspace_folder) add('Projects', p.name || p.workspace_folder, 'Project', 'project ' + (p.description || ''), { project: p.workspace_folder });
+      });
+      (state.articles || []).forEach(a => {
+        if (a && a.title) add('Articles', a.title, [a.year, a.journal].filter(Boolean).join(' · '), (a.authors || '') + '', { article: a.title });
+      });
+      return list;
+    }
+
+    function matches(text) {
+      const terms = norm(text).split(/\s+/).filter(Boolean);
+      if (!terms.length) return { terms, list: [] };
+      const list = [];
+      for (const e of entries()) {
+        const wt = e.tw.split(/[^a-z0-9]+/), wh = e.h.split(/[^a-z0-9]+/);
+        let score = 0, ok = true;
+        for (const t of terms) {
+          if (wt.some(w => w.startsWith(t))) score += 5;
+          else if (wh.some(w => w.startsWith(t))) score += 3;
+          else if (e.h.includes(t)) score += 1;
+          else { ok = false; break; }
+        }
+        if (ok) {
+          if (e.tw.startsWith(terms[0])) score += 4;
+          if (e.g === 'Views') score += 2;
+          list.push({ e, score });
+        }
+      }
+      list.sort((a, b) => b.score - a.score || a.e.t.localeCompare(b.e.t));
+      return { terms, list };
+    }
+
+    function render() {
+      const v = q.value.trim();
+      if (!v) { box.hidden = true; box.innerHTML = ''; box._hits = []; q.setAttribute('aria-expanded', 'false'); return; }
+      const { terms, list } = matches(v);
+      q.setAttribute('aria-expanded', 'true');
+      if (!list.length) { box.innerHTML = '<p class="sleer">Nothing found for “' + escHtml(v) + '”.</p>'; box._hits = []; box.hidden = false; return; }
+      let html = '', n = 0;
+      const hits = [];
+      for (const g of SEARCH_GROUPS) {
+        const all = list.filter(x => x.e.g === g);
+        if (!all.length) continue;
+        const shown = open.has(g) ? all.slice(0, 200) : all.slice(0, 6);
+        html += '<div class="sgh">' + g + '<span>' + all.length + '</span></div>' + shown.map(({ e }) => {
+          const i = n++;
+          hits.push(e);
+          return '<button type="button" class="sr' + (i === selected ? ' on' : '') + '" role="option" data-n="' + i + '">' +
+            '<span class="srt">' + highlight(e.t, terms) + '</span>' +
+            (e.s ? '<span class="srs">' + highlight(e.s, terms) + '</span>' : '') + '</button>';
+        }).join('') + (all.length > shown.length && !open.has(g) ? '<button type="button" class="smehr" data-more="' + g + '">+ ' + (all.length - shown.length) + ' more in “' + g + '”</button>' : '');
+      }
+      box.innerHTML = html;
+      box._hits = hits;
+      box.hidden = false;
+    }
+
+    function close(clear) {
+      box.hidden = true;
+      q.setAttribute('aria-expanded', 'false');
+      if (clear) { q.value = ''; box.innerHTML = ''; box._hits = []; }
+    }
+
+    function go(e) {
+      if (!e) return;
+      const a = e.act;
+      close(true);
+      q.blur();
+      collapseSidebar();
+      if (a.view) navigate(a.view);
+      else if (a.project) openProjectDetail(a.project);
+      else if (a.article) {
+        // Show exactly this article in the list: filters reset, title search on.
+        Object.assign(state.filter, { mode: 'all', tags: [], runIndex: null, yearFrom: '', yearTo: '', search: a.article, searchFields: ['title'], renderLimit: 200 });
+        navigate('articles');
+      }
+    }
+
+    q.addEventListener('input', () => { selected = 0; render(); });
+    q.addEventListener('focus', () => { if (q.value.trim()) render(); });
+    q.addEventListener('keydown', ev => {
+      const items = [...box.querySelectorAll('.sr')];
+      if (ev.key === 'Escape') {
+        if (!box.hidden || q.value) { close(true); ev.stopPropagation(); } else q.blur();
+        return;
+      }
+      if (!items.length) return;
+      if (ev.key === 'ArrowDown' || ev.key === 'ArrowUp') {
+        ev.preventDefault();
+        selected = (selected + (ev.key === 'ArrowDown' ? 1 : items.length - 1)) % items.length;
+        items.forEach((x, i) => x.classList.toggle('on', i === selected));
+        items[selected].scrollIntoView({ block: 'nearest' });
+      } else if (ev.key === 'Enter') {
+        ev.preventDefault();
+        const el = items[selected] || items[0];
+        if (el) go((box._hits || [])[+el.dataset.n]);
+      }
+    });
+    box.addEventListener('click', ev => {
+      const more = ev.target.closest('[data-more]');
+      if (more) { open.add(more.dataset.more); render(); return; }
+      const sr = ev.target.closest('.sr');
+      if (sr) go((box._hits || [])[+sr.dataset.n]);
+    });
+    box.addEventListener('mouseover', ev => {
+      const sr = ev.target.closest('.sr');
+      if (!sr) return;
+      selected = +sr.dataset.n;
+      box.querySelectorAll('.sr').forEach(x => x.classList.toggle('on', x === sr));
+    });
+    document.addEventListener('click', ev => { if (!ev.target.closest('.find')) { box.hidden = true; q.setAttribute('aria-expanded', 'false'); } });
+    // "/" jumps to the search box, like in the Dashboard
+    document.addEventListener('keydown', ev => {
+      if (ev.key === '/' && !ev.ctrlKey && !ev.metaKey && !ev.altKey && !/^(INPUT|TEXTAREA|SELECT)$/.test(document.activeElement.tagName) && !document.activeElement.isContentEditable) {
+        ev.preventDefault();
+        q.focus();
+      }
+    });
+  }
+
   return {
     applyTheme,
     toggleTheme,
@@ -197,6 +429,14 @@ window.SLRAppUI = (() => {
     updateTopbar,
     updateFullscreenButton,
     toggleFullscreen,
+    resolvedTheme,
+    setThemeMode,
+    applyStyle,
+    currentStyle,
+    syncAppearanceControls,
+    initSearch,
+    STYLES,
+    THEME_MODES,
   };
 
 })();
