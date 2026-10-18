@@ -73,22 +73,22 @@ html[data-style="contour"] .theme-switch,html[data-style="contour"] .theme-switc
 /* ===== Papier: warme Papierfarben, Serifenschrift in Überschriften ===== */
 html:root[data-style="paper"]{
   --bg:#f3ede1; --surface:#fbf7ee; --surface-2:#f1eadb; --surface-3:#e6ddc9; --border:#d8cdb4; --border-subtle:#e6ddc9; --line-strong:#c4b79a;
-  --text:#2b2519; --text-muted:#6a604d; --text-faint:#a89d85;
+  --text:#2b2519; --text-muted:#6a604d; --text-faint:#857a63;
   --radius:3px; --radius-md:5px; --radius-lg:7px; --shadow:0 1px 2px rgb(60 45 20 / .12); --shadow-lg:0 8px 24px rgb(60 45 20 / .22)}
 :root[data-theme="dark"][data-style="paper"]{
   --bg:#1b1813; --surface:#252119; --surface-2:#2e291e; --surface-3:#3a3425; --border:#41392a; --border-subtle:#2e291e; --line-strong:#554b37;
-  --text:#ece4d2; --text-muted:#aaa08a; --text-faint:#6d654f}
+  --text:#ece4d2; --text-muted:#aaa08a; --text-faint:#8d846b}
 @media (prefers-color-scheme:dark){:root:not([data-theme="light"])[data-style="paper"]{
   --bg:#1b1813; --surface:#252119; --surface-2:#2e291e; --surface-3:#3a3425; --border:#41392a; --border-subtle:#2e291e; --line-strong:#554b37;
-  --text:#ece4d2; --text-muted:#aaa08a; --text-faint:#6d654f}}
+  --text:#ece4d2; --text-muted:#aaa08a; --text-faint:#8d846b}}
 html[data-style="paper"] :is(h1,h2,h3,.view-title,.app-name){font-family:Georgia,"Times New Roman",serif}
 html[data-style="paper"] :is(.project-card,.history-item,.collapse-section,.settings-card,.db-card,.tag-card,.autotag-card,.scheme-panel,.search-composer,.search-db-card,.account-identity-card,.account-credentials,.about-hero,.slr-guide,.viz-funnel-step){box-shadow:var(--shadow)}
 
 /* ===== Neon: Leuchtkanten in der Akzentfarbe auf tiefem Hintergrund ===== */
 html:root[data-style="neon"]{--radius:8px; --radius-md:10px; --radius-lg:14px;
   --bg:#f1f6ff; --surface:#ffffff; --surface-2:#eef3ff; --surface-3:#e1e8fb; --border:rgb(var(--t-acc) / .55); --border-subtle:rgb(var(--t-acc) / .25); --line-strong:rgb(var(--t-acc) / .75)}
-:root[data-theme="dark"][data-style="neon"]{--bg:#05060d; --surface:#0b0e1c; --surface-2:#11152b; --surface-3:#1a2040; --border:rgb(var(--t-acc) / .5); --border-subtle:rgb(var(--t-acc) / .22); --line-strong:rgb(var(--t-acc) / .75); --text:#eaf6ff; --text-muted:#9db3d6; --text-faint:#566a94}
-@media (prefers-color-scheme:dark){:root:not([data-theme="light"])[data-style="neon"]{--bg:#05060d; --surface:#0b0e1c; --surface-2:#11152b; --surface-3:#1a2040; --border:rgb(var(--t-acc) / .5); --border-subtle:rgb(var(--t-acc) / .22); --line-strong:rgb(var(--t-acc) / .75); --text:#eaf6ff; --text-muted:#9db3d6; --text-faint:#566a94}}
+:root[data-theme="dark"][data-style="neon"]{--bg:#05060d; --surface:#0b0e1c; --surface-2:#11152b; --surface-3:#1a2040; --border:rgb(var(--t-acc) / .5); --border-subtle:rgb(var(--t-acc) / .22); --line-strong:rgb(var(--t-acc) / .75); --text:#eaf6ff; --text-muted:#9db3d6; --text-faint:#6f84b0}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"])[data-style="neon"]{--bg:#05060d; --surface:#0b0e1c; --surface-2:#11152b; --surface-3:#1a2040; --border:rgb(var(--t-acc) / .5); --border-subtle:rgb(var(--t-acc) / .22); --line-strong:rgb(var(--t-acc) / .75); --text:#eaf6ff; --text-muted:#9db3d6; --text-faint:#6f84b0}}
 html[data-style="neon"] :is(.project-card,.history-item,.collapse-section,.settings-card,.db-card,.tag-card,.autotag-card,.scheme-panel,.search-composer,.search-db-card,.account-identity-card,.account-credentials,.about-hero,.slr-guide,.viz-funnel-step){box-shadow:0 0 0 1px rgb(var(--t-acc) / .3),0 0 20px rgb(var(--t-acc) / .16)}
 html[data-style="neon"] :is(.sidebar,#topbar){box-shadow:0 0 24px rgb(var(--t-acc) / .18)}
 html[data-style="neon"] .btn-primary{box-shadow:0 0 14px rgb(var(--t-acc) / .55)}
@@ -132,3 +132,9 @@ html[data-style="mono"] .view-title::before{content:"> ";color:var(--accent)}
 /* Suchfeld und Trefferliste der Kopfzeile bleiben in jedem Theme deckend: durchscheinende Schrift ueber dem Seiteninhalt stoert */
 html:is([data-style="glass"],[data-style="aurora"],[data-style="sunset"]) .find input{background:rgb(var(--t-s2))}
 html:is([data-style="glass"],[data-style="aurora"],[data-style="sunset"]) .sres{background:rgb(var(--t-s));-webkit-backdrop-filter:none;backdrop-filter:none}
+
+/* Lesbarkeit auf den Verlauf-Themes: Die Flaechen sind durchscheinend, Text liegt zum Teil direkt auf dem
+   farbigen Hintergrund. Gedaempfter und blasser Text leiten sich deshalb vom Haupttext ab (hell: dunkel,
+   dunkel: hell) statt von festen Grautoenen, die auf dem Verlauf verschwinden. */
+html:is([data-style="glass"],[data-style="aurora"],[data-style="sunset"]){
+  --text-muted:rgb(var(--t-txt) / .82); --text-faint:rgb(var(--t-txt) / .64)}

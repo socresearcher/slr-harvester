@@ -16,7 +16,7 @@
   --border-subtle:#21262d;
   --text:         #e6edf3;
   --text-muted:   #8b949e;
-  --text-faint:   #484f58;
+  --text-faint:   #6e7681;  /* was #484f58: 2.1:1 on the page, too faint for the hints that use it */
   /* Brand color: turquoise, base #31E6D3. Bright/light by nature (relative
      luminance ~0.62) — great as text/icon/border color on dark backgrounds,
      but text painted ON a solid fill of it needs dark ink, not white; see
@@ -81,7 +81,7 @@
   --border-subtle:#eaeef2;
   --text:         #1f2328;
   --text-muted:   #636c76;
-  --text-faint:   #b0b8c1;
+  --text-faint:   #848d97;  /* was #b0b8c1: 2.0:1 on white */
   /* Same brand hue as dark theme (~173°) but deepened for contrast against a
      white page — the literal bright #31E6D3 fails WCAG AA as text/borders
      here. accent-ink is white: this darker fill has enough contrast for it. */
@@ -10569,3 +10569,118 @@ img.flag {
   gap: 6px 16px;
   margin-top: 10px;
 }
+
+/* ══ Runde 6: Handy-Layout (Search, History), Datenbanken-Sortierung, Lesbarkeit ══ */
+
+/* Das Eingabefeld ist ein inline-block: darunter blieb eine Zeilenluecke, und der
+   Griff unten rechts (bezogen auf die Huelle) sass dadurch ein paar Pixel zu tief. */
+.search-textarea {
+  display: block;
+}
+
+.search-step-label {
+  color: var(--text-muted);
+}
+
+@media (max-width: 900px) {
+  /* Alle Quellen mit Logo und Namen sichtbar: umbrechen statt seitlich scrollen. */
+  .search-db-tabs {
+    flex-wrap: wrap;
+    overflow: visible;
+  }
+}
+
+@media (max-width: 760px) {
+  /* Im Raster ist align-items: start gesetzt — in der Spalte hiess das:
+     jedes Element nimmt seine Inhaltsbreite, und die Quellenzeile machte die
+     ganze Ansicht 494 px breit. Hier dehnen sich alle auf die Breite des Geraets. */
+  .search-page {
+    align-items: stretch;
+  }
+
+  .search-main,
+  .search-page > .search-drawer,
+  .search-run-row {
+    width: 100%;
+    min-width: 0;
+    max-width: 100%;
+  }
+}
+
+@media (max-width: 640px) {
+  .search-db-tabs {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 6px;
+  }
+
+  .search-db-card {
+    min-width: 0;
+    min-height: 40px;
+    padding-right: 8px;
+  }
+
+  .search-db-card-name {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
+  /* History: vier Reiter nebeneinander, ohne ueber den Rand zu laufen. */
+  .hist-tabs {
+    width: 100%;
+  }
+
+  .hist-tab {
+    flex: 1 1 0;
+    min-width: 0;
+    justify-content: center;
+    padding: 6px 4px;
+  }
+
+  .hist-tab svg {
+    display: none;
+  }
+}
+
+/* Datenbanken: Sortierleiste und Zusatzzeile */
+.databases-toolbar {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px 12px;
+  margin-bottom: 18px;
+}
+
+.databases-toolbar-label {
+  font-size: 11.5px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: .08em;
+  color: var(--text-muted);
+}
+
+.db-card-extra {
+  margin-top: 2px;
+  font-size: 11.5px;
+  color: var(--text-muted);
+}
+
+/* Die Erlaeuterung unter den Ueberschriften war --text-faint: auf Verlaufs-Themes kaum zu lesen. */
+.databases-section-note {
+  color: var(--text-muted);
+}
+
+/* Lesbarkeit: "No tag" bleibt zurueckgenommen, aber lesbar; die Quellenplaketten
+   sind im hellen Thema zu blass (Textfarben der Marken sind fuer dunklen Grund gewaehlt). */
+.article-tag-pill.tag-pill-unset {
+  opacity: .72;
+}
+
+[data-theme="light"] .badge-source-scopus   { color: #a8480a; }
+[data-theme="light"] .badge-source-arxiv    { color: #b02a2a; }
+[data-theme="light"] .badge-source-pubmed   { color: #2c6290; }
+[data-theme="light"] .badge-source-s2       { color: #2f66ad; }
+[data-theme="light"] .badge-source-openalex { color: #1a7a6c; }
+[data-theme="light"] .badge-source-crossref { color: #1a7488; }
+[data-theme="light"] .badge-source-doaj     { color: #a85408; }

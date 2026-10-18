@@ -5586,31 +5586,87 @@ window.SLRViews = (() => {
     return `<img src="${src}" alt="" loading="lazy" decoding="async" referrerpolicy="no-referrer">`;
   }
 
+  // Which databases were opened or searched through this app, and when. Kept on
+  // this device only; feeds the "Recently used" sort of the Databases view.
+  const DB_USED_KEY = 'slr-db-used';
+  function dbUsedMap() {
+    try { const v = JSON.parse(localStorage.getItem(DB_USED_KEY) || '{}'); return v && typeof v === 'object' ? v : {}; }
+    catch (_) { return {}; }
+  }
+  function markDbUsed(label) {
+    if (!label) return;
+    try { const m = dbUsedMap(); m[label] = Date.now(); localStorage.setItem(DB_USED_KEY, JSON.stringify(m)); } catch (_) { /* storage blocked */ }
+  }
+  function relTime(ts) {
+    const d = Math.floor((Date.now() - ts) / 86400000);
+    if (d <= 0) return 'today';
+    if (d === 1) return 'yesterday';
+    if (d < 30) return d + ' days ago';
+    const m = Math.floor(d / 30);
+    return m < 12 ? m + ' month' + (m > 1 ? 's' : '') + ' ago' : 'over a year ago';
+  }
+
   function renderDatabases(container) {
     const renderDbLogo = (db) => `<span class="db-card-badge-fallback">${esc(db.abbr)}</span>${dbLogoImg(db.url)}`;
+    const SORTS = [['type', 'By type'], ['az', 'A\u2013Z'], ['za', 'Z\u2013A'], ['recent', 'Recently used']];
+    let sort = 'type';
+    try { const v = localStorage.getItem('slr-db-sort'); if (SORTS.some(x => x[0] === v)) sort = v; } catch (_) { /* default */ }
+    const used = dbUsedMap();
 
-    function makeCard(db) {
+    function makeCard(db, extra) {
       return `
       <a class="db-card${db.integrated ? ' db-card--integrated' : ''}" href="${esc(db.url)}" target="_blank" rel="noopener noreferrer"
-         style="--db-color:${esc(db.color)}">
+         style="--db-color:${esc(db.color)}" data-db-label="${esc(db.label)}">
         <div class="db-card-badge" title="${esc(db.label)}" aria-label="${esc(db.label)}">${renderDbLogo(db)}</div>
         <div class="db-card-body">
           <div class="db-card-name">${esc(db.label)}${db.integrated ? ' <span class="db-integrated-pill">In-app</span>' : ''}</div>
           <div class="db-card-desc" title="${esc(db.desc)}">${esc(db.desc)}</div>
+          ${extra ? `<div class="db-card-extra">${esc(extra)}</div>` : ''}
         </div>
         <div class="db-card-arrow">${SLRIcons.externalLink}</div>
       </a>`;
     }
 
-    const groupSections = DB_GROUPS.map(g => `
+    const flat = DB_GROUPS.flatMap(g => g.items.map(it => Object.assign({}, it, { _type: g.heading.split(' \u2014 ')[0] })));
+    const byName = (p, q) => p.label.localeCompare(q.label, undefined, { sensitivity: 'base' });
+    let groupSections;
+    if (sort === 'type') {
+      groupSections = DB_GROUPS.map(g => `
       <div class="databases-section">
         <h3 class="databases-section-heading">${esc(g.heading)}</h3>
         ${g.note ? `<p class="databases-section-note">${esc(g.note)}</p>` : ''}
-        <div class="databases-grid">${g.items.map(makeCard).join('')}</div>
+        <div class="databases-grid">${g.items.map(it => makeCard(it)).join('')}</div>
       </div>`).join('');
+    } else {
+      let list, heading, note;
+      if (sort === 'az') { list = flat.slice().sort(byName); heading = 'All databases \u2014 A to Z'; note = 'Every source in one list; the grey line under a name tells which group it belongs to.'; }
+      else if (sort === 'za') { list = flat.slice().sort((p, q) => byName(q, p)); heading = 'All databases \u2014 Z to A'; note = 'Every source in one list; the grey line under a name tells which group it belongs to.'; }
+      else {
+        list = flat.slice().sort((p, q) => (used[q.label] || 0) - (used[p.label] || 0) || byName(p, q));
+        heading = 'Recently used first';
+        note = Object.keys(used).length
+          ? 'Sources you opened here or searched through this app come first, newest on top; the rest follow alphabetically.'
+          : 'Nothing opened yet. Sources you open here or search through this app will move to the top.';
+      }
+      groupSections = `
+      <div class="databases-section">
+        <h3 class="databases-section-heading">${esc(heading)}</h3>
+        <p class="databases-section-note">${esc(note)}</p>
+        <div class="databases-grid">${list.map(it => makeCard(it, sort === 'recent' && used[it.label] ? 'Opened ' + relTime(used[it.label]) : it._type)).join('')}</div>
+      </div>`;
+    }
+
+    const toolbar = `
+        <div class="databases-toolbar">
+          <span class="databases-toolbar-label">Sort</span>
+          <div class="segc" role="group" aria-label="Sort databases">
+            ${SORTS.map(([k, t]) => `<button type="button" data-db-sort="${k}" aria-pressed="${k === sort}">${t}</button>`).join('')}
+          </div>
+        </div>`;
 
     container.innerHTML = `
       <div class="databases-view">
+        ${toolbar}
 
         ${groupSections}
 
@@ -5637,6 +5693,13 @@ window.SLRViews = (() => {
           </div>
         </div>
       </div>`;
+
+    container.querySelectorAll('[data-db-sort]').forEach(btn => btn.addEventListener('click', () => {
+      try { localStorage.setItem('slr-db-sort', btn.dataset.dbSort); } catch (_) { /* default next time */ }
+      renderDatabases(container);
+    }));
+    // Opening a source through its card counts as using it (the page itself loads in a new tab).
+    container.querySelectorAll('a.db-card[data-db-label]').forEach(a => a.addEventListener('click', () => markDbUsed(a.dataset.dbLabel)));
 
     container.querySelector('#db-zotero-btn').addEventListener('click', () => {
       const frame = document.createElement('iframe');
@@ -6101,15 +6164,19 @@ window.SLRViews = (() => {
     const isNarrow = window.matchMedia('(max-width: 900px)').matches;
     const drawerOpen = (key, fallback) => {
       let saved = null;
-      try { saved = localStorage.getItem('slr-search-drawer-' + key); } catch (_) { /* privates Fenster */ }
+      try { saved = localStorage.getItem('slr-search-drawer2-' + key); } catch (_) { /* privates Fenster */ }
       return saved === null ? fallback : saved === '1';
     };
     // Beide von Anfang an offen — auch am Telefon. Sie sind der Grund, warum
     // die Ansicht drei Spalten hat; zugeklappt muesste man sie erst suchen.
     // Wer sie zumacht, findet sie beim naechsten Mal zu (drawerOpen liest den
     // gemerkten Stand und faellt nur ohne einen auf die Vorgabe zurueck).
-    const fcOpen    = drawerOpen('field-codes', true);
-    const termsOpen = drawerOpen('past-terms', true);
+    // Am Telefon und auf schmalen Tablets sind sie von Anfang an zugeklappt
+    // (die Quelle und die Abfrage sollen ohne Rollen im Bild stehen); der
+    // Schluessel hat ein "2", damit ein frueher gemerktes "offen" die neue
+    // Vorgabe nicht uebersteuert. Ab 1024 px stehen sie ohnehin offen.
+    const fcOpen    = drawerOpen('field-codes', !isNarrow);
+    const termsOpen = drawerOpen('past-terms', !isNarrow);
     const fcCount   = fcCodes.reduce((n, g) => n + g.fields.length, 0);
 
     // Eine Spalte, auf jeder Breite dieselbe: Quelle -> Abfrage -> Suchen,
@@ -6249,7 +6316,7 @@ window.SLRViews = (() => {
     // entschieden hat.
     container.querySelectorAll('.search-drawer[data-drawer]').forEach(det => {
       det.addEventListener('toggle', () => {
-        try { localStorage.setItem('slr-search-drawer-' + det.dataset.drawer, det.open ? '1' : '0'); }
+        try { localStorage.setItem('slr-search-drawer2-' + det.dataset.drawer, det.open ? '1' : '0'); }
         catch (_) { /* privates Fenster: dann eben nur fuer diese Sitzung */ }
       });
     });
@@ -6549,6 +6616,7 @@ window.SLRViews = (() => {
         const max = container.querySelector('#search-max');
         const q   = ta ? ta.value.trim() : '';
         if (!q) return;
+        markDbUsed((DB_TABS.find(t => t.key === db) || {}).label);
         // Feldbereich und Zeitraum stehen im Zustand, nicht in den Argumenten
         // von executeSearch: Der Feldbereich gilt nur fuer OpenAlex, der
         // Zeitraum fuer OpenAlex, Crossref und DOAJ. Scopus und PubMed nehmen
