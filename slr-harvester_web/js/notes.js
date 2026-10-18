@@ -1,11 +1,10 @@
 /**
  * SLR Harvester Web - Dictations & Notes
  * Voice dictations (recorded in the browser, transcribed with Whisper) and plain
- * notes. Whisper runs ON THE DEVICE by default (vendored Transformers.js in a
- * worker, no key, audio never leaves the browser); OpenAI's Whisper API is an
- * optional second engine for users who bring their own key. Ported in spirit
- * from the Dashboard's "Diktate" page; same behaviour where it makes sense
- * (record, transcribe, edit, favourite, folder, search, filter, audio playback).
+ * notes: a place to keep spoken or written thoughts about a project, a kind of
+ * research diary. Whisper runs ON THE DEVICE by default (vendored Transformers.js
+ * in a worker, no key, audio never leaves the browser); OpenAI's Whisper API is
+ * an optional second engine for users who bring their own key.
  *
  * Storage follows the active workspace, like projects do:
  *   - local folder: notes.json + notes-audio/<id>.<ext> in the workspace root
@@ -14,7 +13,7 @@
  *
  * Engine, model and the optional OpenAI key stay in this browser's localStorage
  * (slr-stt-*, slr-openai-key), never in the workspace or in Supabase. With the
- * OpenAI engine, audio leaves the device only when "Transcribe" runs, and then
+ * OpenAI engine, audio leaves the device only when it is transcribed, and then
  * goes to api.openai.com only. Settings > Dictations edits these values.
  *
  * Global: window.SLRNotes
@@ -24,8 +23,9 @@ window.SLRNotes = (() => {
 
   const KEY_OPENAI = 'slr-openai-key';
   const MAX_AUDIO = 24 * 1024 * 1024;           // OpenAI accepts 25 MB per file
-  const LANGS = [['auto', 'Auto-detect'], ['de', 'Deutsch'], ['en', 'English'], ['es', 'Español'], ['fr', 'Français'], ['it', 'Italiano'], ['hr', 'Hrvatski']];
-  const MIMES = ['audio/webm;codecs=opus', 'audio/webm', 'audio/mp4', 'audio/ogg;codecs=opus'];
+  const MAX_S = 900;                            // longest recording: 15 minutes
+  const LANGS = [['auto', 'Automatic'], ['de', 'Deutsch'], ['en', 'English'], ['es', 'Español'], ['fr', 'Français'], ['it', 'Italiano'], ['hr', 'Hrvatski']];
+  const MIMES = ['audio/webm;codecs=opus', 'audio/ogg;codecs=opus', 'audio/mp4', 'audio/webm'];
 
   const esc = s => String(s == null ? '' : s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
   const uid = () => (window.crypto && crypto.randomUUID ? crypto.randomUUID()
@@ -60,17 +60,9 @@ window.SLRNotes = (() => {
   const engineLabel = () => { const c = config(); return c.engine === 'openai' ? 'OpenAI Whisper' : 'Whisper ' + (MODELS.find(m => m[0] === c.model) || MODELS[1])[2] + ' on this device'; };
 
   const fmtDur = s => { s = Math.max(0, Math.round(s || 0)); return Math.floor(s / 60) + ':' + String(s % 60).padStart(2, '0'); };
-  const fmtDate = iso => { const d = new Date(iso); return isNaN(d) ? '' : d.toLocaleString('en-GB', { day: 'numeric', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' }); };
-  const extOf = m => /mp4|m4a/.test(m || '') ? 'm4a' : /ogg/.test(m || '') ? 'ogg' : 'webm';
-
-  // ── State (survives view changes, so a running recording is not lost) ─────
-  const S = {
-    list: null, loading: false, error: '',
-    kind: '*', folder: '*', fav: false, q: '', sort: 'new',
-    open: new Set(), edit: null, draft: null, busyId: null,
-    rec: null, result: null, lang: 'auto', sttStatus: '',
-    urls: {}, container: null,
-  };
+  const fmtDate = iso => { const d = new Date(iso); return isNaN(d) ? '' : d.toLocaleString('en-GB', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' }); };
+  const extOf = m => /mp4|m4a|aac/.test(m || '') ? 'm4a' : /ogg/.test(m || '') ? 'ogg' : /mpeg|mp3/.test(m || '') ? 'mp3' : /wav/.test(m || '') ? 'wav' : 'webm';
+  const normS = t => String(t == null ? '' : t).toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '');
 
   // ── Storage: local folder ─────────────────────────────────────────────────
   const isCloud = () => SLRData.getBackend() === 'cloud';
@@ -81,14 +73,14 @@ window.SLRNotes = (() => {
     try {
       const fh = await root.getFileHandle('notes.json');
       const j = JSON.parse(await (await fh.getFile()).text());
-      return Array.isArray(j.notes) ? j.notes : [];
+      return (Array.isArray(j.notes) ? j.notes : []).map(n => Object.assign({ tags: [], deleted: '' }, n));
     } catch (_) { return []; }
   }
   async function localWrite(list) {
     if (!(await SLRDataLocal.ensureWriteAccess())) throw new Error('No write access to the workspace folder.');
     const fh = await SLRDataLocal.rootHandle.getFileHandle('notes.json', { create: true });
     const w = await fh.createWritable();
-    await w.write(JSON.stringify({ version: 1, notes: list }, null, 2));
+    await w.write(JSON.stringify({ version: 2, notes: list }, null, 2));
     await w.close();
   }
   async function localAudioDir(create) {
@@ -99,13 +91,14 @@ window.SLRNotes = (() => {
   const cloudSession = () => SLRDataCloud.session();
   const toNote = r => ({
     id: r.id, title: r.title || '', text: r.body || '', lang: r.lang || 'auto', dur: r.duration_s || 0,
-    folder: r.folder || '', fav: !!r.favorite, audio: !!r.audio_path, audioPath: r.audio_path || '', audioType: r.audio_type || '',
-    created: r.created, modified: r.modified,
+    folder: r.folder || '', tags: Array.isArray(r.tags) ? r.tags : [], fav: !!r.favorite,
+    audio: !!r.audio_path, audioPath: r.audio_path || '', audioType: r.audio_type || '',
+    deleted: r.deleted_at || '', created: r.created, modified: r.modified,
   });
   const toRow = (n, userId) => ({
     id: n.id, user_id: userId, title: n.title, body: n.text, lang: n.lang, duration_s: Math.round(n.dur || 0),
-    folder: n.folder || '', favorite: !!n.fav, audio_path: n.audioPath || null, audio_type: n.audioType || null,
-    created: n.created, modified: n.modified,
+    folder: n.folder || '', tags: n.tags || [], favorite: !!n.fav, audio_path: n.audioPath || null, audio_type: n.audioType || null,
+    deleted_at: n.deleted || null, created: n.created, modified: n.modified,
   });
 
   // ── Storage: one surface for both ─────────────────────────────────────────
@@ -281,369 +274,460 @@ window.SLRNotes = (() => {
     return deviceTranscribe(blob, lang, setStatus);
   }
 
-  const setStatusFn = () => { return t => { S.sttStatus = t; const el = document.getElementById('nt-status'); if (el) el.textContent = t; }; };
+
+  // ══ The Dictations page ══════════════════════════════════════════════════════
+  // Record (or upload) -> check the text -> save; list with search, sort, cards or
+  // list view, type / folder / tag filters, favourites, trash, continue dictating,
+  // read aloud, plain-text export. D keeps everything, so a running recording or an
+  // unsaved result survives a change of view.
+  const D = {
+    list: null, loading: false, error: '',
+    q: '', folder: '*', tag: '', kind: '*',
+    view: lsGet('slr-dik-view') === 'list' ? 'list' : 'cards',
+    sort: lsGet('slr-dik-sort') || 'new',
+    lang: lsGet('slr-dik-lang') || 'auto',
+    rec: null, res: null, cont: null, edit: null, draft: null,
+    open: new Set(), playing: null, trash: false,
+    urls: {}, status: '', container: null, owner: undefined,
+  };
+  const LANG_OK = new Set(LANGS.map(l => l[0]));
+  const langName = k => (LANGS.find(l => l[0] === k) || [0, k || ''])[1];
+
+  // "Recently used": when an entry was last played, opened, copied, exported or edited.
+  // Kept on this device only (not in the workspace).
+  let usedMap = {};
+  try { usedMap = JSON.parse(lsGet('slr-dik-used') || '{}') || {}; } catch (_) { usedMap = {}; }
+  function markUsed(id) {
+    usedMap[id] = Date.now();
+    if (D.list) { const ids = new Set(D.list.map(d => d.id)); Object.keys(usedMap).forEach(k => { if (!ids.has(k)) delete usedMap[k]; }); }
+    lsSet('slr-dik-used', JSON.stringify(usedMap));
+  }
+  const lastUsed = d => usedMap[d.id] || Date.parse(d.created) || 0;
+
+  const active = () => (D.list || []).filter(d => !d.deleted);
+  const inTrash = () => (D.list || []).filter(d => d.deleted);
+  const busy = () => !!(D.rec || D.res || D.cont || (D.edit && D.draft));
+  window.addEventListener('beforeunload', e => { if (busy()) { e.preventDefault(); e.returnValue = ''; } });
+
+  // ── Markdown characters in notes (###, **bold**, --, `code`, links) ────────
+  const MD_HAS = /^[ \t]*#{1,6}(\s|$)|\*\*|__|~~|^[ \t]*(?:[-*_=][ \t]*){2,}$|`|!?\[[^\]]+\]\([^)]*\)|^[ \t]*>|^[ \t]*[-*+•][ \t]+\S|(^|[\s(])\*\S[^*\n]*\S\*($|[\s).,;:!?])/m;
+  const mdHas = s => MD_HAS.test(String(s || ''));
+  function mdPlain(t) {
+    return String(t || '').replace(/\r\n?/g, '\n')
+      .replace(/^[ \t]*(?:[-*_=][ \t]*){2,}$/gm, '')
+      .replace(/^[ \t]*#{1,6}[ \t]*(.*)$/gm, (m, x) => x.trim() ? '\n' + x + '\n' : '')
+      .replace(/^[ \t]*>+[ \t]?/gm, '')
+      .replace(/^[ \t]*[-*+•][ \t]+/gm, '')
+      .replace(/!?\[([^\]]*)\]\(([^)]*)\)/g, '$1')
+      .replace(/(\*\*|__)(?=\S)([\s\S]*?\S)\1/g, '$2')
+      .replace(/(^|[\s(])\*(?=\S)([^*\n]*?\S)\*(?=$|[\s).,;:!?])/gm, '$1$2')
+      .replace(/(^|[\s(])_(?=\S)([^_\n]*?\S)_(?=$|[\s).,;:!?])/gm, '$1$2')
+      .replace(/~~([^~]+)~~/g, '$1').replace(/`+([^`]*)`+/g, '$1')
+      .replace(/\*\*|__/g, '')
+      .replace(/[ \t]+$/gm, '').replace(/\n{3,}/g, '\n\n').trim();
+  }
+  function mdHTML(t) {
+    const inl = s => esc(s).replace(/!?\[([^\]]*)\]\(([^)]*)\)/g, '$1').replace(/(\*\*|__)(?=\S)([\s\S]*?\S)\1/g, '<b>$2</b>').replace(/(^|[\s(])\*(?=\S)([^*\n]*?\S)\*(?=$|[\s).,;:!?])/g, '$1<i>$2</i>').replace(/(^|[\s(])_(?=\S)([^_\n]*?\S)_(?=$|[\s).,;:!?])/g, '$1<i>$2</i>').replace(/~~([^~]+)~~/g, '<s>$1</s>').replace(/`+([^`]*)`+/g, '<code>$1</code>');
+    const out = []; let m;
+    for (const z of String(t || '').replace(/\r\n?/g, '\n').split('\n')) {
+      if (/^[ \t]*(?:[-*_=][ \t]*){2,}$/.test(z)) out.push({ s: '<span class="mdhr"></span>', b: 1 });
+      else if ((m = /^[ \t]*(#{1,6})[ \t]*(.*)$/.exec(z))) { if (m[2].trim()) out.push({ s: `<span class="mdh mdh${Math.min(m[1].length, 3)}">${inl(m[2])}</span>`, b: 1 }); }
+      else if ((m = /^[ \t]*[-*+•][ \t]+(.*)$/.exec(z))) out.push({ s: '• ' + inl(m[1]) });
+      else if ((m = /^[ \t]*>+[ \t]?(.*)$/.exec(z))) out.push({ s: '<i>' + inl(m[1]) + '</i>' });
+      else out.push({ s: inl(z) });
+    }
+    return out.map((o, i) => o.s + (o.b || i === out.length - 1 ? '' : '\n')).join('');
+  }
+
+  const autoTitle = (text, kind) => {
+    const w = String(text || '').trim().split(/\s+/).filter(Boolean);
+    return w.length ? w.slice(0, 7).join(' ').slice(0, 60) + (w.length > 7 ? ' …' : '') : kind + ' ' + new Date().toLocaleDateString('en-GB');
+  };
+  const splitTags = s => String(s || '').split(',').map(x => x.trim().replace(/^#/, '')).filter(Boolean);
+  const setStatus = t => { D.status = t; const el = document.getElementById('dikStatus'); if (el) el.textContent = t; };
 
   // ── Recording ─────────────────────────────────────────────────────────────
-  async function recStart() {
-    if (S.rec || S.result) return;
-    if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia || !window.MediaRecorder) { toast('This browser cannot record audio.', true); return; }
+  async function recStart(target) {
+    if (D.rec || D.res || D.cont) return;
+    if (!window.MediaRecorder || !navigator.mediaDevices) { toast('This browser cannot record audio.', true); return; }
     let stream;
-    try { stream = await navigator.mediaDevices.getUserMedia({ audio: { channelCount: 1, echoCancellation: true, noiseSuppression: true } }); }
-    catch (e) { toast('Microphone unavailable or blocked: ' + (e && e.message || e), true); return; }
-    const mime = MIMES.find(m => MediaRecorder.isTypeSupported(m)) || '';
-    const mr = new MediaRecorder(stream, mime ? { mimeType: mime, audioBitsPerSecond: 32000 } : { audioBitsPerSecond: 32000 });
-    const rec = { mr, stream, chunks: [], start: Date.now(), cancel: false, timer: 0, mime: mr.mimeType || mime };
-    mr.ondataavailable = e => { if (e.data && e.data.size) rec.chunks.push(e.data); };
-    mr.onstop = () => {
-      clearInterval(rec.timer);
-      stream.getTracks().forEach(t => t.stop());
-      S.rec = null;
-      if (rec.cancel || !rec.chunks.length) { draw(); return; }
-      const blob = new Blob(rec.chunks, { type: rec.mime || 'audio/webm' });
-      S.result = { blob, url: URL.createObjectURL(blob), dur: (Date.now() - rec.start) / 1000, title: '', text: '', lang: S.lang, busy: false, err: '' };
-      draw();
-      if (config().auto && canTranscribe() && (config().engine === 'openai' || lsGet('slr-stt-ok-' + config().model))) transcribeResult();
+    try { stream = await navigator.mediaDevices.getUserMedia({ audio: { channelCount: 1, echoCancellation: true, noiseSuppression: true, autoGainControl: true } }); }
+    catch (e) { toast(e.name === 'NotAllowedError' ? 'No access to the microphone: please allow it in the address bar.' : 'Microphone unavailable: ' + (e.message || e.name), true); return; }
+    const mime = MIMES.find(m => MediaRecorder.isTypeSupported(m));
+    const mr = new MediaRecorder(stream, mime ? { mimeType: mime, audioBitsPerSecond: 32000 } : {});
+    const r = D.rec = { stream, mr, chunks: [], t0: Date.now(), mime: mr.mimeType || mime || 'audio/webm', discard: false, ctx: null, an: null, data: null, target: target || null, timer: 0 };
+    mr.ondataavailable = e => { if (e.data && e.data.size) r.chunks.push(e.data); };
+    mr.onstop = () => recEnd(r);
+    try { const AC = window.AudioContext || window.webkitAudioContext; r.ctx = new AC(); r.an = r.ctx.createAnalyser(); r.an.fftSize = 512; r.ctx.createMediaStreamSource(stream).connect(r.an); r.data = new Uint8Array(r.an.fftSize); } catch (_) { r.an = null; }
+    mr.start(1000); r.timer = setInterval(recTick, 150);
+    drawRec(); if (r.target) drawList();
+  }
+  function recTick() {
+    const r = D.rec; if (!r) return;
+    const s = (Date.now() - r.t0) / 1000, z = document.getElementById('dikTime'); if (z) z.textContent = fmtDur(s);
+    const p = document.getElementById('dikLevel');
+    if (p && r.an) { r.an.getByteTimeDomainData(r.data); let m = 0; for (const v of r.data) m = Math.max(m, Math.abs(v - 128)); p.style.width = Math.min(100, Math.round(m / 128 * 160)) + '%'; }
+    if (s >= MAX_S) recStop();
+  }
+  function recStop(discard) {
+    const r = D.rec; if (!r) return;
+    r.discard = !!discard; clearInterval(r.timer);
+    if (r.mr.state !== 'inactive') r.mr.stop();
+    r.stream.getTracks().forEach(t => t.stop());
+    if (r.ctx) r.ctx.close().catch(() => { });
+  }
+  function recEnd(r) {
+    D.rec = null;
+    if (r.discard || !r.chunks.length) { drawRec(); if (r.target) drawList(); return; }
+    const blob = new Blob(r.chunks, { type: r.mime });
+    if (r.target) { continueRecognise(blob, r.target); return; }
+    openResult(blob, Math.round((Date.now() - r.t0) / 1000));
+  }
+  function loadFile(f) {
+    if (!f) return;
+    if (D.rec || D.res || D.cont) { toast('Finish or discard the current recording first.', true); return; }
+    const a = new Audio(), url = URL.createObjectURL(f); a.preload = 'metadata';
+    const go = d => { URL.revokeObjectURL(url); openResult(f, Math.round(d || 0)); };
+    a.onloadedmetadata = () => go(a.duration); a.onerror = () => go(0);
+  }
+
+  // ── Result of a recording ─────────────────────────────────────────────────
+  function openResult(blob, dur, lang) {
+    const old = D.res; if (old && old.url) URL.revokeObjectURL(old.url);
+    D.res = {
+      blob, type: (blob.type || 'audio/webm').split(';')[0].toLowerCase(), url: URL.createObjectURL(blob), dur,
+      status: 'ready', lang: lang || D.lang, text: old ? old.text : '', title: old ? old.title : '', folder: old ? old.folder : '', tags: old ? old.tags : '',
+      keep: old ? old.keep : true, error: '', saving: false,
     };
-    S.rec = rec;
-    mr.start(1000);
-    rec.timer = setInterval(() => { const t = document.getElementById('nt-time'); if (t) t.textContent = fmtDur((Date.now() - rec.start) / 1000); }, 250);
-    draw();
-  }
-
-  function recStop(cancel) {
-    if (!S.rec) return;
-    S.rec.cancel = !!cancel;
-    try { S.rec.mr.stop(); } catch (_) { /* already stopped */ }
-  }
-
-  async function transcribeResult() {
-    const r = S.result; if (!r || r.busy) return;
-    syncFields(); r.busy = true; r.err = ''; S.sttStatus = 'Starting …'; draw();
-    try { r.text = await transcribe(r.blob, r.lang, setStatusFn()); if (!r.title) r.title = autoTitle(r.text, 'Dictation'); if (!r.text) r.err = 'No speech was recognised.'; }
-    catch (e) { r.err = e.message || String(e); }
-    r.busy = false; S.sttStatus = ''; draw();
-  }
-
-  function discardResult() {
-    if (S.result && S.result.url) URL.revokeObjectURL(S.result.url);
-    S.result = null; draw();
-  }
-
-  function autoTitle(text, kind) {
-    const t = String(text || '').replace(/\s+/g, ' ').trim();
-    if (t) return t.length > 60 ? t.slice(0, 57).replace(/\s+\S*$/, '') + '…' : t;
-    return kind + ' ' + fmtDate(new Date().toISOString());
-  }
-
-  async function saveResult() {
-    const r = S.result; if (!r || r.busy) return;
-    syncFields();
-    const now = new Date().toISOString();
-    const n = { id: uid(), title: r.title.trim() || autoTitle(r.text, 'Dictation'), text: r.text, lang: r.lang, dur: r.dur, folder: (r.folder || '').trim(), fav: false, audio: false, audioPath: '', audioType: '', created: now, modified: now };
-    r.busy = true; r.err = ''; draw();
-    try {
-      await putAudio(n, r.blob);
-      await putNote(n);
-      S.list.unshift(n);
-      URL.revokeObjectURL(r.url); S.result = null;
-      toast('Dictation saved.');
-    } catch (e) { r.err = 'Could not save: ' + (e.message || e); r.busy = false; }
-    draw();
-  }
-
-  // ── Notes: new / edit ─────────────────────────────────────────────────────
-  function startEdit(id) {
-    syncFields();
-    if (id === '__new') S.draft = { title: '', text: '', folder: '', lang: 'auto' };
-    else { const n = S.list.find(x => x.id === id); if (!n) return; S.draft = { title: n.title, text: n.text, folder: n.folder, lang: n.lang }; }
-    S.edit = id; draw();
-    const t = document.getElementById('nt-ed-text'); if (t) t.focus();
-  }
-
-  async function saveEdit() {
-    syncFields();
-    const d = S.draft; if (!d) return;
-    const id = S.edit;
-    try {
-      if (id === '__new') {
-        if (!d.text.trim() && !d.title.trim()) { toast('Write something first.', true); return; }
-        const now = new Date().toISOString();
-        const n = { id: uid(), title: d.title.trim() || autoTitle(d.text, 'Note'), text: d.text, lang: 'auto', dur: 0, folder: d.folder.trim(), fav: false, audio: false, audioPath: '', audioType: '', created: now, modified: now };
-        await putNote(n); S.list.unshift(n); toast('Note saved.');
-      } else {
-        const n = S.list.find(x => x.id === id); if (!n) return;
-        n.title = d.title.trim() || autoTitle(d.text, n.audio ? 'Dictation' : 'Note'); n.text = d.text; n.folder = d.folder.trim();
-        await putNote(n); toast('Saved.');
-      }
-      S.edit = null; S.draft = null;
-    } catch (e) { toast('Could not save: ' + (e.message || e), true); }
-    draw();
-  }
-
-  // ── Reading the form fields back into state (before any redraw) ──────────
-  function syncFields() {
-    const v = id => { const el = document.getElementById(id); return el ? el.value : null; };
-    if (S.result) {
-      const t = v('nt-r-title'), x = v('nt-r-text'), l = v('nt-r-lang'), f = v('nt-r-folder');
-      if (t !== null) S.result.title = t; if (x !== null) S.result.text = x; if (l !== null) S.result.lang = l; if (f !== null) S.result.folder = f;
-    }
-    if (S.draft) {
-      const t = v('nt-ed-title'), x = v('nt-ed-text'), f = v('nt-ed-folder');
-      if (t !== null) S.draft.title = t; if (x !== null) S.draft.text = x; if (f !== null) S.draft.folder = f;
-    }
-  }
-
-  // ── List helpers ──────────────────────────────────────────────────────────
-  function visible() {
-    const q = S.q.trim().toLowerCase();
-    let l = (S.list || []).filter(n =>
-      (S.kind === '*' || (S.kind === 'dictation') === !!n.audio) &&
-      (S.folder === '*' || (S.folder === '' ? !n.folder : n.folder === S.folder)) &&
-      (!S.fav || n.fav) &&
-      (!q || (n.title + ' ' + n.text + ' ' + n.folder).toLowerCase().includes(q)));
-    l = l.slice().sort((a, b) => S.sort === 'old' ? String(a.created).localeCompare(String(b.created)) : S.sort === 'title' ? a.title.localeCompare(b.title) : String(b.created).localeCompare(String(a.created)));
-    return l;
-  }
-  const folders = () => [...new Set((S.list || []).map(n => n.folder).filter(Boolean))].sort((a, b) => a.localeCompare(b));
-
-  // ── Markup ────────────────────────────────────────────────────────────────
-  const I = () => window.SLRIcons;
-  const langSelect = (id, cur) => `<select class="form-input nt-lang" id="${id}" aria-label="Language">${LANGS.map(([k, t]) => `<option value="${k}"${k === cur ? ' selected' : ''}>${t}</option>`).join('')}</select>`;
-
-  function recorderHtml() {
-    if (S.rec) {
-      return `<div class="nt-recbox">
-        <button type="button" class="nt-mic rec" data-nt="rec-stop" aria-label="Stop recording" title="Stop recording">${I().stop}</button>
-        <div class="nt-info"><b id="nt-time">${fmtDur((Date.now() - S.rec.start) / 1000)}</b><span class="nt-hint">Recording … press stop when you are done.</span></div>
-        <button type="button" class="btn-secondary" data-nt="rec-cancel">Cancel</button>
-      </div>`;
-    }
-    if (S.result) {
-      const r = S.result;
-      return `<div class="nt-result">
-        <audio class="nt-audio" controls preload="metadata" src="${esc(r.url)}"></audio>
-        <div class="nt-fields">
-          <label class="nt-f">Title<input class="form-input" id="nt-r-title" type="text" maxlength="140" value="${esc(r.title)}" placeholder="Optional"></label>
-          <label class="nt-f">Folder<input class="form-input" id="nt-r-folder" type="text" maxlength="60" list="nt-folders" value="${esc(r.folder || '')}" placeholder="No folder"></label>
-          <label class="nt-f">Language<span>${langSelect('nt-r-lang', r.lang)}</span></label>
-        </div>
-        <label class="nt-f">Text${r.busy ? ' <span class="nt-busy"><span class="nt-spin"></span> <span id="nt-status">' + esc(S.sttStatus || 'working …') + '</span></span>' : ''}
-          <textarea class="form-input" id="nt-r-text" rows="6" placeholder="${canTranscribe() ? 'The transcript appears here. Press Transcribe if it does not start by itself.' : 'Transcription is not available with the current settings (Settings > Dictations): type the text yourself.'}">${esc(r.text)}</textarea></label>
-        ${r.err ? `<p class="nt-err" role="alert">${esc(r.err)}</p>` : ''}
-        <div class="nt-btnrow">
-          <button type="button" class="btn-primary" data-nt="res-save"${r.busy ? ' disabled' : ''}>Save dictation</button>
-          <button type="button" class="btn-secondary" data-nt="res-transcribe"${r.busy || !canTranscribe() ? ' disabled' : ''}>${r.text ? 'Transcribe again' : 'Transcribe'}</button>
-          <button type="button" class="btn-secondary" data-nt="res-discard"${r.busy ? ' disabled' : ''}>Discard</button>
-          <span class="nt-hint">${fmtDur(r.dur)} · ${(r.blob.size / 1024).toFixed(0)} KB</span>
-        </div>
-      </div>`;
-    }
-    return `<div class="nt-recbox">
-      <button type="button" class="nt-mic" data-nt="rec-start" aria-label="Start recording" title="Start recording">${I().mic}</button>
-      <div class="nt-info"><b>Dictate</b><span class="nt-hint">${canTranscribe() ? 'Recorded here, transcribed with ' + esc(engineLabel()) + '.' : 'Recorded here. Transcription is off with the current settings.'}</span></div>
-      <label class="nt-f nt-f-inline">Language${langSelect('nt-lang', S.lang)}</label>
-      <button type="button" class="btn-secondary" data-nt="new">${I().plus} New note</button>
-    </div>`;
-  }
-
-  function statusHtml() {
+    drawRec(); drawResult();
     const c = config();
-    return `<div class="settings-card nt-key">
-      <div class="nt-key-head">
-        <span>Transcription</span>
-        <span class="nt-hint">${esc(engineLabel())}${c.engine === 'device' ? ' · free, private, no key' : ''}${c.auto ? ' · automatic' : ' · manual'}</span>
-        <button type="button" class="btn-secondary btn-sm" data-nt="settings">Change in Settings</button>
-      </div>
-    </div>`;
+    if (c.auto && canTranscribe() && (c.engine === 'openai' || lsGet('slr-stt-ok-' + c.model))) recognise();
+  }
+  async function recognise(lang) {
+    const g = D.res; if (!g || g.status === 'busy') return;
+    if (lang) g.lang = lang;
+    readResultFields();
+    g.status = 'busy'; g.error = ''; setStatus('Starting …'); drawRec(); drawResult();
+    try {
+      if (g.blob.size > 60 * 1024 * 1024) throw new Error('This file is too large (more than about 60 MB).');
+      const text = await transcribe(g.blob, g.lang, setStatus);
+      if (D.res !== g) return;
+      g.text = text; g.status = 'ready';
+      if (!g.title) g.title = autoTitle(text, 'Dictation');
+      if (!text) g.error = 'No speech was recognised. You can pick the language and transcribe again, or type the text yourself.';
+    } catch (e) { if (D.res !== g) return; g.status = 'ready'; g.error = e.message || String(e); }
+    drawRec(); drawResult();
+  }
+  function readResultFields() {
+    const g = D.res; if (!g) return;
+    const v = id => { const e = document.getElementById(id); return e ? e.value : null; };
+    const t = v('dikTitle'), x = v('dikText'), f = v('dikFolder'), tg = v('dikTags'), k = document.getElementById('dikKeep');
+    if (t !== null) g.title = t; if (x !== null) g.text = x; if (f !== null) g.folder = f; if (tg !== null) g.tags = tg; if (k) g.keep = k.checked;
+  }
+  async function saveResult() {
+    const g = D.res; if (!g || g.status === 'busy' || g.saving) return;
+    readResultFields();
+    g.saving = true; drawResult();
+    const now = new Date().toISOString();
+    const n = { id: uid(), title: g.title.trim() || autoTitle(g.text, 'Dictation'), text: g.text, lang: LANG_OK.has(g.lang) ? g.lang : 'auto', dur: g.dur, folder: (g.folder || '').trim(), tags: splitTags(g.tags), fav: false, audio: false, audioPath: '', audioType: '', deleted: '', created: now, modified: now };
+    try {
+      if (g.keep) await putAudio(n, g.blob);
+      await putNote(n);
+      D.list.unshift(n); URL.revokeObjectURL(g.url); D.res = null;
+      markUsed(n.id); toast('Dictation saved.');
+      drawRec(); drawResult(); drawList();
+    } catch (e) { g.saving = false; toast('Could not save: ' + (e.message || e), true); drawResult(); }
+  }
+  function discardResult() {
+    const g = D.res; if (!g) return;
+    readResultFields();
+    if ((g.text || g.error) && !confirm('Discard the recording and its text?')) return;
+    URL.revokeObjectURL(g.url); D.res = null; drawRec(); drawResult();
   }
 
-  function editHtml(d, isNew, n) {
-    return `<article class="nt-item nt-editing">
-      <label class="nt-f">Title<input class="form-input" id="nt-ed-title" type="text" maxlength="140" value="${esc(d.title)}" placeholder="${isNew ? 'Optional' : ''}"></label>
-      <label class="nt-f">Text<textarea class="form-input" id="nt-ed-text" rows="8">${esc(d.text)}</textarea></label>
-      <label class="nt-f">Folder<input class="form-input" id="nt-ed-folder" type="text" maxlength="60" list="nt-folders" value="${esc(d.folder)}" placeholder="No folder"></label>
-      <div class="nt-btnrow">
-        <button type="button" class="btn-primary" data-nt="edit-save">${isNew ? 'Save note' : 'Save'}</button>
-        <button type="button" class="btn-secondary" data-nt="edit-cancel">Cancel</button>
-        ${!isNew && n && n.audio && canTranscribe() ? `<button type="button" class="btn-secondary" data-nt="retr" data-id="${esc(n.id)}">Transcribe audio again</button>` : ''}
-      </div></article>`;
+  // ── Continue dictating: new recording inserted at the cursor of an entry ──
+  function captureDraft() {
+    const f = document.querySelector('.dik.bearb'), t = document.getElementById('dEdText');
+    if (!f || !t || String(D.edit) !== f.dataset.id) return;
+    const v = id => (document.getElementById(id) || {}).value || '';
+    D.draft = { id: f.dataset.id, title: v('dEdTitle'), text: t.value, folder: v('dEdFolder'), tags: v('dEdTags'), s: t.selectionStart, e: t.selectionEnd, focus: document.activeElement === t };
+  }
+  async function contStart(id) {
+    if (D.rec || D.res || D.cont) { toast('Finish or discard the current recording first.', true); return; }
+    if (D.edit !== id) { D.edit = id; D.draft = null; drawList(); const t = document.getElementById('dEdText'); if (t) t.setSelectionRange(t.value.length, t.value.length); }
+    captureDraft();
+    const e = D.draft && D.draft.id === id ? D.draft : null;
+    await recStart({ id, s: e ? e.s : 0, e: e ? e.e : 0 });
+  }
+  async function continueRecognise(blob, target) {
+    D.cont = { id: target.id }; setStatus('Starting …'); drawRec(); drawList();
+    let text = '', err = '';
+    try { text = await transcribe(blob, D.lang, setStatus); } catch (e) { err = e.message || String(e); }
+    D.cont = null;
+    if (err || !text) { toast(err || 'No speech was recognised.', true); drawRec(); drawList(); return; }
+    if (D.edit !== target.id || !D.draft || D.draft.id !== target.id) {
+      const d = D.list.find(x => x.id === target.id);
+      D.edit = target.id; D.draft = { id: target.id, title: d ? d.title : '', text: d ? d.text : '', folder: d ? d.folder : '', tags: d ? d.tags.join(', ') : '', s: target.s, e: target.e };
+    }
+    const en = D.draft, a = Math.min(target.s, en.text.length), b = Math.min(Math.max(target.e, a), en.text.length);
+    const before = en.text.slice(0, a), after = en.text.slice(b), add = text.trim();
+    const ins = (before && !/\s$/.test(before) ? ' ' : '') + add + (after && !/^[\s.,;:!?)]/.test(after) ? ' ' : '');
+    en.text = before + ins + after; en.s = en.e = before.length + ins.length; en.focus = true;
+    skipCapture = true; drawRec(); drawList(); toast('Text inserted. Press Save to keep it.');
+  }
+  let skipCapture = false;
+
+  // ── Drawing ───────────────────────────────────────────────────────────────
+  const I = () => window.SLRIcons;
+  const ib = (ic, text, attrs, cls) => `<button type="button" class="ibtn${cls ? ' ' + cls : ''}" title="${esc(text)}" aria-label="${esc(text)}" ${attrs || ''}>${I()[ic] || ''}</button>`;
+  const langPick = (cur, attr, label) => `<label class="dik-sprw" title="${esc(label || 'Language of the recording')}">${I().globe}<select class="sel" ${attr} aria-label="${esc(label || 'Language of the recording')}">${LANGS.map(([k, t]) => `<option value="${k}"${cur === k ? ' selected' : ''}>${t}</option>`).join('')}</select></label>`;
+  const folders = () => [...new Set(active().map(d => d.folder).filter(Boolean))].sort((a, b) => a.localeCompare(b));
+
+  function recHTML() {
+    const r = D.rec, g = D.res;
+    if (r) return `<div class="dik-recbox aktiv"><button type="button" class="dik-mic rec" data-dik="stop" aria-label="Stop recording">${I().mic}</button><div class="dik-info"><b id="dikTime">0:00</b><span class="muted">${r.target ? 'Continue-dictation is running: the text is inserted at the cursor. ' : 'Recording – '}tap to finish (at most ${MAX_S / 60} minutes)</span><div class="dik-pegel"><i id="dikLevel"></i></div></div><button type="button" class="btn" data-dik="discardrec">Discard</button></div>`;
+    if (D.cont) return `<div class="dik-recbox"><button type="button" class="dik-mic" disabled aria-label="Record">${I().mic}</button><div class="dik-info"><b>Transcribing …</b><span class="muted" id="dikStatus">${esc(D.status)}</span></div></div>`;
+    if (g) return `<div class="dik-recbox"><button type="button" class="dik-mic" disabled aria-label="Record">${I().mic}</button><div class="dik-info"><b>${g.status === 'busy' ? 'Transcribing …' : 'Recording ready'}</b><span class="muted">${fmtDur(g.dur || 0)} · check the result below and save it</span></div></div>`;
+    return `<div class="dik-recbox"><button type="button" class="dik-mic" data-dik="start" aria-label="Start recording" title="Start recording">${I().mic}</button><div class="dik-info"><b>Record a dictation</b>${langPick(D.lang, 'data-dlang')}<span class="muted dik-eng">${esc(canTranscribe() ? engineLabel() : 'Transcription is off')} · <button type="button" class="link-btn" data-dik="settings">settings</button></span></div><div class="dik-rbtn"><label class="btn" title="Transcribe an existing recording (mp3, m4a, wav, webm …)">${I().upload}Audio file<input type="file" id="dikFile" accept="audio/*" hidden></label><button type="button" class="btn" data-dik="newnote" title="Write a note without a recording">${I().plus}Note</button></div></div>`;
+  }
+  function drawRec() { const e = document.getElementById('dikRec'); if (e) e.innerHTML = recHTML(); }
+
+  function resultHTML() {
+    const g = D.res; if (!g) return '';
+    const head = `<h3>Result<span class="hint">${fmtDur(g.dur || 0)} · ${esc(langName(g.lang))}</span></h3><audio controls src="${esc(g.url)}" class="dik-audio"></audio>`;
+    if (g.status === 'busy') return `<section class="settings-card dik-panel dik-erg">${head}<p class="dik-spinner"><span class="spin"></span><span id="dikStatus">${esc(D.status || 'Working …')}</span></p><div class="dik-edakt">${ib('close', 'Discard', 'data-dik="discardres"', 'cancel')}</div></section>`;
+    const fl = folders();
+    return `<section class="settings-card dik-panel dik-erg">${head}${g.error ? `<p class="err">${esc(g.error)}</p>` : ''}
+      <label class="dik-f">Title<input id="dikTitle" type="text" maxlength="140" value="${esc(g.title)}"></label>
+      <label class="dik-f">Text<textarea id="dikText" rows="9" spellcheck="true">${esc(g.text)}</textarea></label>
+      <div class="dik-zeile"><label class="dik-f">Folder<input id="dikFolder" type="text" list="dikFolderList" maxlength="60" placeholder="no folder" value="${esc(g.folder)}"><datalist id="dikFolderList">${fl.map(o => `<option value="${esc(o)}">`).join('')}</datalist></label>
+        <label class="dik-f">Keywords (comma separated)<input id="dikTags" type="text" maxlength="200" placeholder="e.g. idea, methods" value="${esc(g.tags)}"></label></div>
+      <label class="dik-chk"><input id="dikKeep" type="checkbox"${g.keep ? ' checked' : ''}> Keep the audio file too</label>
+      <div class="dik-edakt">${g.saving ? '<span class="muted">Saving …</span>' : `${ib('check', 'Save', 'data-dik="saveres"', 'save')}${ib('close', 'Discard', 'data-dik="discardres"', 'cancel')}${ib('eraser', 'Remove formatting characters from the text (#, **, --, …)', 'data-dik="mdclean"', 'md')}${canTranscribe() ? ib('refresh', g.text ? 'Transcribe again' : 'Transcribe', 'data-dik="transcribe"', 'weiter') : ''}<span class="grow"></span>${langPick(g.lang, 'data-drelang', 'Transcribe again as …')}`}</div></section>`;
+  }
+  function drawResult() { const e = document.getElementById('dikErg'); if (e) { e.innerHTML = resultHTML(); e.hidden = !D.res; } }
+
+  function visible() {
+    const q = normS(D.q || '');
+    const hit = d => !q || normS([d.title, d.text, d.folder, d.tags.join(' ')].join(' ')).includes(q);
+    if (D.trash) return inTrash().filter(hit).sort((a, b) => String(b.deleted).localeCompare(String(a.deleted)));
+    const l = active().filter(d => (D.kind === '*' || (D.kind === 'note') === !d.audio) && (D.folder === '*' || (D.folder === '' ? !d.folder : d.folder === D.folder)) && (!D.tag || d.tags.includes(D.tag)) && hit(d));
+    const f = {
+      new: (a, b) => String(b.created).localeCompare(String(a.created)),
+      old: (a, b) => String(a.created).localeCompare(String(b.created)),
+      title: (a, b) => a.title.localeCompare(b.title),
+      long: (a, b) => b.dur - a.dur,
+      used: (a, b) => lastUsed(b) - lastUsed(a),
+    }[D.sort] || (() => 0);
+    return l.sort((a, b) => (b.fav - a.fav) || f(a, b));
   }
 
-  function itemHtml(n) {
-    if (S.edit === n.id) return editHtml(S.draft, false, n);
-    const open = S.open.has(n.id), busy = S.busyId === n.id;
-    const meta = [fmtDate(n.created), n.audio ? 'Dictation · ' + fmtDur(n.dur) : 'Note', n.lang && n.lang !== 'auto' ? n.lang.toUpperCase() : '', n.folder].filter(Boolean).map(esc).join(' · ');
-    const url = S.urls[n.id];
-    return `<article class="nt-item${n.audio ? '' : ' note'}" data-id="${esc(n.id)}">
-      <header>
-        <button type="button" class="nt-fav" data-nt="fav" data-id="${esc(n.id)}" aria-pressed="${n.fav}" aria-label="${n.fav ? 'Remove favourite' : 'Mark as favourite'}" title="Favourite">${I().star}</button>
-        <div class="nt-head"><b>${esc(n.title || (n.audio ? 'Dictation' : 'Note'))}</b><small>${meta}</small></div>
-        <div class="nt-acts">
-          ${n.audio ? `<button type="button" class="nt-ib" data-nt="open" data-id="${esc(n.id)}" aria-expanded="${open}" aria-label="Play audio" title="Play audio">${I().speaker}</button>` : ''}
-          <button type="button" class="nt-ib" data-nt="copy" data-id="${esc(n.id)}" aria-label="Copy text" title="Copy text">${I().copy}</button>
-          <button type="button" class="nt-ib" data-nt="edit" data-id="${esc(n.id)}" aria-label="Edit" title="Edit">${I().pencil}</button>
-          <button type="button" class="nt-ib danger" data-nt="del" data-id="${esc(n.id)}" aria-label="Delete" title="Delete">${I().trash}</button>
-        </div>
-      </header>
-      ${busy ? '<p class="nt-busy"><span class="nt-spin"></span> <span id="nt-status">' + esc(S.sttStatus || 'transcribing …') + '</span></p>' : ''}
-      ${n.text ? `<p class="nt-text${open ? ' open' : ''}" data-nt="open-text" data-id="${esc(n.id)}">${esc(n.text)}</p>` : '<p class="nt-text empty">No text.</p>'}
-      ${open && n.audio ? (url ? `<audio class="nt-audio" controls autoplay preload="metadata" src="${esc(url)}"></audio><div class="nt-btnrow">${canTranscribe() ? `<button type="button" class="btn-secondary btn-sm" data-nt="retr" data-id="${esc(n.id)}">Transcribe again</button>` : ''}<button type="button" class="btn-secondary btn-sm" data-nt="delaudio" data-id="${esc(n.id)}">Delete audio, keep text</button></div>` : '<p class="nt-busy"><span class="nt-spin"></span> loading audio …</p>') : ''}
-    </article>`;
+  function chipsHTML() {
+    const nTrash = inTrash().length;
+    const trashBtn = `<button type="button" class="${D.trash ? 'btn sm' : 'ibtn dik-ai'} dik-pk" data-dik="trash" aria-pressed="${D.trash}" title="${D.trash ? 'Back to dictations and notes' : 'Trash: deleted dictations and notes'}" aria-label="${D.trash ? 'Back to dictations and notes' : 'Trash'}">${D.trash ? I().restore : I().trash}${D.trash ? 'Back to dictations &amp; notes' : `<span class="num">${nTrash}</span>`}</button>`;
+    if (D.trash) return `<div class="dik-crow">${trashBtn}${nTrash ? ib('trash', 'Empty the trash', 'data-dik="emptytrash"', 'danger') : ''}</div>`;
+    const act = active(), fl = folders(), tags = [...new Set(act.flatMap(d => d.tags))].sort((a, b) => a.localeCompare(b));
+    const n = o => act.filter(d => o === '*' ? true : o === '' ? !d.folder : d.folder === o).length;
+    const chip = (o, t, ic) => `<button type="button" class="dik-ord" data-dfolder="${esc(o)}" aria-pressed="${D.folder === o}">${ic ? I()[ic] : ''}${esc(t)} <span class="num">${n(o)}</span></button>`;
+    const nk = k => act.filter(d => k === '*' ? true : (k === 'note') === !d.audio).length;
+    const kind = (k, t, ic) => `<button type="button" class="ibtn dik-ai" data-dkind="${k}" aria-pressed="${D.kind === k}" title="${t}" aria-label="${t}">${I()[ic]}<span class="num">${nk(k)}</span></button>`;
+    return `<div class="dik-crow"><div class="dik-arts" role="group" aria-label="Type">${kind('*', 'All', 'layers')}${kind('dictation', 'Dictations', 'mic')}${kind('note', 'Notes', 'docOther')}</div>${trashBtn}</div>
+      <div class="dik-crow dik-ordnerzeile" role="group" aria-label="Folders">${chip('*', 'All folders', '')}${chip('', 'No folder', '')}${fl.map(o => chip(o, o, 'folder')).join('')}${D.folder && D.folder !== '*' ? ib('pencil', 'Rename this folder', 'data-dik="renamefolder"') : ''}</div>
+      ${tags.length ? `<div class="dik-crow dik-tagzeile" role="group" aria-label="Keywords">${tags.map(tg => `<button type="button" class="dik-tag" data-dtag="${esc(tg)}" aria-pressed="${D.tag === tg}">#${esc(tg)}</button>`).join('')}</div>` : ''}`;
   }
 
-  function listInnerHtml() {
-    if (S.error) return `<p class="nt-err">${esc(S.error)}</p>`;
-    if (S.list === null) return '<p class="nt-hint">Loading …</p>';
-    const l = visible();
-    if (!l.length) return `<p class="nt-empty">${S.list.length ? 'Nothing matches the filter.' : 'Nothing here yet. Record a dictation or write a note.'}</p>`;
-    return l.map(itemHtml).join('');
+  function editHTML(d, isNew) {
+    const id = isNew ? 'new' : d.id;
+    const e = D.draft && D.draft.id === id ? D.draft : { title: d.title, text: d.text, folder: d.folder, tags: (d.tags || []).join(', ') };
+    const rec = D.rec && D.rec.target && D.rec.target.id === id, recognising = D.cont && D.cont.id === id;
+    const cont = rec ? ib('stop', 'Stop recording and insert the text', 'data-dik="stop"', 'danger')
+      : recognising ? `<span class="dik-spinner"><span class="spin"></span>Transcribing …</span>`
+      : (canTranscribe() ? ib('micplus', 'Continue dictating: the text is inserted at the cursor (also mid-sentence; selected text is replaced)', `data-dik="cont" data-id="${id}"${D.rec || D.res || D.cont ? ' disabled' : ''}`, 'weiter') : '');
+    return `<article class="dik bearb" data-id="${id}"><div class="dik-edit"><label class="dik-f">Title<input id="dEdTitle" type="text" maxlength="140" value="${esc(e.title)}" placeholder="${isNew ? 'Title of the note' : ''}"></label><label class="dik-f">Text<textarea id="dEdText" rows="${isNew ? 8 : 10}" spellcheck="true">${esc(e.text)}</textarea></label>
+      <div class="dik-zeile"><label class="dik-f">Folder<input id="dEdFolder" type="text" list="dikFolderList2" maxlength="60" placeholder="no folder" value="${esc(e.folder)}"><datalist id="dikFolderList2">${folders().map(x => `<option value="${esc(x)}">`).join('')}</datalist></label><label class="dik-f">Keywords (comma separated)<input id="dEdTags" type="text" maxlength="200" placeholder="e.g. idea, methods" value="${esc(e.tags)}"></label></div>
+      <div class="dik-edakt">${ib('check', 'Save', `data-dik="savedit" data-id="${id}"`, 'save')}${ib('close', 'Cancel', 'data-dik="canceledit"', 'cancel')}${ib('eraser', 'Remove formatting characters from the text (#, **, --, …)', 'data-dik="mdclean"', 'md')}${cont}</div></div></article>`;
   }
 
-  function listCardHtml() {
-    const seg = (k, t) => `<button type="button" data-nt="kind" data-k="${k}" aria-pressed="${S.kind === k}">${t}</button>`;
-    const fs = folders();
-    return `<section class="settings-card nt-list">
-      <div class="nt-toolbar">
-        <input class="form-input nt-search" id="nt-q" type="search" placeholder="Search dictations and notes …" value="${esc(S.q)}" aria-label="Search dictations and notes">
-        <div class="segc" role="group" aria-label="Type">${seg('*', 'All')}${seg('dictation', 'Dictations')}${seg('note', 'Notes')}</div>
-        <select class="form-input nt-sel" id="nt-folder" aria-label="Folder"><option value="*"${S.folder === '*' ? ' selected' : ''}>All folders</option><option value=""${S.folder === '' ? ' selected' : ''}>No folder</option>${fs.map(f => `<option value="${esc(f)}"${S.folder === f ? ' selected' : ''}>${esc(f)}</option>`).join('')}</select>
-        <select class="form-input nt-sel" id="nt-sort" aria-label="Sort"><option value="new"${S.sort === 'new' ? ' selected' : ''}>Newest first</option><option value="old"${S.sort === 'old' ? ' selected' : ''}>Oldest first</option><option value="title"${S.sort === 'title' ? ' selected' : ''}>Title A–Z</option></select>
-        <button type="button" class="nt-ib nt-favf" data-nt="favfilter" aria-pressed="${S.fav}" aria-label="Only favourites" title="Only favourites">${I().star}</button>
-      </div>
-      <div class="nt-items" id="nt-items">${listInnerHtml()}</div>
-    </section>`;
-  }
-
-  // ── Draw ──────────────────────────────────────────────────────────────────
-  function draw() {
-    const c = S.container; if (!c || !c.isConnected) return;
-    const keep = c.scrollTop;
-    c.innerHTML = `<div class="settings-view nt-view">
-      <datalist id="nt-folders">${folders().map(f => `<option value="${esc(f)}">`).join('')}</datalist>
-      <section class="settings-card nt-rec">${recorderHtml()}</section>
-      ${S.edit === '__new' ? `<section class="settings-card">${editHtml(S.draft, true)}</section>` : ''}
-      ${statusHtml()}
-      ${listCardHtml()}
-    </div>`;
-    c.scrollTop = keep;
+  function cardHTML(d) {
+    if (D.edit === d.id) return editHTML(d, false);
+    const open = D.open.has(d.id), note = !d.audio;
+    const lg = d.lang && d.lang !== 'auto' ? d.lang.toUpperCase() : '';
+    const meta = [d.deleted ? 'Deleted ' + fmtDate(d.deleted) : '', fmtDate(d.created), d.audio ? '🎙 ' + fmtDur(d.dur) : '', d.audio ? lg : '', d.folder ? '📁 ' + d.folder : '', ...d.tags.map(t => '#' + t)].filter(Boolean).map(esc).join(' · ');
+    const IC = { more: open ? 'chevronUp' : 'chevronDown', play: D.playing === d.id ? 'stop' : 'play', copy: 'copy', txt: 'download', read: 'speaker', edit: 'pencil', cont: 'micplus', rmaudio: 'micoff', del: 'trash', restore: 'restore', mdweg: 'eraser' };
+    const b = (a, t, cls) => ib(IC[a], t, `data-dik="${a}" data-id="${d.id}"`, cls);
+    return `<article class="dik${note ? ' notiz' : ''}" data-id="${d.id}"><header><button type="button" class="dik-fav" data-dik="fav" data-id="${d.id}" aria-pressed="${d.fav}" title="Mark as important" aria-label="Important">★</button><div class="dik-kopf"><b>${esc(d.title || (note ? 'Note' : 'Dictation'))}${note ? ' <span class="dik-art">Note</span>' : ''}</b><small>${meta}</small></div></header>
+      <p class="dik-text${open ? ' offen' : ''}">${d.text ? `<span class="mdw">${mdHTML(d.text)}</span>` : '<span class="muted">(no text)</span>'}</p>
+      ${D.playing === d.id && D.urls[d.id] ? `<audio controls autoplay src="${esc(D.urls[d.id])}" class="dik-audio"></audio>` : D.playing === d.id ? '<p class="muted">Loading audio …</p>' : ''}
+      <div class="row dik-akt">${d.text.length > 240 || d.text.includes('\n') ? b('more', open ? 'Less' : 'More') : ''}${d.audio ? b('play', D.playing === d.id ? 'Stop' : 'Play') : ''}${d.deleted
+        ? `${b('copy', 'Copy')}${b('restore', 'Restore', 'ok')}${b('del', 'Delete for good', 'danger')}`
+        : `${b('copy', 'Copy')}${b('txt', 'Save as .txt')}${d.text.trim() ? b('read', 'Read aloud') : ''}${b('edit', 'Edit')}${mdHas(d.text) ? b('mdweg', 'Remove formatting characters (#, **, --, …)', 'md') : ''}${canTranscribe() ? b('cont', 'Continue dictating (at the cursor)') : ''}${d.audio ? b('rmaudio', 'Delete the audio (the text stays)', 'danger') : ''}${b('del', 'Delete', 'danger')}`}</div></article>`;
   }
 
   function drawList() {
-    const el = document.getElementById('nt-items'); if (el) el.innerHTML = listInnerHtml();
+    const c = document.getElementById('dikChips'), l = document.getElementById('dikList'), t = document.getElementById('dikCount'); if (!l) return;
+    if (skipCapture) skipCapture = false; else captureDraft();
+    if (c) c.innerHTML = chipsHTML();
+    const s = visible(), total = D.trash ? inTrash().length : active().length;
+    if (t) t.textContent = `${s.length} of ${total}`;
+    l.className = 'dik-listebox ' + D.view;
+    const neu = D.edit === 'new' ? editHTML({ title: '', text: '', folder: D.folder && D.folder !== '*' ? D.folder : '', tags: D.tag ? [D.tag] : [] }, true) : '';
+    l.innerHTML = neu + (D.error ? `<p class="err">${esc(D.error)}</p>` : D.list === null ? '<p class="muted">Loading …</p>' : s.length ? s.map(cardHTML).join('') : `<p class="empty">${D.trash ? (total ? 'Nothing found.' : 'The trash is empty.') : total ? 'Nothing found.' : 'No dictations or notes yet. Use the microphone above to record the first one, or write a note.'}</p>`);
+    const en = D.draft && D.draft.id === D.edit ? D.draft : null;
+    if (en && en.focus) { const ta = document.getElementById('dEdText'); if (ta) { ta.focus(); ta.setSelectionRange(en.s, en.e); } }
+    else if (D.edit === 'new' && !en) { const ta = document.getElementById('dEdTitle'); if (ta && !ta.dataset.focus) { ta.dataset.focus = '1'; ta.focus(); } }
+  }
+
+  function pageHTML() {
+    const sorts = [['new', 'Newest first'], ['old', 'Oldest first'], ['used', 'Recently used'], ['title', 'Title A–Z'], ['long', 'Longest first']];
+    return `<div class="dik-view">
+      <section class="settings-card dik-panel dik-rec" id="dikRec">${recHTML()}</section>
+      <div id="dikErg"${D.res ? '' : ' hidden'}>${resultHTML()}</div>
+      <section class="settings-card dik-panel dik-liste"><div class="toolbar"><input id="dikSearch" type="search" class="dik-suche" placeholder="Search dictations and notes …" aria-label="Search dictations and notes" value="${esc(D.q)}"><div class="dik-ctl"><span class="muted" id="dikCount"></span><select id="dikSort" class="sel" aria-label="Sort">${sorts.map(([k, t]) => `<option value="${k}"${D.sort === k ? ' selected' : ''}>${t}</option>`).join('')}</select><span class="segc" role="group" aria-label="View"><button type="button" data-dview="cards" aria-pressed="${D.view === 'cards'}" title="Show as cards" aria-label="Cards">${I().grid}<span class="dik-vt">Cards</span></button><button type="button" data-dview="list" aria-pressed="${D.view === 'list'}" title="Show as list" aria-label="List">${I().rows}<span class="dik-vt">List</span></button></span></div></div>
+      <div class="dik-chips" id="dikChips"></div><div id="dikList" class="dik-listebox ${D.view}"></div></section>
+    </div>`;
   }
 
   async function refresh() {
-    if (S.loading) return;
-    S.loading = true; S.error = '';
-    try { S.list = await loadAll(); }
+    if (D.loading) return;
+    D.loading = true; D.error = '';
+    try { D.list = await loadAll(); }
     catch (e) {
-      S.list = []; const m = (e && e.message) || String(e);
-      S.error = isCloud() && /dictations|relation|schema cache|does not exist/i.test(m)
-        ? 'The Dictations & Notes table has not been created in your Supabase project yet. Run the one-time SQL for it, then reload this page.'
+      D.list = []; const m = (e && e.message) || String(e);
+      D.error = isCloud() && /dictations|relation|schema cache|does not exist|column/i.test(m)
+        ? 'The Dictations & Notes table has not been created (or updated) in your Supabase project yet. Run the one-time SQL for it, then reload this page.'
         : 'Could not load: ' + m;
     }
-    S.loading = false; draw();
+    D.loading = false; drawList();
   }
 
   // ── Actions ───────────────────────────────────────────────────────────────
-  async function act(a, id, el) {
-    const n = id ? (S.list || []).find(x => x.id === id) : null;
+  async function act(b) {
+    const a = b.dataset.dik, id = b.dataset.id, d = id && (D.list || []).find(x => x.id === id);
+    const upd = async (fn, ok) => { try { fn(); await putNote(d); if (ok) toast(ok); } catch (e) { toast(e.message || String(e), true); } drawList(); };
     switch (a) {
-      case 'rec-start': return recStart();
-      case 'rec-stop': return recStop(false);
-      case 'rec-cancel': return recStop(true);
-      case 'res-save': return saveResult();
-      case 'res-transcribe': return transcribeResult();
-      case 'res-discard': {
-        if (S.result && (S.result.text || S.result.title) && !(await SLRViews.confirmDialog({ title: 'Discard this dictation?', message: 'The recording and its text will be thrown away.', confirmLabel: 'Discard', danger: true }))) return;
-        return discardResult();
-      }
-      case 'new': return startEdit('__new');
-      case 'edit': return startEdit(id);
-      case 'edit-save': return saveEdit();
-      case 'edit-cancel': syncFields(); S.edit = null; S.draft = null; return draw();
-      case 'kind': S.kind = el.dataset.k; return draw();
-      case 'favfilter': S.fav = !S.fav; return draw();
+      case 'start': return recStart();
+      case 'stop': return recStop(false);
+      case 'discardrec': return recStop(true);
+      case 'saveres': return saveResult();
+      case 'discardres': return discardResult();
+      case 'transcribe': return recognise();
       case 'settings': return SLRApp.navigate('settings');
-      case 'fav': if (!n) return; n.fav = !n.fav; try { await putNote(n); } catch (e) { n.fav = !n.fav; toast('Could not save: ' + (e.message || e), true); } return drawList();
-      case 'copy': if (!n) return; try { await navigator.clipboard.writeText(n.text || ''); toast('Text copied.'); } catch (_) { toast('Copying is blocked in this browser.', true); } return;
-      case 'open-text': if (!n) return; if (S.open.has(id)) S.open.delete(id); else S.open.add(id); return drawList();
-      case 'open': {
-        if (!n) return;
-        if (S.open.has(id) && S.urls[id]) { S.open.delete(id); return drawList(); }
-        S.open.add(id); drawList();
-        if (!S.urls[id]) {
-          try { S.urls[id] = URL.createObjectURL(await getAudio(n)); }
-          catch (e) { S.open.delete(id); toast('Audio not available: ' + (e.message || e), true); }
-          drawList();
-        }
+      case 'fav': if (!d) return; d.fav = !d.fav; drawList(); try { await putNote(d); } catch (e) { d.fav = !d.fav; drawList(); toast(e.message || String(e), true); } return;
+      case 'more': if (!d) return; D.open.has(id) ? D.open.delete(id) : D.open.add(id); markUsed(id); return drawList();
+      case 'play': {
+        if (!d) return;
+        if (D.playing === id) { D.playing = null; return drawList(); }
+        D.playing = id; markUsed(id); drawList();
+        if (!D.urls[id]) { try { D.urls[id] = URL.createObjectURL(await getAudio(d)); } catch (e) { D.playing = null; toast('Audio not available: ' + (e.message || e), true); } drawList(); }
         return;
       }
-      case 'delaudio': {
-        if (!n || !(await SLRViews.confirmDialog({ title: 'Delete the audio?', message: 'The recording is removed; the text stays as a note.', confirmLabel: 'Delete audio', danger: true }))) return;
-        try { await dropAudio(n); await putNote(n); if (S.urls[id]) { URL.revokeObjectURL(S.urls[id]); delete S.urls[id]; } S.open.delete(id); toast('Audio deleted.'); }
-        catch (e) { toast('Could not delete: ' + (e.message || e), true); }
-        return draw();
+      case 'copy': if (!d) return; try { await navigator.clipboard.writeText(d.text); markUsed(id); toast('Text copied.'); } catch (_) { toast('Copying is blocked in this browser.', true); } return;
+      case 'newnote': if (D.rec || D.res || D.cont) { toast('Finish or discard the current recording first.', true); return; } D.trash = false; D.edit = 'new'; D.draft = null; return drawList();
+      case 'rmaudio': {
+        if (!d || !(await SLRViews.confirmDialog({ title: 'Delete the audio?', message: `The recording of “${d.title || 'Dictation'}” is deleted. The text stays as a note.`, confirmLabel: 'Delete audio', danger: true }))) return;
+        try { await dropAudio(d); await putNote(d); if (D.urls[id]) { URL.revokeObjectURL(D.urls[id]); delete D.urls[id]; } if (D.playing === id) D.playing = null; toast('Audio deleted, the text is now a note.'); } catch (e) { toast(e.message || String(e), true); }
+        return drawList();
+      }
+      case 'txt': {
+        if (!d) return; markUsed(id);
+        const name = (d.title || 'Dictation').replace(/[\\/:*?"<>|]+/g, ' ').trim().slice(0, 60) || 'Dictation';
+        const u = URL.createObjectURL(new Blob([`${d.title}\n${fmtDate(d.created)}\n\n${d.text}\n`], { type: 'text/plain;charset=utf-8' }));
+        const x = Object.assign(document.createElement('a'), { href: u, download: name + '.txt' }); document.body.append(x); x.click(); x.remove(); setTimeout(() => URL.revokeObjectURL(u), 2000);
+        return;
+      }
+      case 'read': { if (!d) return; markUsed(id); try { SLRTts.toggle(mdPlain(d.text), { onFallback: info => toast(SLRTts.fallbackMessage(info)) }); } catch (_) { toast('Reading aloud is not available here.', true); } return; }
+      case 'edit': if (!d) return; D.edit = id; D.draft = null; markUsed(id); return drawList();
+      case 'canceledit': if (D.rec && D.rec.target) { toast('Finish the recording first.', true); return; } D.edit = null; D.draft = null; return drawList();
+      case 'savedit': {
+        const v = i => (document.getElementById(i) || {}).value || '';
+        const title = v('dEdTitle'), text = v('dEdText'), folder = v('dEdFolder').trim(), tags = splitTags(v('dEdTags'));
+        try {
+          if (id === 'new') {
+            if (!text.trim() && !title.trim()) { toast('Please enter a title or some text.', true); return; }
+            const now = new Date().toISOString();
+            const n = { id: uid(), title: title.trim() || autoTitle(text, 'Note'), text, lang: 'auto', dur: 0, folder, tags, fav: false, audio: false, audioPath: '', audioType: '', deleted: '', created: now, modified: now };
+            await putNote(n); D.list.unshift(n); markUsed(n.id); toast('Note saved.');
+          } else if (d) {
+            d.title = title.trim() || autoTitle(text, d.audio ? 'Dictation' : 'Note'); d.text = text; d.folder = folder; d.tags = tags;
+            await putNote(d); markUsed(id); toast('Saved.');
+          }
+          D.edit = null; D.draft = null;
+        } catch (e) { toast('Could not save: ' + (e.message || e), true); }
+        return drawList();
       }
       case 'del': {
-        if (!n || !(await SLRViews.confirmDialog({ title: `Delete “${n.title || (n.audio ? 'Dictation' : 'Note')}”?`, message: n.audio ? 'The dictation and its audio are deleted for good.' : 'The note is deleted for good.', confirmLabel: 'Delete', danger: true }))) return;
-        try { await dropNote(n); S.list = S.list.filter(x => x.id !== id); if (S.urls[id]) { URL.revokeObjectURL(S.urls[id]); delete S.urls[id]; } toast('Deleted.'); }
-        catch (e) { toast('Could not delete: ' + (e.message || e), true); }
-        return draw();
+        if (!d) return;
+        if (!d.deleted) { return upd(() => { d.deleted = new Date().toISOString(); if (D.playing === id) D.playing = null; if (D.edit === id) { D.edit = null; D.draft = null; } }, `“${d.title || (d.audio ? 'Dictation' : 'Note')}” is in the trash.`); }
+        if (!(await SLRViews.confirmDialog({ title: 'Delete for good?', message: `“${d.title || (d.audio ? 'Dictation' : 'Note')}”${d.audio ? ' with its audio' : ''} is removed permanently. This cannot be undone.`, confirmLabel: 'Delete', danger: true }))) return;
+        try { await dropNote(d); D.list = D.list.filter(x => x.id !== id); if (D.urls[id]) { URL.revokeObjectURL(D.urls[id]); delete D.urls[id]; } if (D.playing === id) D.playing = null; toast('Deleted for good.'); } catch (e) { toast(e.message || String(e), true); }
+        return drawList();
       }
-      case 'retr': {
-        if (!n || !n.audio) return;
-        if (n.text && !(await SLRViews.confirmDialog({ title: 'Replace the text?', message: 'The audio is transcribed again and the current text is overwritten.', confirmLabel: 'Transcribe', danger: true }))) return;
-        syncFields(); S.busyId = id; S.sttStatus = 'Starting …'; draw();
-        try { const text = await transcribe(await getAudio(n), n.lang, setStatusFn()); n.text = text; if (S.edit === id && S.draft) S.draft.text = text; await putNote(n); toast('Transcribed.'); }
-        catch (e) { toast(e.message || String(e), true); }
-        S.busyId = null; return draw();
+      case 'restore': if (!d) return; return upd(() => { d.deleted = ''; }, 'Restored.');
+      case 'trash': if (D.edit && D.draft && !confirm('The changes in the open form will be lost. Switch anyway?')) return; D.trash = !D.trash; D.edit = null; D.draft = null; return drawList();
+      case 'emptytrash': {
+        const t = inTrash(); if (!t.length) return;
+        if (!(await SLRViews.confirmDialog({ title: 'Empty the trash?', message: `${t.length} ${t.length === 1 ? 'entry' : 'entries'} with their audio files will be removed permanently.`, confirmLabel: 'Empty trash', danger: true }))) return;
+        try { for (const n of t) await dropNote(n); D.list = active(); D.playing = null; toast('Trash emptied.'); } catch (e) { toast(e.message || String(e), true); }
+        return drawList();
+      }
+      case 'cont': if (id) return contStart(id); return;
+      case 'mdclean': { const ta = document.getElementById('dEdText') || document.getElementById('dikText'); if (!ta) return; const neu = mdPlain(ta.value); if (neu === ta.value.trim()) { toast('No formatting characters found.'); return; } ta.value = neu; toast('Characters removed – save to keep the change.'); return; }
+      case 'mdweg': { if (!d) return; const neu = mdPlain(d.text); if (neu === d.text) { toast('No formatting characters found.'); return; } return upd(() => { d.text = neu; markUsed(id); }, 'Formatting characters removed.'); }
+      case 'renamefolder': {
+        const old = D.folder, neu = prompt(`New name for the folder “${old}” (empty = dissolve the folder):`, old);
+        if (neu === null) return;
+        try { for (const n of D.list) if (n.folder === old) { n.folder = neu.trim(); await putNote(n); } D.folder = neu.trim() || '*'; } catch (e) { toast(e.message || String(e), true); }
+        return drawList();
       }
       default:
     }
   }
 
   // ── Entry point ───────────────────────────────────────────────────────────
-  // Which workspace the loaded list belongs to (backend + folder name or account id).
   const ownerKey = () => isCloud()
     ? 'cloud:' + ((window.SLRDataCloud && SLRDataCloud.currentUser() || {}).id || '')
     : 'local:' + ((window.SLRDataLocal && SLRDataLocal.rootHandle && SLRDataLocal.rootHandle.name) || '');
 
   function render(container) {
-    S.container = container;
+    D.container = container;
     const owner = ownerKey();
-    if (S.owner !== undefined && S.owner !== owner) reset();
-    S.owner = owner;
+    if (D.owner !== undefined && D.owner !== owner) reset();
+    D.owner = owner;
     if (!ready()) {
       container.innerHTML = `<div class="settings-view"><div class="settings-card"><p class="field-hint" style="margin-top:0">${isCloud()
         ? 'Dictations and notes are stored in your Cloud Sync account. Sign in on the <strong>Home</strong> screen first.'
         : 'Dictations and notes are stored in your workspace folder. Open a folder on the <strong>Home</strong> screen first.'}</p>
-        <div class="settings-save-row"><button class="btn-secondary" data-nt="home">Go to Home</button></div></div></div>`;
-      container.onclick = e => { if (e.target.closest('[data-nt="home"]')) SLRApp.navigate('welcome'); };
+        <div class="settings-save-row"><button class="btn-secondary" data-dik="home">Go to Home</button></div></div></div>`;
+      container.onclick = e => { if (e.target.closest('[data-dik="home"]')) SLRApp.navigate('welcome'); };
+      container.oninput = container.onchange = null;
       return;
     }
-    // One set of handlers, assigned as properties so a redraw never stacks them.
+    container.innerHTML = pageHTML();
     container.onclick = e => {
-      const b = e.target.closest('[data-nt]');
-      if (b && container.contains(b)) { e.preventDefault(); act(b.dataset.nt, b.dataset.id, b); }
+      const b = e.target.closest('[data-dik]');
+      if (b && container.contains(b)) { e.preventDefault(); act(b); return; }
+      const v = e.target.closest('[data-dview]');
+      if (v) { D.view = v.dataset.dview === 'list' ? 'list' : 'cards'; lsSet('slr-dik-view', D.view); container.querySelectorAll('[data-dview]').forEach(x => x.setAttribute('aria-pressed', String(x.dataset.dview === D.view))); drawList(); return; }
+      const k = e.target.closest('[data-dkind]'); if (k) { D.kind = k.dataset.dkind; drawList(); return; }
+      const f = e.target.closest('[data-dfolder]'); if (f) { D.folder = f.dataset.dfolder; drawList(); return; }
+      const t = e.target.closest('[data-dtag]'); if (t) { D.tag = D.tag === t.dataset.dtag ? '' : t.dataset.dtag; drawList(); }
     };
-    container.oninput = e => {
-      if (e.target.id === 'nt-q') { S.q = e.target.value; drawList(); }
-    };
+    container.oninput = e => { if (e.target.id === 'dikSearch') { D.q = e.target.value; drawList(); } };
     container.onchange = e => {
       const t = e.target;
-      if (t.id === 'nt-folder') { S.folder = t.value; drawList(); }
-      else if (t.id === 'nt-sort') { S.sort = t.value; drawList(); }
-      else if (t.id === 'nt-lang') S.lang = t.value;
+      if (t.id === 'dikSort') { D.sort = t.value; lsSet('slr-dik-sort', D.sort); drawList(); }
+      else if (t.id === 'dikFile') { loadFile(t.files && t.files[0]); t.value = ''; }
+      else if (t.matches && t.matches('[data-dlang]')) { D.lang = t.value; lsSet('slr-dik-lang', D.lang); }
+      else if (t.matches && t.matches('[data-drelang]') && D.res && D.res.status !== 'busy') { recognise(t.value); }
     };
-    if (S.list === null) { draw(); refresh(); }
-    else draw();
+    drawList();
+    if (D.list === null) refresh();
   }
 
   // The list belongs to one workspace; switching workspace or account drops it.
   function reset() {
-    S.list = null; S.error = ''; S.edit = null; S.draft = null; S.open.clear();
-    Object.values(S.urls).forEach(u => URL.revokeObjectURL(u)); S.urls = {};
+    D.list = null; D.error = ''; D.edit = null; D.draft = null; D.open.clear(); D.playing = null; D.trash = false;
+    Object.values(D.urls).forEach(u => URL.revokeObjectURL(u)); D.urls = {};
   }
 
   return { render, reset, config, setConfig, MODELS, deviceOK };

@@ -7,7 +7,7 @@
 
 window.SLRAppUI = (() => {
 
-  // Visual themes (ported from the Dashboard). The keys are what goes into
+  // Visual themes. The keys are what goes into
   // html[data-style] and localStorage 'slr-style'; css/themes.css and
   // js/theme-early.js use the same list. 'standard' = no attribute.
   const STYLES = [
@@ -249,7 +249,7 @@ window.SLRAppUI = (() => {
     updateFullscreenButton($);
   }
 
-  // ── Sidebar items: show / hide (like the Dashboard) ───────────────────────
+  // ── Sidebar items: show / hide ────────────────────────────────────────────
   // Settings and About are not in the list and always stay, so the menu can
   // never be hidden away completely. Hidden views remain reachable by search.
   const NAV_ITEMS = [
@@ -278,7 +278,7 @@ window.SLRAppUI = (() => {
     });
   }
 
-  // ── Header search (layout and behaviour ported from the Dashboard) ───────
+  // ── Header search ─────────────────────────────────────────────────────────
   // One box for the whole app: views, a few settings, the projects of the
   // workspace and — when a project is open — its articles by title. Nothing
   // is fetched; it only reads what the app already holds.
@@ -468,7 +468,7 @@ window.SLRAppUI = (() => {
     if (find) find.addEventListener('focusout', () => setTimeout(() => {
       if (!find.contains(document.activeElement)) { box.hidden = true; q.setAttribute('aria-expanded', 'false'); }
     }, 0));
-    // "/" jumps to the search box, like in the Dashboard
+    // "/" jumps to the search box
     document.addEventListener('keydown', ev => {
       if (ev.key === '/' && !ev.ctrlKey && !ev.metaKey && !ev.altKey && !/^(INPUT|TEXTAREA|SELECT)$/.test(document.activeElement.tagName) && !document.activeElement.isContentEditable) {
         ev.preventDefault();

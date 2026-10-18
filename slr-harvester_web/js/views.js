@@ -5729,18 +5729,21 @@ window.SLRViews = (() => {
     let sort = 'type';
     try { const v = localStorage.getItem('slr-db-sort'); if (SORTS.some(x => x[0] === v)) sort = v; } catch (_) { /* default */ }
     const used = dbUsedMap();
+    let view = 'list';
+    try { if (localStorage.getItem('slr-db-view') === 'cards') view = 'cards'; } catch (_) { /* default */ }
 
-    function makeCard(db, extra) {
+    // One card for every sort order and both views: logo, name, description; the
+    // "In-app" pill sits at the right edge of the card.
+    function makeCard(db) {
       return `
       <a class="db-card${db.integrated ? ' db-card--integrated' : ''}" href="${esc(db.url)}" target="_blank" rel="noopener noreferrer"
          style="--db-color:${esc(db.color)}" data-db-label="${esc(db.label)}">
         <div class="db-card-badge" title="${esc(db.label)}" aria-label="${esc(db.label)}">${renderDbLogo(db)}</div>
         <div class="db-card-body">
-          <div class="db-card-name">${esc(db.label)}${db.integrated ? ' <span class="db-integrated-pill">In-app</span>' : ''}</div>
+          <div class="db-card-name">${esc(db.label)}</div>
           <div class="db-card-desc" title="${esc(db.desc)}">${esc(db.desc)}</div>
-          ${extra ? `<div class="db-card-extra">${esc(extra)}</div>` : ''}
         </div>
-        <div class="db-card-arrow">${SLRIcons.externalLink}</div>
+        ${db.integrated ? '<span class="db-integrated-pill">In-app</span>' : ''}
       </a>`;
     }
 
@@ -5752,12 +5755,12 @@ window.SLRViews = (() => {
       <div class="databases-section">
         <h3 class="databases-section-heading">${esc(g.heading)}</h3>
         ${g.note ? `<p class="databases-section-note">${esc(g.note)}</p>` : ''}
-        <div class="databases-grid">${g.items.map(it => makeCard(it)).join('')}</div>
+        <div class="databases-grid db-view-${view}">${g.items.map(makeCard).join('')}</div>
       </div>`).join('');
     } else {
       let list, heading, note;
-      if (sort === 'az') { list = flat.slice().sort(byName); heading = 'All databases \u2014 A to Z'; note = 'Every source in one list; the grey line under a name tells which group it belongs to.'; }
-      else if (sort === 'za') { list = flat.slice().sort((p, q) => byName(q, p)); heading = 'All databases \u2014 Z to A'; note = 'Every source in one list; the grey line under a name tells which group it belongs to.'; }
+      if (sort === 'az') { list = flat.slice().sort(byName); heading = 'All databases \u2014 A to Z'; note = 'Every source in one list, sorted by name.'; }
+      else if (sort === 'za') { list = flat.slice().sort((p, q) => byName(q, p)); heading = 'All databases \u2014 Z to A'; note = 'Every source in one list, sorted by name.'; }
       else {
         list = flat.slice().sort((p, q) => (used[q.label] || 0) - (used[p.label] || 0) || byName(p, q));
         heading = 'Recently used first';
@@ -5769,7 +5772,7 @@ window.SLRViews = (() => {
       <div class="databases-section">
         <h3 class="databases-section-heading">${esc(heading)}</h3>
         <p class="databases-section-note">${esc(note)}</p>
-        <div class="databases-grid">${list.map(it => makeCard(it, sort === 'recent' && used[it.label] ? 'Opened ' + relTime(used[it.label]) : it._type)).join('')}</div>
+        <div class="databases-grid db-view-${view}">${list.map(makeCard).join('')}</div>
       </div>`;
     }
 
@@ -5778,6 +5781,11 @@ window.SLRViews = (() => {
           <span class="databases-toolbar-label">Sort</span>
           <div class="segc" role="group" aria-label="Sort databases">
             ${SORTS.map(([k, t]) => `<button type="button" data-db-sort="${k}" aria-pressed="${k === sort}">${t}</button>`).join('')}
+          </div>
+          <span class="databases-toolbar-label databases-toolbar-gap">View</span>
+          <div class="segc" role="group" aria-label="View">
+            <button type="button" data-db-view="list" aria-pressed="${view === 'list'}" title="Show as a list">${SLRIcons.rows}<span class="db-view-label">List</span></button>
+            <button type="button" data-db-view="cards" aria-pressed="${view === 'cards'}" title="Show as cards">${SLRIcons.grid}<span class="db-view-label">Cards</span></button>
           </div>
         </div>`;
 
@@ -5790,14 +5798,13 @@ window.SLRViews = (() => {
         <div class="databases-section">
           <h3 class="databases-section-heading">Reference Managers</h3>
           <p class="databases-section-note">Use your preferred reference manager to import the final corpus and manage citations for your research paper.</p>
-          <div class="databases-grid">
+          <div class="databases-grid db-view-${view}">
             <button class="db-card" id="db-zotero-btn" style="--db-color:#CC2936" title="Opens Zotero if it is installed on this device — otherwise nothing happens">
               <div class="db-card-badge" title="Zotero" aria-label="Zotero">${renderDbLogo({ label: 'Zotero', abbr: 'Zo', url: 'https://www.zotero.org' })}</div>
               <div class="db-card-body">
                 <div class="db-card-name">Zotero</div>
                 <div class="db-card-desc">Opens the desktop app, if installed</div>
               </div>
-              <div class="db-card-arrow">${SLRIcons.externalLink}</div>
             </button>
             <button class="db-card" id="db-citavi-btn" style="--db-color:#005A9E" title="Opens Citavi if it is installed on this device (Windows only) — otherwise nothing happens">
               <div class="db-card-badge" title="Citavi" aria-label="Citavi">${renderDbLogo({ label: 'Citavi', abbr: 'Ci', url: 'https://www.citavi.com' })}</div>
@@ -5805,12 +5812,15 @@ window.SLRViews = (() => {
                 <div class="db-card-name">Citavi</div>
                 <div class="db-card-desc">Opens the desktop app, if installed (Windows)</div>
               </div>
-              <div class="db-card-arrow">${SLRIcons.externalLink}</div>
             </button>
           </div>
         </div>
       </div>`;
 
+    container.querySelectorAll('[data-db-view]').forEach(btn => btn.addEventListener('click', () => {
+      try { localStorage.setItem('slr-db-view', btn.dataset.dbView); } catch (_) { /* default next time */ }
+      renderDatabases(container);
+    }));
     container.querySelectorAll('[data-db-sort]').forEach(btn => btn.addEventListener('click', () => {
       try { localStorage.setItem('slr-db-sort', btn.dataset.dbSort); } catch (_) { /* default next time */ }
       renderDatabases(container);
@@ -7798,7 +7808,7 @@ window.SLRViews = (() => {
       </div>
       <div id="settings-openalex-test-result" class="scopus-test-result" hidden></div>`;
 
-    // Dashboard-style rows with a toggle (title and short explanation on the left).
+    // Rows with a toggle (title and short explanation on the left).
     const tgRow = (id, title, desc, on, extraAttr) => `
       <div class="srow">
         <div class="stxt"><b>${title}</b>${desc ? `<small>${desc}</small>` : ''}</div>
@@ -8430,6 +8440,65 @@ window.SLRViews = (() => {
             browser storage and what is sent to which service.</p>`,
       },
       {
+        id: 'qa-diary',
+        q: 'What are Dictations & notes for?',
+        a: `<p>They are a <strong>research diary</strong>: a place to keep thoughts about the project
+            as they come &mdash; why a search was changed, what a paper made you think, what to read next.
+            Speak them (a dictation, with the audio kept if you like) or write them as a note. Entries get
+            folders and keywords, can be starred, searched, edited, read aloud and exported as text; deleted
+            ones wait in a trash.</p>
+           <p>They are stored with your workspace: in the folder (<code>notes.json</code> and
+            <code>notes-audio/</code>) or in your Cloud Sync account.</p>`,
+      },
+      {
+        id: 'qa-whisper',
+        q: 'How does speech-to-text work, and does it cost anything?',
+        a: `<p>By default the recording is turned into text <strong>on your own device</strong> with
+            Whisper: free, no key, and the audio never leaves the browser. The first time, the speech
+            engine and a model (40&ndash;250&nbsp;MB, your choice in Settings &rarr; Dictations) are
+            downloaded and kept; afterwards it also works offline. It takes roughly as long as the recording.</p>
+           <p>If you prefer, switch the engine to <strong>OpenAI</strong> and enter your own API key: faster,
+            usually a little more accurate, but the audio of that dictation is sent to OpenAI and OpenAI
+            charges you. The key stays in this browser.</p>`,
+      },
+      {
+        id: 'qa-results',
+        q: 'What are Initial, Selected and Corpus?',
+        a: `<p>The three stages of screening, shown as tabs of the <strong>Results</strong> menu item.
+            <strong>Initial</strong> is everything your searches returned (not all of it are articles: books,
+            chapters, datasets &hellip;, which is why the cards carry a type icon). <strong>Selected</strong> are
+            the records you picked after a first look, <strong>Corpus</strong> is the final set.
+            Use the buttons on a card to move it; nothing happens when you swipe.</p>`,
+      },
+      {
+        id: 'qa-trash',
+        q: 'What happens to a query I delete or put in the trash?',
+        a: `<p>A query in the <strong>trash</strong> is treated as deleted: its records disappear from the
+            lists, the charts, the PRISMA counts and the author rankings, and come back when you restore the
+            query. Archived queries stay part of the project. <em>Delete</em> in the trash removes a query for good.</p>`,
+      },
+      {
+        id: 'qa-cited-authors',
+        q: 'What do “Within this project” and “Everything cited” mean under Cited Authors?',
+        a: `<p><strong>Within this project</strong> counts how often authors of the articles in the chosen list
+            are cited by other articles of the same list. That needs reference lists, which are not stored
+            (they would use up most of the space); they are loaded per visit with <em>Fetch &rarr; Citation
+            network</em>, and only OpenAlex records have them &mdash; so it can be empty.</p>
+           <p><strong>Everything cited</strong> asks OpenAlex who appears in the reference lists of your
+            articles, also outside your project. OpenAlex answers up to 50 articles at a time (a
+            &ldquo;batch&rdquo;); the answer is not saved, so it is gone when you leave the chart.</p>`,
+      },
+      {
+        id: 'qa-search-in',
+        q: 'What does “Search in” do?',
+        a: `<p>It says <em>where</em> in a record your words must appear. Every source has its own list,
+            because each database indexes different fields (Scopus: title, abstract, keywords, author &hellip;;
+            PubMed: title/abstract, MeSH &hellip;; Crossref and DOAJ: title, author, journal &hellip;).
+            For Scopus, PubMed and DOAJ the choice is written into the query for you &mdash; unless you
+            typed your own field codes, in which case the query goes out exactly as written. History records
+            the query that actually ran, so a search can be repeated and reported.</p>`,
+      },
+      {
         id: 'qa-offline',
         q: 'Does it work offline?',
         a: `<p>In Local Folder mode, yes — everything except searching and fetching, which need
@@ -8449,14 +8518,16 @@ window.SLRViews = (() => {
       <ul class="about-feature-list">
         <li><span class="about-li-icon" aria-hidden="true">${SLRIcons.databases}</span><span><strong>Multi-database search</strong> &mdash; Scopus, PubMed, OpenAlex, Crossref and DOAJ in one Search view</span></li>
         <li><span class="about-li-icon" aria-hidden="true">${SLRIcons.refresh}</span><span><strong>Crossref enrichment</strong> &mdash; abstracts, full author lists, document types and affiliations by DOI</span></li>
-        <li><span class="about-li-icon" aria-hidden="true">${SLRIcons.corpus}</span><span><strong>Two-stage screening</strong> &mdash; Selected &rarr; Corpus, with per-article comments</span></li>
+        <li><span class="about-li-icon" aria-hidden="true">${SLRIcons.corpus}</span><span><strong>Results in three lists</strong> &mdash; Initial &rarr; Selected &rarr; Corpus as tabs of one menu item, with per-article comments, document-type icons and one compact search and filter bar</span></li>
         <li><span class="about-li-icon" aria-hidden="true">${SLRIcons.tag}</span><span><strong>Tagging</strong> &mdash; keyword auto-tagging, editable rules, aliases, and ${COLOR_SCHEMES.length} colour palettes</span></li>
         <li><span class="about-li-icon" aria-hidden="true">${SLRIcons.search}</span><span><strong>Advanced list search</strong> &mdash; semicolon-separated terms for AND logic across title, abstract and journal</span></li>
-        <li><span class="about-li-icon" aria-hidden="true">${SLRIcons.chart}</span><span><strong>Visualisations</strong> &mdash; year and tag distribution, selection funnel, world map of affiliation countries</span></li>
-        <li><span class="about-li-icon" aria-hidden="true">${SLRIcons.network}</span><span><strong>Citation network</strong> &mdash; which articles in a project cite each other, built from data the search already returns, without extra API calls</span></li>
+        <li><span class="about-li-icon" aria-hidden="true">${SLRIcons.chart}</span><span><strong>Visualisations</strong> &mdash; year and tag distribution, selection funnel (PRISMA), world map with country flags, most-cited authors</span></li>
+        <li><span class="about-li-icon" aria-hidden="true">${SLRIcons.network}</span><span><strong>Citation network</strong> &mdash; the whole selection as a network by year and citations, or the neighbours of one article; built from reference lists fetched on demand</span></li>
+        <li><span class="about-li-icon" aria-hidden="true">${SLRIcons.mic}</span><span><strong>Dictations &amp; notes</strong> &mdash; a research diary for your thoughts on a project: speak them (Whisper runs on your device, no key needed) or write them, with folders, keywords, favourites, search and a trash</span></li>
         <li><span class="about-li-icon" aria-hidden="true">${SLRIcons.speaker}</span><span><strong>Read aloud</strong> &mdash; abstracts spoken in English or German, either with the voices already on your device or with neural voices that run entirely in the browser</span></li>
         <li><span class="about-li-icon" aria-hidden="true">${SLRIcons.share}</span><span><strong>Sharing</strong> &mdash; send a single article on as citation plus DOI link, through the device's own share sheet or by copy, email, messenger or file</span></li>
-        <li><span class="about-li-icon" aria-hidden="true">${SLRIcons.history}</span><span><strong>Query history</strong> &mdash; past searches with result counts and previews</span></li>
+        <li><span class="about-li-icon" aria-hidden="true">${SLRIcons.history}</span><span><strong>Query history</strong> &mdash; past searches with the query that actually ran, result counts and previews; trashed queries stay out of every list and chart</span></li>
+        <li><span class="about-li-icon" aria-hidden="true">${SLRIcons.palette}</span><span><strong>Themes &amp; layout</strong> &mdash; ten looks plus light/dark/automatic, a search box for the whole app, sidebar items you can hide, and a layout that works on phones</span></li>
         <li><span class="about-li-icon" aria-hidden="true">${SLRIcons.supabaseLogo}</span><span><strong>Local folder or Cloud Sync</strong> &mdash; your files on your device, or synced across devices</span></li>
       </ul>`;
 
@@ -8471,7 +8542,14 @@ window.SLRViews = (() => {
           <li><span class="about-li-icon" aria-hidden="true">${SLRIcons.githubLogo}</span><span><strong>Hosted on GitHub Pages</strong> &mdash; <a href="https://socresearcher.github.io/slr-harvester/" target="_blank" rel="noopener">socresearcher.github.io/slr-harvester</a></span></li>
           <li><span class="about-li-icon" aria-hidden="true">${SLRIcons.supabaseLogo}</span><span><strong>Cloud Sync</strong> &mdash; optional Supabase-backed workspace, including mobile</span></li>
           <li><span class="about-li-icon" aria-hidden="true">${SLRIcons.databases}</span><span><strong>PubMed and OpenAlex</strong> added alongside Scopus</span></li>
-          <li><span class="about-li-icon" aria-hidden="true">${SLRIcons.network}</span><span><strong>Citation network</strong> &mdash; intra-project citation links, added alongside the world map</span></li>
+          <li><span class="about-li-icon" aria-hidden="true">${SLRIcons.network}</span><span><strong>Citation network</strong> &mdash; per article, and as a chart of the whole selection</span></li>
+          <li><span class="about-li-icon" aria-hidden="true">${SLRIcons.mic}</span><span><strong>Dictations &amp; notes</strong> &mdash; a research diary: record or type thoughts about a project; transcription with Whisper on your device or, with your own key, OpenAI</span></li>
+          <li><span class="about-li-icon" aria-hidden="true">${SLRIcons.articles}</span><span><strong>Results</strong> &mdash; Articles, Selected and Corpus merged into one menu item with Initial / Selected / Corpus tabs; swiping a card no longer changes anything</span></li>
+          <li><span class="about-li-icon" aria-hidden="true">${SLRIcons.search}</span><span><strong>Search in, per source</strong> &mdash; every database has its own list of fields; years work for Scopus and PubMed too; the query that ran is what History keeps</span></li>
+          <li><span class="about-li-icon" aria-hidden="true">${SLRIcons.databases}</span><span><strong>Databases</strong> &mdash; real logos, sorting (by type, A&ndash;Z, Z&ndash;A, recently used) and a list or card view</span></li>
+          <li><span class="about-li-icon" aria-hidden="true">${SLRIcons.chart}</span><span><strong>Charts</strong> &mdash; country flags in legends, more cited authors on request, only the controls that fit the chart</span></li>
+          <li><span class="about-li-icon" aria-hidden="true">${SLRIcons.palette}</span><span><strong>Ten themes</strong> (Glass, Aurora, Sunset, Gloss, Soft, Paper, Neon, Mono, Contour) with automatic light/dark, higher text contrast and a phone-friendly layout</span></li>
+          <li><span class="about-li-icon" aria-hidden="true">${SLRIcons.settings}</span><span><strong>Settings with toggles</strong> &mdash; and sidebar items you can show or hide</span></li>
           <li><span class="about-li-icon" aria-hidden="true">${SLRIcons.speaker}</span><span><strong>Read aloud</strong> &mdash; device voices, or natural voices computed in the browser (first use needs an internet connection; afterwards they also work offline)</span></li>
           <li><span class="about-li-icon" aria-hidden="true">${SLRIcons.user}</span><span><strong>Account management</strong> &mdash; change email or password, and delete the account with a 30-day grace period</span></li>
           <li><span class="about-li-icon" aria-hidden="true">${SLRIcons.sun}</span><span><strong>Dark &amp; light theme</strong> &mdash; full CSS custom property design system</span></li>
