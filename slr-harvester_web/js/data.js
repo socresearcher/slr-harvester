@@ -120,6 +120,11 @@ window.SLRData = (() => {
     for (let runIndex = 0; runIndex < searchLog.length; runIndex++) {
       const run = searchLog[runIndex];
       if (!run || !Array.isArray(run.results)) continue;
+      // Eine in den Papierkorb gelegte Abfrage ist geloescht: Ihre Treffer
+      // stehen weder in den Listen noch in den Diagrammen, bis sie
+      // wiederhergestellt wird. (runIndex bleibt die Position im
+      // ungefilterten Protokoll, damit "Zeige nur diese Abfrage" stimmt.)
+      if (run.status === 'trashed') continue;
       for (const r of run.results) {
         let id = r.eid || r.doi || null;
         if (!id) continue;

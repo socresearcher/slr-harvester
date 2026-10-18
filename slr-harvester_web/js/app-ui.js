@@ -333,6 +333,11 @@ window.SLRAppUI = (() => {
       if (!badge) return;
       if (real(img)) badge.classList.add('has-logo');
     }, true);
+    // A flag that cannot be loaded (offline, blocked) just disappears.
+    document.addEventListener('error', e => {
+      const img = e.target;
+      if (img instanceof HTMLImageElement && img.classList.contains('flag')) img.style.display = 'none';
+    }, true);
   }
 
   function initSearch({ state, navigate, openProjectDetail, collapseSidebar }) {

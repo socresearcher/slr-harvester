@@ -351,6 +351,7 @@ window.SLRWorldMap = (() => {
       return `
         <div class="viz-world-legend-item viz-legend-item" data-country-key="${item.iso2}" role="button" tabindex="0" aria-label="${item.name}: ${item.count} article${item.count !== 1 ? 's' : ''}">
           <span class="viz-legend-dot" style="background:${color}"></span>
+          ${window.SLRFlag ? SLRFlag(item.iso2) : ''}
           <span class="viz-legend-label" title="${item.name}">${item.name}</span>
           <span class="viz-legend-count">${item.count}</span>
           <span class="viz-bar-pct">${pct}%</span>

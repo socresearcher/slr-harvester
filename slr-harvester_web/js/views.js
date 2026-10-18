@@ -213,10 +213,13 @@ window.SLRViews = (() => {
   // as a duplicate — mirrors SLRData.getArticles' own dedup rule (first
   // occurrence wins, iterating searchLog in its stored newest-first order)
   // so "kept" here always matches what getArticles actually kept.
+  // Runs that are not in the trash: only these feed lists, charts and counts.
+  const liveRuns = log => (log || []).filter(r => !(r && r.status === 'trashed'));
+
   function computeDuplicates(searchLog) {
     const seen = new Map();
     const dups = [];
-    for (const run of (searchLog || [])) {
+    for (const run of liveRuns(searchLog)) {
       if (!Array.isArray(run.results)) continue;
       for (const r of run.results) {
         const id = r.eid || r.doi || null;
@@ -794,7 +797,7 @@ window.SLRViews = (() => {
             </div>
             <div class="info-field">
               <label>Queries run</label>
-              <span>${projectData.searchLog.length}</span>
+              <span>${liveRuns(projectData.searchLog).length}</span>
             </div>
             <div class="info-field">
               <label>Selected</label>
@@ -897,7 +900,7 @@ window.SLRViews = (() => {
       const nTags   = data ? new Set(
         Object.values(data.globalTags || {}).map(v => v.tag).filter(t => t && t !== 'None')
       ).size : 0;
-      const nQueries = data ? (data.searchLog || []).length : 0;
+      const nQueries = data ? liveRuns(data.searchLog).length : 0;
       const nTerms   = data ? new Set((data.queryHistory && data.queryHistory.terms || [])).size : 0;
       const active = p.workspace_folder === currentFolder;
       const isPinned = pinned.has(p.workspace_folder);
@@ -3863,6 +3866,22 @@ window.SLRViews = (() => {
           ly += 20;
         });
       }
+    } else if (chartType === 'network') {
+      const svgEl = chartEl.querySelector('svg.viz-network-svg');
+      if (svgEl) {
+        const sr = svgEl.getBoundingClientRect();
+        const sw = Math.ceil(sr.width || 900), sh = Math.ceil(sr.height || 500);
+        const clone = svgEl.cloneNode(true);
+        clone.setAttribute('width', sw); clone.setAttribute('height', sh);
+        clone.querySelectorAll('*').forEach(el => {
+          el.removeAttribute('class'); el.removeAttribute('style');
+          ['fill', 'stroke'].forEach(attr => {
+            const v = el.getAttribute(attr);
+            if (v !== null && v.includes('var(')) el.setAttribute(attr, resolveVarStr(v));
+          });
+        });
+        await flaeche.zeichneSvgQuelle(new XMLSerializer().serializeToString(clone), ox, oy, sw, sh);
+      }
     } else if (chartType === 'bars') {
       const lblW = Math.floor(cW * 0.28), barW = cW - lblW - 72;
       let y = oy;
@@ -4022,6 +4041,80 @@ window.SLRViews = (() => {
       .sort((a, b) => b.count - a.count || a.name.localeCompare(b.name));
   }
 
+  // ── Citation network of a whole selection (Litmaps-style) ─────────────────
+  // Nodes are the articles of the selection that are linked to another article of
+  // the same selection; a link means "the reference list of A contains B"
+  // (refsVon: OpenAlex records only, lists fetched on demand). Everything is
+  // computed from the articles it is given, so deleting query runs or changing
+  // the selection changes the picture at once; nothing is remembered here.
+  function buildProjectNetwork(subset) {
+    const byId = new Map();
+    let openalex = 0;
+    for (const a of subset) {
+      const id = String(a.eid || a._id || '');
+      if (id.startsWith('openalex:')) { byId.set(id.slice(9), a); openalex++; }
+    }
+    const edges = [], seen = new Set();
+    const inDeg = new Map(), outDeg = new Map(), used = new Map();
+    let withRefs = 0;
+    for (const a of subset) {
+      const refs = refsVon(a);
+      if (!refs.length) continue;
+      withRefs++;
+      const from = a.eid || a._id;
+      for (const r of refs) {
+        const t = byId.get(r);
+        if (!t || t === a) continue;
+        const to = t.eid || t._id;
+        const key = from + '>' + to;
+        if (seen.has(key)) continue;
+        seen.add(key);
+        edges.push([from, to]);
+        outDeg.set(from, (outDeg.get(from) || 0) + 1);
+        inDeg.set(to, (inDeg.get(to) || 0) + 1);
+        used.set(from, a); used.set(to, t);
+      }
+    }
+    const nodes = [...used.entries()].map(([id, a]) => ({ id, a, inDeg: inDeg.get(id) || 0, outDeg: outDeg.get(id) || 0 }));
+    return { nodes, edges, total: subset.length, openalex, withRefs };
+  }
+
+  // x = publication year, y = how often the work is cited (log scale), size = how
+  // often other articles of the selection cite it; overlaps are pushed apart.
+  function layoutProjectNetwork(nodes, W, H) {
+    const yearOf = a => a.yearNum || (a.date ? parseInt(String(a.date).slice(0, 4), 10) : 0) || 0;
+    const years = nodes.map(n => yearOf(n.a)).filter(Boolean).sort((p, q) => p - q);
+    const median = years.length ? years[Math.floor(years.length / 2)] : new Date().getFullYear();
+    const minY = years.length ? years[0] : median, maxY = years.length ? years[years.length - 1] : median;
+    const span = Math.max(1, maxY - minY);
+    const L = 56, R = 28, T = 24, B = 44;
+    const maxLog = Math.max(1, ...nodes.map(n => Math.log10((n.a.citedby || 0) + 1)));
+    for (const n of nodes) {
+      n.r = Math.min(16, 4 + 2.2 * Math.sqrt(n.inDeg));
+      const yr = yearOf(n.a) || median;
+      n.x = L + ((yr - minY) / span) * (W - L - R);
+      n.y = H - B - (Math.log10((n.a.citedby || 0) + 1) / maxLog) * (H - T - B);
+    }
+    for (let it = 0; it < 90; it++) {
+      let moved = false;
+      for (let i = 0; i < nodes.length; i++) {
+        for (let j = i + 1; j < nodes.length; j++) {
+          const p = nodes[i], q = nodes[j];
+          let dx = q.x - p.x, dy = q.y - p.y, d = Math.hypot(dx, dy);
+          const min = p.r + q.r + 2;
+          if (d >= min) continue;
+          if (d < 0.01) { dx = (i % 2 ? 1 : -1) * 0.5; dy = 0.5; d = Math.hypot(dx, dy); }
+          const push = (min - d) / 2 / d;
+          p.x -= dx * push; p.y -= dy * push; q.x += dx * push; q.y += dy * push;
+          moved = true;
+        }
+      }
+      for (const n of nodes) { n.x = Math.max(L - 8, Math.min(W - R + 8, n.x)); n.y = Math.max(T, Math.min(H - B, n.y)); }
+      if (!moved) break;
+    }
+    return { minY, maxY, L, R, T, B };
+  }
+
   function renderVisualizations(container, articles, projectData) {
     if (!projectData) {
       container.innerHTML = `<div class="viz-view" style="padding:0">${renderNoProjectNotice()}</div>`;
@@ -4138,7 +4231,7 @@ window.SLRViews = (() => {
         const barPct = maxCount > 0 ? (d.count / maxCount * 100).toFixed(1) : '0';
         return `
           <div class="viz-bar-row">
-            <div class="viz-bar-label" title="${esc(d.name)}">${esc(d.name)}</div>
+            <div class="viz-bar-label" title="${esc(d.name)}">${groupBy === 'country' ? SLRFlag(d.key) : ''}${esc(d.name)}</div>
             <div class="viz-bar-track">
               <div class="viz-bar-fill" style="width:${barPct}%;background:${esc(d.hex)}"></div>
             </div>
@@ -4199,6 +4292,7 @@ window.SLRViews = (() => {
         const pct = sum > 0 ? (d.count / sum * 100).toFixed(1) : '0';
         return `<div class="viz-legend-item" data-idx="${i}" style="cursor:pointer">
           <span class="viz-legend-dot" style="background:${esc(d.hex)}"></span>
+          ${groupBy === 'country' ? SLRFlag(d.key) : ''}
           <span class="viz-legend-label" title="${esc(d.name)}">${esc(d.name)}</span>
           <span class="viz-legend-count">${d.count}</span>
           <span class="viz-bar-pct">${pct}%</span>
@@ -4331,6 +4425,7 @@ window.SLRViews = (() => {
       const legendHTML = allTagEntries.map(([key, { label, hex }]) =>
         `<div class="viz-year-legend-item viz-legend-item" data-tag-key="${esc(key)}">
           <span class="viz-legend-dot" style="background:${esc(hex)}"></span>
+          ${groupBy === 'country' ? SLRFlag(key) : ''}
           <span class="viz-legend-label">${esc(label)}</span>
         </div>`
       ).join('');
@@ -4358,7 +4453,7 @@ window.SLRViews = (() => {
     };
 
     const renderPrisma = () => {
-      const history    = projectData.searchLog || [];
+      const history    = liveRuns(projectData.searchLog);
       const nQueries   = history.length;
       const nRaw       = history.reduce((s, e) => s + (Array.isArray(e.results) ? e.results.length : (e.count || 0)), 0);
       if (nQueries === 0 || nRaw === 0) {
@@ -4463,7 +4558,7 @@ window.SLRViews = (() => {
         </div>`;
     };
 
-    const nQueries  = (projectData.searchLog || []).length;
+    const nQueries  = liveRuns(projectData.searchLog).length;
 
     container.innerHTML = `
       <div class="viz-view">
@@ -4478,6 +4573,7 @@ window.SLRViews = (() => {
                   <option value="year">Year Distribution</option>
                   <option value="world">World Map</option>
                   <option value="authors">Cited Authors</option>
+                  <option value="network">Citation Network</option>
                   <option value="prisma">Screening Flow (PRISMA)</option>
                 </select>
                 <select class="filter-select viz-groupby-select" id="viz-groupby-select" title="Group by">
@@ -4836,7 +4932,7 @@ window.SLRViews = (() => {
       if (chartType === 'prisma') {
         wirePrismaResize(el);
         const overlay = document.getElementById('modal-overlay');
-        const history = projectData.searchLog || [];
+        const history = liveRuns(projectData.searchLog);
 
         const rowsOrEmpty = (rows, emptyMsg) => rows.length
           ? rows.join('')
@@ -4992,6 +5088,7 @@ window.SLRViews = (() => {
       world:   'World Map',
       prisma:  'PRISMA 2020',
       authors: 'Cited Authors',
+      network: 'Citation Network',
     };
 
     // Rangliste als Balken. Eigener Bauer statt renderBars: dort ist eine
@@ -5037,7 +5134,9 @@ window.SLRViews = (() => {
       const cacheKey = currentMode;
       const welt = weltweitCache[cacheKey];
 
-      const kopf = `
+      const MODE_BASIS = { all: 'the Initial list', selected: 'the Selected list', corpus: 'the Corpus' };
+      const basisZeile = `<div class="viz-authors-note">Basis: <strong>${subset.length}</strong> article${subset.length !== 1 ? 's' : ''} of ${MODE_BASIS[currentMode] || 'this selection'} as they are right now. Deleted or trashed queries do not count.</div>`;
+      const kopf = basisZeile + `
         <div class="viz-authors-tabs">
           <button class="viz-mode-tab${autorenModus === 'corpus' ? ' active' : ''}" data-authors-mode="corpus">Within this project</button>
           <button class="viz-mode-tab${autorenModus === 'world' ? ' active' : ''}" data-authors-mode="world">Everything cited</button>
@@ -5070,6 +5169,103 @@ window.SLRViews = (() => {
           authors outside the project. One request per 50 articles, aggregated by OpenAlex itself.
         </div>
         <button class="btn btn-primary" id="viz-authors-run">Look up cited authors</button>`;
+    };
+
+    // Citation network of the current selection (see buildProjectNetwork).
+    const MODE_NAMES = { all: 'Initial list', selected: 'Selected', corpus: 'Corpus' };
+    const renderNetworkPanel = () => {
+      const subset = getSubset(currentMode);
+      const g = buildProjectNetwork(subset);
+      const basis = `<strong>${subset.length}</strong> article${subset.length !== 1 ? 's' : ''} (${MODE_NAMES[currentMode] || currentMode})`;
+      const fetchBtn = `<button class="btn-secondary" id="viz-net-fetch" type="button">${SLRIcons.refresh} Fetch reference lists for this selection</button>`;
+      if (!subset.length) return `<div class="viz-empty-bars">This selection holds no articles, so there is no network.</div>`;
+      if (!g.openalex) {
+        return `<div class="viz-authors-note">Based on ${basis}. None of them is an OpenAlex record, and only OpenAlex records carry reference lists, so no citation links can be drawn. Search OpenAlex to get them.</div>`;
+      }
+      if (!g.nodes.length) {
+        return `<div class="viz-authors-note">Based on ${basis}, of which ${g.openalex} come from OpenAlex. ${g.withRefs
+          ? 'Their reference lists are loaded, but no article of this selection cites another one.'
+          : 'Reference lists are fetched on demand and kept for this session only, so they have to be loaded first.'}</div>
+          <div class="settings-save-row">${fetchBtn}</div>`;
+      }
+      const MAXN = 700;
+      let nodes = g.nodes;
+      let cut = 0;
+      if (nodes.length > MAXN) {
+        nodes = nodes.slice().sort((p, q) => (q.inDeg + q.outDeg) - (p.inDeg + p.outDeg)).slice(0, MAXN);
+        cut = g.nodes.length - nodes.length;
+      }
+      const ids = new Set(nodes.map(n => n.id));
+      const edges = g.edges.filter(([f, t]) => ids.has(f) && ids.has(t));
+      const VW = 1000, VH = 560;
+      const lay = layoutProjectNetwork(nodes, VW, VH);
+      const pos = new Map(nodes.map(n => [n.id, n]));
+      const ticks = [];
+      const nt = Math.min(6, Math.max(1, lay.maxY - lay.minY));
+      for (let i = 0; i <= nt; i++) ticks.push(Math.round(lay.minY + (lay.maxY - lay.minY) * i / nt));
+      const tx = yr => lay.L + ((yr - lay.minY) / Math.max(1, lay.maxY - lay.minY)) * (VW - lay.L - lay.R);
+      const axis = [...new Set(ticks)].map(yr => `<line x1="${tx(yr).toFixed(1)}" y1="${lay.T}" x2="${tx(yr).toFixed(1)}" y2="${VH - lay.B}" stroke="var(--border-subtle)" stroke-width="1"/>
+        <text x="${tx(yr).toFixed(1)}" y="${VH - lay.B + 18}" text-anchor="middle" font-size="12" fill="var(--text-muted)">${yr}</text>`).join('');
+      const edgeSvg = edges.map(([f, t]) => {
+        const p = pos.get(f), q = pos.get(t);
+        const mx = (p.x + q.x) / 2, my = (p.y + q.y) / 2 - Math.min(40, Math.abs(p.x - q.x) * 0.12);
+        return `<path d="M${p.x.toFixed(1)},${p.y.toFixed(1)} Q${mx.toFixed(1)},${my.toFixed(1)} ${q.x.toFixed(1)},${q.y.toFixed(1)}" fill="none" stroke="var(--text-faint)" stroke-opacity=".5" stroke-width="1" data-from="${esc(f)}" data-to="${esc(t)}" class="viz-net-edge"/>`;
+      }).join('');
+      const nodeSvg = nodes.map(n => {
+        const hex = tagColor(projectData, n.a.color) || 'var(--accent)';
+        const yr = n.a.yearNum || (n.a.date ? String(n.a.date).slice(0, 4) : '');
+        const tip = `${n.a.title || 'Untitled'}\n${yr ? yr + ' · ' : ''}${n.a.citedby || 0} cited in total · cited by ${n.inDeg} / cites ${n.outDeg} in this selection`;
+        return `<circle class="viz-net-node" data-id="${esc(n.id)}" cx="${n.x.toFixed(1)}" cy="${n.y.toFixed(1)}" r="${n.r.toFixed(1)}" fill="${esc(hex)}" fill-opacity=".9" stroke="var(--bg)" stroke-width="1.5" tabindex="0" style="cursor:pointer"><title>${esc(tip)}</title></circle>`;
+      }).join('');
+      const tagKeys = [...new Map(nodes.filter(n => n.a.tag && n.a.tag !== 'None').map(n => [n.a.tag, tagColor(projectData, n.a.color) || '#888'])).entries()];
+      const legend = tagKeys.length ? `<div class="viz-net-legend">${tagKeys.map(([t, hx]) => `<span class="viz-legend-item"><span class="viz-legend-dot" style="background:${esc(hx)}"></span><span class="viz-legend-label">${esc(t)}</span></span>`).join('')}</div>` : '';
+      return `
+        <div class="viz-authors-note">Based on ${basis}. <strong>${nodes.length}</strong> of them are linked by <strong>${edges.length}</strong> citation${edges.length !== 1 ? 's' : ''} inside this selection (${g.openalex} are OpenAlex records; only those carry reference lists${g.openalex < subset.length ? `, ${subset.length - g.openalex} cannot appear` : ''}). Position: left to right by year, higher = cited more often overall. Size: how many articles of the selection cite it. Colour: tag. Hover to follow the links, click for a work's own network.${cut ? ` <strong>${cut} least-connected articles are left out for readability.</strong>` : ''}</div>
+        <div class="viz-net-wrap">
+          <svg class="viz-network-svg" viewBox="0 0 ${VW} ${VH}" role="img" aria-label="Citation network of the selection">
+            <rect x="0" y="0" width="${VW}" height="${VH}" fill="var(--surface)"/>
+            ${axis}
+            <text x="${VW - 10}" y="${lay.T + 6}" text-anchor="end" font-size="11" fill="var(--text-muted)">higher = cited more often \u2191</text>
+            <g>${edgeSvg}</g><g>${nodeSvg}</g>
+          </svg>
+        </div>
+        ${legend}
+        <div class="settings-save-row">${fetchBtn}</div>`;
+    };
+
+    const wireNetworkPanel = el => {
+      const svg = el.querySelector('svg.viz-network-svg');
+      el.querySelector('#viz-net-fetch')?.addEventListener('click', () => {
+        // The fetch redraws the view; come back to this chart afterwards.
+        SLRApp.state.vizChart = 'network';
+        SLRApp.fetchCitationNetworkData(new Set(getSubset(currentMode).map(a => a.eid || a._id || a.doi)));
+      });
+      if (!svg) return;
+      const edges = [...svg.querySelectorAll('.viz-net-edge')];
+      const nodes = [...svg.querySelectorAll('.viz-net-node')];
+      const focus = id => {
+        const near = new Set([id]);
+        for (const e of edges) {
+          const on = e.dataset.from === id || e.dataset.to === id;
+          if (on) { near.add(e.dataset.from); near.add(e.dataset.to); }
+          e.setAttribute('stroke', on ? 'var(--accent)' : 'var(--text-faint)');
+          e.setAttribute('stroke-opacity', on ? '.95' : '.08');
+          e.setAttribute('stroke-width', on ? '1.8' : '1');
+        }
+        for (const n of nodes) n.setAttribute('fill-opacity', near.has(n.dataset.id) ? '1' : '.18');
+      };
+      const clear = () => {
+        for (const e of edges) { e.setAttribute('stroke', 'var(--text-faint)'); e.setAttribute('stroke-opacity', '.5'); e.setAttribute('stroke-width', '1'); }
+        for (const n of nodes) n.setAttribute('fill-opacity', '.9');
+      };
+      nodes.forEach(n => {
+        n.addEventListener('mouseenter', () => focus(n.dataset.id));
+        n.addEventListener('focus', () => focus(n.dataset.id));
+        n.addEventListener('mouseleave', clear);
+        n.addEventListener('blur', clear);
+        n.addEventListener('click', () => SLRApp.showArticleNetwork(n.dataset.id));
+        n.addEventListener('keydown', ev => { if (ev.key === 'Enter' || ev.key === ' ') { ev.preventDefault(); SLRApp.showArticleNetwork(n.dataset.id); } });
+      });
     };
 
     const updateChart = () => {
@@ -5146,9 +5342,12 @@ window.SLRViews = (() => {
             ? renderPrisma()
           : currentChart === 'authors'
             ? renderAuthorsPanel()
+          : currentChart === 'network'
+            ? renderNetworkPanel()
             : renderBars(currentMode, currentGroupBy, showNone);
       wireChartInteractivity(el, currentChart);
       if (currentChart === 'authors') wireAuthorsPanel(el);
+      if (currentChart === 'network') wireNetworkPanel(el);
       if (currentChart === 'year') {
         const chartWrap = el.querySelector('.viz-col-chart-wrap');
         if (chartWrap) chartWrap.scrollLeft = chartWrap.scrollWidth;
@@ -7822,7 +8021,7 @@ window.SLRViews = (() => {
             <li><span class="about-li-icon" aria-hidden="true">${SLRIcons.databases}</span><span><strong>OpenAlex</strong> (api.openalex.org) &mdash; your search query, and your OpenAlex key/contact email as a parameter, only if you've set them in Settings.</span></li>
             <li><span class="about-li-icon" aria-hidden="true">${SLRIcons.refresh}</span><span><strong>Crossref</strong> (api.crossref.org) &mdash; your search query when you search Crossref, and DOI-based lookups when you use Fetch Abstracts/Authors/Types/Affiliations (also run automatically after a search if auto-fetch is on). A fixed placeholder contact address is sent as Crossref's polite-pool parameter, never your own email.</span></li>
             <li><span class="about-li-icon" aria-hidden="true">${SLRIcons.databases}</span><span><strong>DOAJ</strong> (doaj.org) &mdash; your search query when you search DOAJ. No key required or sent.</span></li>
-            <li><span class="about-li-icon" aria-hidden="true">${SLRIcons.databases}</span><span><strong>Database logos</strong> (Google&rsquo;s favicon service, <code>t0.gstatic.com</code>) &mdash; the Databases and Search views load each logo from there when they are shown, and keep none. The service sees your IP address and which database sites are listed; nothing about your searches or projects.</span></li>
+            <li><span class="about-li-icon" aria-hidden="true">${SLRIcons.databases}</span><span><strong>Database logos</strong> (Google&rsquo;s favicon service, <code>t0.gstatic.com</code>) and the <strong>country flags</strong> in the chart legends (<code>flagcdn.com</code>) &mdash; the Databases and Search views load each logo from there when they are shown, and keep none. The service sees your IP address and which database sites are listed; nothing about your searches or projects.</span></li>
             <li><span class="about-li-icon" aria-hidden="true">${SLRIcons.speaker}</span><span><strong>Dictations (Whisper)</strong> &mdash; by default the transcription runs <em>on this device</em>: the audio never leaves the browser. The first use downloads the speech engine (<code>cdn.jsdelivr.net</code>, ~21 MB) and the model you chose (<code>huggingface.co</code>, 40&ndash;250 MB), which see your IP address and are kept in the browser afterwards. Only if you switch the engine to <strong>OpenAI</strong> in Settings and enter your own key is the audio of a dictation sent to <code>api.openai.com</code>, when you transcribe it. The key stays in this browser.</span></li>
           </ul>
         </div>
@@ -9856,7 +10055,7 @@ window.SLRViews = (() => {
     visualizations: {
       titel: 'Visualizations',
       karten: [
-        'Pictures of what the project holds: publication years, sources, countries, disciplines, the citation network — and the <strong>PRISMA</strong> screening flow.',
+        'Pictures of what the project holds: publication years, sources, countries with their flags, disciplines, cited authors, the <strong>citation network</strong> of the whole selection — and the <strong>PRISMA</strong> screening flow.',
         'The PRISMA diagram is built from the actual search log and your screening decisions, so it is a report of what happened, not a drawing you fill in by hand.',
         'Every chart can be exported as an image for the paper itself.',
       ],

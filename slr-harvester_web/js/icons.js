@@ -13,6 +13,16 @@ window.SLRIcons = (() => {
   const base = (path, extra) =>
     `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" ${extra || ''}>${path}</svg>`;
 
+  // Country flags for the visualisation legends. Flags are fetched when shown
+  // (flagcdn.com, nothing stored); if one cannot be loaded the image hides itself
+  // and the country name stands alone. Windows has no flag emoji, so an emoji
+  // fallback would show two letters there.
+  window.SLRFlag = function (code) {
+    const c = String(code || '').trim().toLowerCase();
+    if (!/^[a-z]{2}$/.test(c)) return '';
+    return '<img class="flag" src="https://flagcdn.com/w40/' + c + '.png" srcset="https://flagcdn.com/w80/' + c + '.png 2x" alt="" width="20" height="15" loading="lazy" decoding="async" referrerpolicy="no-referrer">';
+  };
+
   return {
 
     // App logo — six curved "petal" facets in a woven checkerboard of gold
@@ -458,5 +468,6 @@ window.SLRIcons = (() => {
     ),
 
   };
+
 
 })();

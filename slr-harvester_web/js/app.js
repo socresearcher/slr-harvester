@@ -914,6 +914,12 @@ window.SLRApp = (() => {
 		state.projectData = pd;
 		state.articles = SLRData.getArticles(pd);
 		state.allProjectData[folderName] = pd;
+		// Die Verweislisten im Sitzungsspeicher gehoeren zu Artikeln des
+		// geladenen Projekts. Was geloescht wurde (oder zu einem anderen Projekt
+		// gehoerte), soll weder Speicher belegen noch je wieder in einem
+		// Zitationsnetz oder einer Autorenrangliste auftauchen.
+		const vorhanden = new Set(state.articles.map(a => a.eid).filter(Boolean));
+		for (const k of Object.keys(state.refsCache)) if (!vorhanden.has(k)) delete state.refsCache[k];
 	}
 
 	// Projects created before tags stopped being pre-seeded (see createProject)

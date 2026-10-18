@@ -10525,3 +10525,47 @@ button.beta-pill-btn:focus-visible {
   outline: 2px solid var(--accent);
   outline-offset: 2px;
 }
+
+/* Flaggen in den Legenden */
+img.flag {
+  width: 20px;
+  height: 15px;
+  object-fit: cover;
+  border-radius: 2px;
+  box-shadow: 0 0 0 1px var(--border);
+  flex-shrink: 0;
+  vertical-align: -2px;
+  margin-right: 6px;
+}
+
+.viz-bar-label img.flag,
+.viz-legend-item img.flag {
+  margin-right: 2px;
+}
+
+/* Zitationsnetz der ganzen Auswahl */
+.viz-net-wrap {
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  overflow: hidden;
+  background: var(--surface);
+}
+
+.viz-network-svg {
+  display: block;
+  width: 100%;
+  height: auto;
+}
+
+.viz-net-node:focus-visible {
+  outline: none;
+  stroke: var(--accent);
+  stroke-width: 3;
+}
+
+.viz-net-legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px 16px;
+  margin-top: 10px;
+}
