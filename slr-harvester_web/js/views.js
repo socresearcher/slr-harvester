@@ -7875,7 +7875,9 @@ window.SLRViews = (() => {
     const dictationsHtml = `
         <p class="settings-group-label">Dictations</p>
         <div class="settings-card" id="settings-dict">
-          <p class="field-hint" style="margin-top:0">Dictations are recorded in the browser and turned into text with Whisper. By default Whisper runs <strong>on this device</strong>: free, no key, and the audio never leaves the browser. The first time, the speech engine (about 21 MB) and the model you choose are downloaded and kept in the browser, after that it also works offline. It runs a little slower than real time on most machines; the larger the model, the better the result and the longer the wait. Chrome, Edge and Safari work; very old browsers may not.</p>
+          <p class="field-hint" style="margin-top:0">Dictations are recorded in the browser and turned into text with Whisper; <strong>only the text is saved</strong>, the recording itself is discarded and never uploaded. By default Whisper runs <strong>on this device</strong>: free, no key, and the audio never leaves the browser. The first time, the speech engine (about 21 MB) and the model you choose are downloaded and kept in the browser, after that it also works offline. It runs a little slower than real time on most machines; the larger the model, the better the result and the longer the wait. Chrome, Edge and Safari work; very old browsers may not.</p>
+          <div class="srow"><div class="stxt"><b>Empty the trash automatically</b><small>Deleted entries wait in the trash and are removed for good after this time. ${SLRNotes.storageInfo() ? esc(SLRNotes.storageInfo()) + ' ' : ''}Only text is stored, so even thousands of entries use little space; the trash cleanup keeps it that way.</small></div>
+            <div class="sctl"><select class="sel" id="settings-dik-purge" aria-label="Empty the trash automatically">${[[0, 'Never'], [7, 'After 7 days'], [30, 'After 30 days'], [90, 'After 90 days']].map(([v, t]) => `<option value="${v}"${stt.purge === v ? ' selected' : ''}>${t}</option>`).join('')}</select></div></div>
           ${tgRow('settings-stt-auto', 'Transcribe automatically after recording', 'Off: you press Transcribe yourself. The first transcription on this device always asks before it downloads the model.', stt.auto)}
           <div class="srow"><div class="stxt"><b>Engine</b><small>On this device is the default. OpenAI is faster and usually more accurate, but sends the audio of each dictation to OpenAI and needs your own API key (billed by OpenAI to you).</small></div>
             <div class="sctl"><div class="segc" role="group" aria-label="Transcription engine">
@@ -8030,6 +8032,8 @@ window.SLRViews = (() => {
         const mod = ev.target.closest('[data-stt-model]');
         if (mod) { SLRNotes.setConfig({ model: mod.dataset.sttModel }); keepScroll(() => SLRApp.navigate('settings')); }
       });
+      const purge = dict.querySelector('#settings-dik-purge');
+      if (purge) purge.addEventListener('change', () => { SLRNotes.setConfig({ purge: Number(purge.value) }); SLRApp.showToast(Number(purge.value) ? `Trash is emptied after ${purge.value} days.` : 'Automatic trash cleanup is off.', false); });
       const auto = dict.querySelector('#settings-stt-auto');
       if (auto) auto.addEventListener('change', () => SLRNotes.setConfig({ auto: auto.checked }));
       const key = dict.querySelector('#settings-openai-key');
@@ -8219,7 +8223,7 @@ window.SLRViews = (() => {
             <li><span class="about-li-icon" aria-hidden="true">${SLRIcons.refresh}</span><span><strong>Crossref</strong> (api.crossref.org) &mdash; your search query when you search Crossref, and DOI-based lookups when you use Fetch Abstracts/Authors/Types/Affiliations (also run automatically after a search if auto-fetch is on). A fixed placeholder contact address is sent as Crossref's polite-pool parameter, never your own email.</span></li>
             <li><span class="about-li-icon" aria-hidden="true">${SLRIcons.databases}</span><span><strong>DOAJ</strong> (doaj.org) &mdash; your search query when you search DOAJ. No key required or sent.</span></li>
             <li><span class="about-li-icon" aria-hidden="true">${SLRIcons.databases}</span><span><strong>Database logos</strong> (Google&rsquo;s favicon service, <code>t0.gstatic.com</code>) and the <strong>country flags</strong> in the chart legends (<code>flagcdn.com</code>) &mdash; the Databases and Search views load each logo from there when they are shown, and keep none. The service sees your IP address and which database sites are listed; nothing about your searches or projects.</span></li>
-            <li><span class="about-li-icon" aria-hidden="true">${SLRIcons.speaker}</span><span><strong>Dictations (Whisper)</strong> &mdash; by default the transcription runs <em>on this device</em>: the audio never leaves the browser. The first use downloads the speech engine (<code>cdn.jsdelivr.net</code>, ~21 MB) and the model you chose (<code>huggingface.co</code>, 40&ndash;250 MB), which see your IP address and are kept in the browser afterwards. Only if you switch the engine to <strong>OpenAI</strong> in Settings and enter your own key is the audio of a dictation sent to <code>api.openai.com</code>, when you transcribe it. The key stays in this browser.</span></li>
+            <li><span class="about-li-icon" aria-hidden="true">${SLRIcons.speaker}</span><span><strong>Dictations (Whisper)</strong> &mdash; by default the transcription runs <em>on this device</em>: the audio never leaves the browser. The first use downloads the speech engine (<code>cdn.jsdelivr.net</code>, ~21 MB) and the model you chose (<code>huggingface.co</code>, 40&ndash;250 MB), which see your IP address and are kept in the browser afterwards. Only if you switch the engine to <strong>OpenAI</strong> in Settings and enter your own key is the audio of a dictation sent to <code>api.openai.com</code>, when you transcribe it. Recordings are never saved, only their text. The key stays in this browser.</span></li>
           </ul>
         </div>
 
@@ -8444,11 +8448,14 @@ window.SLRViews = (() => {
         q: 'What are Dictations & notes for?',
         a: `<p>They are a <strong>research diary</strong>: a place to keep thoughts about the project
             as they come &mdash; why a search was changed, what a paper made you think, what to read next.
-            Speak them (a dictation, with the audio kept if you like) or write them as a note. Entries get
-            folders and keywords, can be starred, searched, edited, read aloud and exported as text; deleted
-            ones wait in a trash.</p>
-           <p>They are stored with your workspace: in the folder (<code>notes.json</code> and
-            <code>notes-audio/</code>) or in your Cloud Sync account.</p>`,
+            Speak them (a dictation: the recording is turned into text and then discarded, only the text is
+             saved) or write them as a note. An entry belongs to the project that was open when you wrote it,
+             but the page always lists <em>all</em> entries of <em>all</em> projects, so you can keep one diary
+             across projects; filter by project, folder or keyword, or tick several entries and combine them
+             into one new text. Entries can be starred, searched, edited, read aloud and exported as text;
+             deleted ones wait in a trash that empties itself after a while (Settings &rarr; Dictations).</p>
+            <p>Only text is stored, so it takes very little space. It lives with your workspace: in the folder
+             (<code>notes.json</code>) or in your Cloud Sync account. Recordings are never uploaded or kept.</p>`,
       },
       {
         id: 'qa-whisper',
@@ -8523,7 +8530,7 @@ window.SLRViews = (() => {
         <li><span class="about-li-icon" aria-hidden="true">${SLRIcons.search}</span><span><strong>Advanced list search</strong> &mdash; semicolon-separated terms for AND logic across title, abstract and journal</span></li>
         <li><span class="about-li-icon" aria-hidden="true">${SLRIcons.chart}</span><span><strong>Visualisations</strong> &mdash; year and tag distribution, selection funnel (PRISMA), world map with country flags, most-cited authors</span></li>
         <li><span class="about-li-icon" aria-hidden="true">${SLRIcons.network}</span><span><strong>Citation network</strong> &mdash; the whole selection as a network by year and citations, or the neighbours of one article; built from reference lists fetched on demand</span></li>
-        <li><span class="about-li-icon" aria-hidden="true">${SLRIcons.mic}</span><span><strong>Dictations &amp; notes</strong> &mdash; a research diary for your thoughts on a project: speak them (Whisper runs on your device, no key needed) or write them, with folders, keywords, favourites, search and a trash</span></li>
+        <li><span class="about-li-icon" aria-hidden="true">${SLRIcons.mic}</span><span><strong>Dictations &amp; notes</strong> &mdash; a research diary for your thoughts, per project and across projects: speak them (Whisper runs on your device, no key needed; only the text is saved) or write them, with folders, keywords, favourites, search, combining entries and a trash</span></li>
         <li><span class="about-li-icon" aria-hidden="true">${SLRIcons.speaker}</span><span><strong>Read aloud</strong> &mdash; abstracts spoken in English or German, either with the voices already on your device or with neural voices that run entirely in the browser</span></li>
         <li><span class="about-li-icon" aria-hidden="true">${SLRIcons.share}</span><span><strong>Sharing</strong> &mdash; send a single article on as citation plus DOI link, through the device's own share sheet or by copy, email, messenger or file</span></li>
         <li><span class="about-li-icon" aria-hidden="true">${SLRIcons.history}</span><span><strong>Query history</strong> &mdash; past searches with the query that actually ran, result counts and previews; trashed queries stay out of every list and chart</span></li>
@@ -8543,7 +8550,7 @@ window.SLRViews = (() => {
           <li><span class="about-li-icon" aria-hidden="true">${SLRIcons.supabaseLogo}</span><span><strong>Cloud Sync</strong> &mdash; optional Supabase-backed workspace, including mobile</span></li>
           <li><span class="about-li-icon" aria-hidden="true">${SLRIcons.databases}</span><span><strong>PubMed and OpenAlex</strong> added alongside Scopus</span></li>
           <li><span class="about-li-icon" aria-hidden="true">${SLRIcons.network}</span><span><strong>Citation network</strong> &mdash; per article, and as a chart of the whole selection</span></li>
-          <li><span class="about-li-icon" aria-hidden="true">${SLRIcons.mic}</span><span><strong>Dictations &amp; notes</strong> &mdash; a research diary: record or type thoughts about a project; transcription with Whisper on your device or, with your own key, OpenAI</span></li>
+          <li><span class="about-li-icon" aria-hidden="true">${SLRIcons.mic}</span><span><strong>Dictations &amp; notes</strong> &mdash; a research diary: record or type thoughts per project and look at all of them together; only the transcript is saved, never the audio; transcription with Whisper on your device or, with your own key, OpenAI</span></li>
           <li><span class="about-li-icon" aria-hidden="true">${SLRIcons.articles}</span><span><strong>Results</strong> &mdash; Articles, Selected and Corpus merged into one menu item with Initial / Selected / Corpus tabs; swiping a card no longer changes anything</span></li>
           <li><span class="about-li-icon" aria-hidden="true">${SLRIcons.search}</span><span><strong>Search in, per source</strong> &mdash; every database has its own list of fields; years work for Scopus and PubMed too; the query that ran is what History keeps</span></li>
           <li><span class="about-li-icon" aria-hidden="true">${SLRIcons.databases}</span><span><strong>Databases</strong> &mdash; real logos, sorting (by type, A&ndash;Z, Z&ndash;A, recently used) and a list or card view</span></li>

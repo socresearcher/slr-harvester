@@ -132,10 +132,8 @@ window.SLRDataCloud = (() => {
       if (p.error) throw new Error('Could not delete your projects: ' + p.error.message);
       const s = await client.from('user_settings').delete().eq('user_id', userId);
       if (s.error) throw new Error('Could not delete your settings: ' + s.error.message);
-      // Dictations & notes (optional feature): best effort, the table or bucket may not exist.
+      // Dictations & notes (optional feature, text only): best effort, the table may not exist.
       try {
-        const files = await client.storage.from('dictations').list(userId, { limit: 1000 });
-        if (files && files.data && files.data.length) await client.storage.from('dictations').remove(files.data.map(f => `${userId}/${f.name}`));
         await client.from('dictations').delete().eq('user_id', userId);
       } catch (_) { /* feature not set up */ }
     }

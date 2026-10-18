@@ -6,10 +6,13 @@
  * in a worker, no key, audio never leaves the browser); OpenAI's Whisper API is
  * an optional second engine for users who bring their own key.
  *
+ * Only the TEXT is stored; the recording itself is discarded after transcription
+ * (nothing is uploaded, no audio storage is used). Entries belong to a project
+ * (the project open when they were written) but the page lists all of them.
+ *
  * Storage follows the active workspace, like projects do:
- *   - local folder: notes.json + notes-audio/<id>.<ext> in the workspace root
- *   - Cloud Sync:   table public.dictations + private bucket "dictations"
- *                   (one-time SQL, see the project owner's setup notes)
+ *   - local folder: notes.json in the workspace root
+ *   - Cloud Sync:   table public.dictations
  *
  * Engine, model and the optional OpenAI key stay in this browser's localStorage
  * (slr-stt-*, slr-openai-key), never in the workspace or in Supabase. With the
@@ -47,13 +50,18 @@ window.SLRNotes = (() => {
       model: MODELS.some(x => x[0] === m) ? m : 'base',
       auto: lsGet('slr-stt-auto') !== '0',
       key: getKey(),
+      purge: purgeDays(),
     };
   }
+  // Trash cleanup: entries stay in the trash this many days, then they are removed for good (0 = never).
+  const PURGE_OK = [0, 7, 30, 90];
+  function purgeDays() { const v = lsGet('slr-dik-purge'); if (v === null) return 30; const n = Number(v); return PURGE_OK.includes(n) ? n : 30; }
   function setConfig(p) {
     if ('engine' in p) lsSet('slr-stt-engine', p.engine === 'openai' ? 'openai' : null);
     if ('model' in p) lsSet('slr-stt-model', p.model === 'base' ? null : p.model);
     if ('auto' in p) lsSet('slr-stt-auto', p.auto ? null : '0');
     if ('key' in p) lsSet(KEY_OPENAI, p.key ? p.key : null);
+    if ('purge' in p) lsSet('slr-dik-purge', String(PURGE_OK.includes(Number(p.purge)) ? Number(p.purge) : 30));
   }
   const deviceOK = () => !!(window.Worker && (window.AudioContext || window.webkitAudioContext));
   const canTranscribe = () => { const c = config(); return c.engine === 'openai' ? !!c.key : deviceOK(); };
@@ -73,7 +81,7 @@ window.SLRNotes = (() => {
     try {
       const fh = await root.getFileHandle('notes.json');
       const j = JSON.parse(await (await fh.getFile()).text());
-      return (Array.isArray(j.notes) ? j.notes : []).map(n => Object.assign({ tags: [], deleted: '' }, n));
+      return (Array.isArray(j.notes) ? j.notes : []).map(n => Object.assign({ tags: [], deleted: '', project: '' }, n));
     } catch (_) { return []; }
   }
   async function localWrite(list) {
@@ -83,21 +91,21 @@ window.SLRNotes = (() => {
     await w.write(JSON.stringify({ version: 2, notes: list }, null, 2));
     await w.close();
   }
-  async function localAudioDir(create) {
-    return SLRDataLocal.rootHandle.getDirectoryHandle('notes-audio', { create: !!create });
+  // Older versions kept recordings in notes-audio/. Nothing writes there any more; the folder is only cleaned when an old entry is deleted.
+  async function localAudioDir() {
+    return SLRDataLocal.rootHandle.getDirectoryHandle('notes-audio', { create: false });
   }
 
   // ── Storage: cloud ────────────────────────────────────────────────────────
   const cloudSession = () => SLRDataCloud.session();
   const toNote = r => ({
     id: r.id, title: r.title || '', text: r.body || '', lang: r.lang || 'auto', dur: r.duration_s || 0,
-    folder: r.folder || '', tags: Array.isArray(r.tags) ? r.tags : [], fav: !!r.favorite,
-    audio: !!r.audio_path, audioPath: r.audio_path || '', audioType: r.audio_type || '',
+    folder: r.folder || '', project: r.project || '', tags: Array.isArray(r.tags) ? r.tags : [], fav: !!r.favorite,
     deleted: r.deleted_at || '', created: r.created, modified: r.modified,
   });
   const toRow = (n, userId) => ({
     id: n.id, user_id: userId, title: n.title, body: n.text, lang: n.lang, duration_s: Math.round(n.dur || 0),
-    folder: n.folder || '', tags: n.tags || [], favorite: !!n.fav, audio_path: n.audioPath || null, audio_type: n.audioType || null,
+    folder: n.folder || '', project: n.project || '', tags: n.tags || [], favorite: !!n.fav,
     deleted_at: n.deleted || null, created: n.created, modified: n.modified,
   });
 
@@ -123,50 +131,18 @@ window.SLRNotes = (() => {
     }
     const list = await localRead();
     const i = list.findIndex(x => x.id === n.id);
-    const plain = { ...n }; delete plain.audioPath;
+    const plain = { ...n }; delete plain.audioPath; delete plain.audio; delete plain.audioType;
     if (i >= 0) list[i] = plain; else list.push(plain);
     await localWrite(list);
   }
 
-  async function putAudio(n, blob) {
-    if (isCloud()) {
-      const { client, user } = cloudSession();
-      const path = `${user.id}/${n.id}.${extOf(blob.type)}`;
-      const { error } = await client.storage.from('dictations').upload(path, blob, { contentType: blob.type || 'audio/webm', upsert: true });
-      if (error) throw error;
-      n.audioPath = path; n.audioType = blob.type; n.audio = true;
-      return;
-    }
-    const dir = await localAudioDir(true);
-    const name = `${n.id}.${extOf(blob.type)}`;
-    const fh = await dir.getFileHandle(name, { create: true });
-    const w = await fh.createWritable();
-    await w.write(blob); await w.close();
-    n.audioPath = name; n.audioType = blob.type; n.audio = true;
-  }
-
-  async function getAudio(n) {
-    if (isCloud()) {
-      const { client } = cloudSession();
-      const { data, error } = await client.storage.from('dictations').download(n.audioPath);
-      if (error) throw error;
-      return data;
-    }
-    const dir = await localAudioDir(false);
-    const fh = await dir.getFileHandle(n.audioPath || `${n.id}.${extOf(n.audioType)}`);
-    return fh.getFile();
-  }
-
+  // Legacy: remove a recording that an older version stored next to the entry (local workspace only).
   async function dropAudio(n) {
-    try {
-      if (isCloud()) { if (n.audioPath) await cloudSession().client.storage.from('dictations').remove([n.audioPath]); }
-      else { const dir = await localAudioDir(false); await dir.removeEntry(n.audioPath || `${n.id}.${extOf(n.audioType)}`); }
-    } catch (_) { /* file already gone */ }
-    n.audio = false; n.audioPath = ''; n.audioType = '';
+    try { const dir = await localAudioDir(); await dir.removeEntry(n.audioPath || `${n.id}.${extOf(n.audioType)}`); } catch (_) { /* no file, nothing to clean */ }
   }
 
   async function dropNote(n) {
-    if (n.audio) await dropAudio(n);
+    if (!isCloud() && n.audio) await dropAudio(n);
     if (isCloud()) {
       const { client } = cloudSession();
       const { error } = await client.from('dictations').delete().eq('id', n.id);
@@ -282,13 +258,13 @@ window.SLRNotes = (() => {
   // unsaved result survives a change of view.
   const D = {
     list: null, loading: false, error: '',
-    q: '', folder: '*', tag: '', kind: '*',
+    q: '', folder: '*', tag: '', kind: '*', project: '*', sel: new Set(),
     view: lsGet('slr-dik-view') === 'list' ? 'list' : 'cards',
     sort: lsGet('slr-dik-sort') || 'new',
     lang: lsGet('slr-dik-lang') || 'auto',
     rec: null, res: null, cont: null, edit: null, draft: null,
-    open: new Set(), playing: null, trash: false,
-    urls: {}, status: '', container: null, owner: undefined,
+    open: new Set(), trash: false,
+    status: '', container: null, owner: undefined,
   };
   const LANG_OK = new Set(LANGS.map(l => l[0]));
   const langName = k => (LANGS.find(l => l[0] === k) || [0, k || ''])[1];
@@ -304,6 +280,10 @@ window.SLRNotes = (() => {
   }
   const lastUsed = d => usedMap[d.id] || Date.parse(d.created) || 0;
 
+  const isDict = d => (d.dur || 0) > 0 || !!d.audio;        // a dictation has a length; a typed note has none
+  const projects = () => (window.SLRApp && SLRApp.state && SLRApp.state.projects) || [];
+  const curProject = () => (window.SLRApp && SLRApp.state && SLRApp.state.currentFolder) || '';
+  const projName = f => { if (!f) return ''; const p = projects().find(x => x.workspace_folder === f); return (p && p.name) || f; };
   const active = () => (D.list || []).filter(d => !d.deleted);
   const inTrash = () => (D.list || []).filter(d => d.deleted);
   const busy = () => !!(D.rec || D.res || D.cont || (D.edit && D.draft));
@@ -397,7 +377,7 @@ window.SLRNotes = (() => {
     D.res = {
       blob, type: (blob.type || 'audio/webm').split(';')[0].toLowerCase(), url: URL.createObjectURL(blob), dur,
       status: 'ready', lang: lang || D.lang, text: old ? old.text : '', title: old ? old.title : '', folder: old ? old.folder : '', tags: old ? old.tags : '',
-      keep: old ? old.keep : true, error: '', saving: false,
+      project: old ? old.project : curProject(), error: '', saving: false,
     };
     drawRec(); drawResult();
     const c = config();
@@ -421,20 +401,19 @@ window.SLRNotes = (() => {
   function readResultFields() {
     const g = D.res; if (!g) return;
     const v = id => { const e = document.getElementById(id); return e ? e.value : null; };
-    const t = v('dikTitle'), x = v('dikText'), f = v('dikFolder'), tg = v('dikTags'), k = document.getElementById('dikKeep');
-    if (t !== null) g.title = t; if (x !== null) g.text = x; if (f !== null) g.folder = f; if (tg !== null) g.tags = tg; if (k) g.keep = k.checked;
+    const t = v('dikTitle'), x = v('dikText'), f = v('dikFolder'), tg = v('dikTags'), pr = v('dikProject');
+    if (t !== null) g.title = t; if (x !== null) g.text = x; if (f !== null) g.folder = f; if (tg !== null) g.tags = tg; if (pr !== null) g.project = pr;
   }
   async function saveResult() {
     const g = D.res; if (!g || g.status === 'busy' || g.saving) return;
     readResultFields();
     g.saving = true; drawResult();
     const now = new Date().toISOString();
-    const n = { id: uid(), title: g.title.trim() || autoTitle(g.text, 'Dictation'), text: g.text, lang: LANG_OK.has(g.lang) ? g.lang : 'auto', dur: g.dur, folder: (g.folder || '').trim(), tags: splitTags(g.tags), fav: false, audio: false, audioPath: '', audioType: '', deleted: '', created: now, modified: now };
+    const n = { id: uid(), title: g.title.trim() || autoTitle(g.text, 'Dictation'), text: g.text, lang: LANG_OK.has(g.lang) ? g.lang : 'auto', dur: g.dur, folder: (g.folder || '').trim(), project: g.project || '', tags: splitTags(g.tags), fav: false, deleted: '', created: now, modified: now };
     try {
-      if (g.keep) await putAudio(n, g.blob);
       await putNote(n);
       D.list.unshift(n); URL.revokeObjectURL(g.url); D.res = null;
-      markUsed(n.id); toast('Dictation saved.');
+      markUsed(n.id); toast('Dictation saved (text only; the recording is discarded).');
       drawRec(); drawResult(); drawList();
     } catch (e) { g.saving = false; toast('Could not save: ' + (e.message || e), true); drawResult(); }
   }
@@ -450,7 +429,7 @@ window.SLRNotes = (() => {
     const f = document.querySelector('.dik.bearb'), t = document.getElementById('dEdText');
     if (!f || !t || String(D.edit) !== f.dataset.id) return;
     const v = id => (document.getElementById(id) || {}).value || '';
-    D.draft = { id: f.dataset.id, title: v('dEdTitle'), text: t.value, folder: v('dEdFolder'), tags: v('dEdTags'), s: t.selectionStart, e: t.selectionEnd, focus: document.activeElement === t };
+    D.draft = { id: f.dataset.id, title: v('dEdTitle'), text: t.value, folder: v('dEdFolder'), project: v('dEdProject'), tags: v('dEdTags'), s: t.selectionStart, e: t.selectionEnd, focus: document.activeElement === t };
   }
   async function contStart(id) {
     if (D.rec || D.res || D.cont) { toast('Finish or discard the current recording first.', true); return; }
@@ -467,7 +446,7 @@ window.SLRNotes = (() => {
     if (err || !text) { toast(err || 'No speech was recognised.', true); drawRec(); drawList(); return; }
     if (D.edit !== target.id || !D.draft || D.draft.id !== target.id) {
       const d = D.list.find(x => x.id === target.id);
-      D.edit = target.id; D.draft = { id: target.id, title: d ? d.title : '', text: d ? d.text : '', folder: d ? d.folder : '', tags: d ? d.tags.join(', ') : '', s: target.s, e: target.e };
+      D.edit = target.id; D.draft = { id: target.id, title: d ? d.title : '', text: d ? d.text : '', folder: d ? d.folder : '', project: d ? d.project || '' : '', tags: d ? d.tags.join(', ') : '', s: target.s, e: target.e };
     }
     const en = D.draft, a = Math.min(target.s, en.text.length), b = Math.min(Math.max(target.e, a), en.text.length);
     const before = en.text.slice(0, a), after = en.text.slice(b), add = text.trim();
@@ -481,6 +460,10 @@ window.SLRNotes = (() => {
   const I = () => window.SLRIcons;
   const ib = (ic, text, attrs, cls) => `<button type="button" class="ibtn${cls ? ' ' + cls : ''}" title="${esc(text)}" aria-label="${esc(text)}" ${attrs || ''}>${I()[ic] || ''}</button>`;
   const langPick = (cur, attr, label) => `<label class="dik-sprw" title="${esc(label || 'Language of the recording')}">${I().globe}<select class="sel" ${attr} aria-label="${esc(label || 'Language of the recording')}">${LANGS.map(([k, t]) => `<option value="${k}"${cur === k ? ' selected' : ''}>${t}</option>`).join('')}</select></label>`;
+  const projectSelect = (id, cur) => {
+    const list = projects(), has = !cur || list.some(p => p.workspace_folder === cur);
+    return `<label class="dik-f">Project<select id="${id}" class="sel"><option value="">No project</option>${list.map(p => `<option value="${esc(p.workspace_folder)}"${cur === p.workspace_folder ? ' selected' : ''}>${esc(p.name || p.workspace_folder)}</option>`).join('')}${has ? '' : `<option value="${esc(cur)}" selected>${esc(cur)}</option>`}</select></label>`;
+  };
   const folders = () => [...new Set(active().map(d => d.folder).filter(Boolean))].sort((a, b) => a.localeCompare(b));
 
   function recHTML() {
@@ -494,24 +477,23 @@ window.SLRNotes = (() => {
 
   function resultHTML() {
     const g = D.res; if (!g) return '';
-    const head = `<h3>Result<span class="hint">${fmtDur(g.dur || 0)} · ${esc(langName(g.lang))}</span></h3><audio controls src="${esc(g.url)}" class="dik-audio"></audio>`;
+    const head = `<h3>Result<span class="hint">${fmtDur(g.dur || 0)} · ${esc(langName(g.lang))}</span></h3><audio controls src="${esc(g.url)}" class="dik-audio"></audio><p class="field-hint" style="margin:2px 0 0">The recording is only for checking the text here. Only the text is saved; the audio is discarded.</p>`;
     if (g.status === 'busy') return `<section class="settings-card dik-panel dik-erg">${head}<p class="dik-spinner"><span class="spin"></span><span id="dikStatus">${esc(D.status || 'Working …')}</span></p><div class="dik-edakt">${ib('close', 'Discard', 'data-dik="discardres"', 'cancel')}</div></section>`;
     const fl = folders();
     return `<section class="settings-card dik-panel dik-erg">${head}${g.error ? `<p class="err">${esc(g.error)}</p>` : ''}
       <label class="dik-f">Title<input id="dikTitle" type="text" maxlength="140" value="${esc(g.title)}"></label>
       <label class="dik-f">Text<textarea id="dikText" rows="9" spellcheck="true">${esc(g.text)}</textarea></label>
-      <div class="dik-zeile"><label class="dik-f">Folder<input id="dikFolder" type="text" list="dikFolderList" maxlength="60" placeholder="no folder" value="${esc(g.folder)}"><datalist id="dikFolderList">${fl.map(o => `<option value="${esc(o)}">`).join('')}</datalist></label>
+      <div class="dik-zeile">${projectSelect('dikProject', g.project)}<label class="dik-f">Folder<input id="dikFolder" type="text" list="dikFolderList" maxlength="60" placeholder="no folder" value="${esc(g.folder)}"><datalist id="dikFolderList">${fl.map(o => `<option value="${esc(o)}">`).join('')}</datalist></label>
         <label class="dik-f">Keywords (comma separated)<input id="dikTags" type="text" maxlength="200" placeholder="e.g. idea, methods" value="${esc(g.tags)}"></label></div>
-      <label class="dik-chk"><input id="dikKeep" type="checkbox"${g.keep ? ' checked' : ''}> Keep the audio file too</label>
       <div class="dik-edakt">${g.saving ? '<span class="muted">Saving …</span>' : `${ib('check', 'Save', 'data-dik="saveres"', 'save')}${ib('close', 'Discard', 'data-dik="discardres"', 'cancel')}${ib('eraser', 'Remove formatting characters from the text (#, **, --, …)', 'data-dik="mdclean"', 'md')}${canTranscribe() ? ib('refresh', g.text ? 'Transcribe again' : 'Transcribe', 'data-dik="transcribe"', 'weiter') : ''}<span class="grow"></span>${langPick(g.lang, 'data-drelang', 'Transcribe again as …')}`}</div></section>`;
   }
   function drawResult() { const e = document.getElementById('dikErg'); if (e) { e.innerHTML = resultHTML(); e.hidden = !D.res; } }
 
   function visible() {
     const q = normS(D.q || '');
-    const hit = d => !q || normS([d.title, d.text, d.folder, d.tags.join(' ')].join(' ')).includes(q);
+    const hit = d => !q || normS([d.title, d.text, d.folder, projName(d.project), d.tags.join(' ')].join(' ')).includes(q);
     if (D.trash) return inTrash().filter(hit).sort((a, b) => String(b.deleted).localeCompare(String(a.deleted)));
-    const l = active().filter(d => (D.kind === '*' || (D.kind === 'note') === !d.audio) && (D.folder === '*' || (D.folder === '' ? !d.folder : d.folder === D.folder)) && (!D.tag || d.tags.includes(D.tag)) && hit(d));
+    const l = active().filter(d => (D.kind === '*' || (D.kind === 'note') === !isDict(d)) && (D.project === '*' || (D.project === '' ? !d.project : d.project === D.project)) && (D.folder === '*' || (D.folder === '' ? !d.folder : d.folder === D.folder)) && (!D.tag || d.tags.includes(D.tag)) && hit(d));
     const f = {
       new: (a, b) => String(b.created).localeCompare(String(a.created)),
       old: (a, b) => String(a.created).localeCompare(String(b.created)),
@@ -529,38 +511,42 @@ window.SLRNotes = (() => {
     const act = active(), fl = folders(), tags = [...new Set(act.flatMap(d => d.tags))].sort((a, b) => a.localeCompare(b));
     const n = o => act.filter(d => o === '*' ? true : o === '' ? !d.folder : d.folder === o).length;
     const chip = (o, t, ic) => `<button type="button" class="dik-ord" data-dfolder="${esc(o)}" aria-pressed="${D.folder === o}">${ic ? I()[ic] : ''}${esc(t)} <span class="num">${n(o)}</span></button>`;
-    const nk = k => act.filter(d => k === '*' ? true : (k === 'note') === !d.audio).length;
+    const nk = k => act.filter(d => k === '*' ? true : (k === 'note') === !isDict(d)).length;
     const kind = (k, t, ic) => `<button type="button" class="ibtn dik-ai" data-dkind="${k}" aria-pressed="${D.kind === k}" title="${t}" aria-label="${t}">${I()[ic]}<span class="num">${nk(k)}</span></button>`;
+    const pids = [...new Set(act.map(d => d.project).filter(Boolean))].sort((a, b) => projName(a).localeCompare(projName(b)));
+    const np = o => act.filter(d => o === '*' ? true : o === '' ? !d.project : d.project === o).length;
+    const pchip = (o, t) => `<button type="button" class="dik-ord" data-dproject="${esc(o)}" aria-pressed="${D.project === o}">${o && o !== '*' ? I().layers : ''}${esc(t)} <span class="num">${np(o)}</span></button>`;
+    const nsel = D.sel.size, selbar = nsel ? `<div class="dik-crow dik-selbar" role="group" aria-label="Selection"><b>${nsel} selected</b>${ib('merge', 'Combine the selected entries into one new note (opens it for editing)', 'data-dik="combine"', 'weiter')}${ib('copy', 'Copy the selected entries as one text', 'data-dik="copysel"')}${ib('close', 'Clear the selection', 'data-dik="clearsel"', 'cancel')}</div>` : '';
     return `<div class="dik-crow"><div class="dik-arts" role="group" aria-label="Type">${kind('*', 'All', 'layers')}${kind('dictation', 'Dictations', 'mic')}${kind('note', 'Notes', 'docOther')}</div>${trashBtn}</div>
+      ${pids.length || projects().length ? `<div class="dik-crow dik-ordnerzeile dik-projzeile" role="group" aria-label="Projects">${pchip('*', 'All projects')}${pchip('', 'No project')}${pids.map(o => pchip(o, projName(o))).join('')}</div>` : ''}
       <div class="dik-crow dik-ordnerzeile" role="group" aria-label="Folders">${chip('*', 'All folders', '')}${chip('', 'No folder', '')}${fl.map(o => chip(o, o, 'folder')).join('')}${D.folder && D.folder !== '*' ? ib('pencil', 'Rename this folder', 'data-dik="renamefolder"') : ''}</div>
-      ${tags.length ? `<div class="dik-crow dik-tagzeile" role="group" aria-label="Keywords">${tags.map(tg => `<button type="button" class="dik-tag" data-dtag="${esc(tg)}" aria-pressed="${D.tag === tg}">#${esc(tg)}</button>`).join('')}</div>` : ''}`;
+      ${tags.length ? `<div class="dik-crow dik-tagzeile" role="group" aria-label="Keywords">${tags.map(tg => `<button type="button" class="dik-tag" data-dtag="${esc(tg)}" aria-pressed="${D.tag === tg}">#${esc(tg)}</button>`).join('')}</div>` : ''}${selbar}`;
   }
 
   function editHTML(d, isNew) {
     const id = isNew ? 'new' : d.id;
-    const e = D.draft && D.draft.id === id ? D.draft : { title: d.title, text: d.text, folder: d.folder, tags: (d.tags || []).join(', ') };
+    const e = D.draft && D.draft.id === id ? D.draft : { title: d.title, text: d.text, folder: d.folder, project: d.project || '', tags: (d.tags || []).join(', ') };
     const rec = D.rec && D.rec.target && D.rec.target.id === id, recognising = D.cont && D.cont.id === id;
     const cont = rec ? ib('stop', 'Stop recording and insert the text', 'data-dik="stop"', 'danger')
       : recognising ? `<span class="dik-spinner"><span class="spin"></span>Transcribing …</span>`
       : (canTranscribe() ? ib('micplus', 'Continue dictating: the text is inserted at the cursor (also mid-sentence; selected text is replaced)', `data-dik="cont" data-id="${id}"${D.rec || D.res || D.cont ? ' disabled' : ''}`, 'weiter') : '');
     return `<article class="dik bearb" data-id="${id}"><div class="dik-edit"><label class="dik-f">Title<input id="dEdTitle" type="text" maxlength="140" value="${esc(e.title)}" placeholder="${isNew ? 'Title of the note' : ''}"></label><label class="dik-f">Text<textarea id="dEdText" rows="${isNew ? 8 : 10}" spellcheck="true">${esc(e.text)}</textarea></label>
-      <div class="dik-zeile"><label class="dik-f">Folder<input id="dEdFolder" type="text" list="dikFolderList2" maxlength="60" placeholder="no folder" value="${esc(e.folder)}"><datalist id="dikFolderList2">${folders().map(x => `<option value="${esc(x)}">`).join('')}</datalist></label><label class="dik-f">Keywords (comma separated)<input id="dEdTags" type="text" maxlength="200" placeholder="e.g. idea, methods" value="${esc(e.tags)}"></label></div>
+      <div class="dik-zeile">${projectSelect('dEdProject', e.project)}<label class="dik-f">Folder<input id="dEdFolder" type="text" list="dikFolderList2" maxlength="60" placeholder="no folder" value="${esc(e.folder)}"><datalist id="dikFolderList2">${folders().map(x => `<option value="${esc(x)}">`).join('')}</datalist></label><label class="dik-f">Keywords (comma separated)<input id="dEdTags" type="text" maxlength="200" placeholder="e.g. idea, methods" value="${esc(e.tags)}"></label></div>
       <div class="dik-edakt">${ib('check', 'Save', `data-dik="savedit" data-id="${id}"`, 'save')}${ib('close', 'Cancel', 'data-dik="canceledit"', 'cancel')}${ib('eraser', 'Remove formatting characters from the text (#, **, --, …)', 'data-dik="mdclean"', 'md')}${cont}</div></div></article>`;
   }
 
   function cardHTML(d) {
     if (D.edit === d.id) return editHTML(d, false);
-    const open = D.open.has(d.id), note = !d.audio;
+    const open = D.open.has(d.id), note = !isDict(d), sel = D.sel.has(d.id);
     const lg = d.lang && d.lang !== 'auto' ? d.lang.toUpperCase() : '';
-    const meta = [d.deleted ? 'Deleted ' + fmtDate(d.deleted) : '', fmtDate(d.created), d.audio ? '🎙 ' + fmtDur(d.dur) : '', d.audio ? lg : '', d.folder ? '📁 ' + d.folder : '', ...d.tags.map(t => '#' + t)].filter(Boolean).map(esc).join(' · ');
-    const IC = { more: open ? 'chevronUp' : 'chevronDown', play: D.playing === d.id ? 'stop' : 'play', copy: 'copy', txt: 'download', read: 'speaker', edit: 'pencil', cont: 'micplus', rmaudio: 'micoff', del: 'trash', restore: 'restore', mdweg: 'eraser' };
+    const meta = [d.deleted ? 'Deleted ' + fmtDate(d.deleted) : '', fmtDate(d.created), isDict(d) ? '🎙 ' + fmtDur(d.dur) : '', isDict(d) ? lg : '', d.project ? '▣ ' + projName(d.project) : '', d.folder ? '📁 ' + d.folder : '', ...d.tags.map(t => '#' + t)].filter(Boolean).map(esc).join(' · ');
+    const IC = { more: open ? 'chevronUp' : 'chevronDown', copy: 'copy', txt: 'download', read: 'speaker', edit: 'pencil', cont: 'micplus', del: 'trash', restore: 'restore', mdweg: 'eraser' };
     const b = (a, t, cls) => ib(IC[a], t, `data-dik="${a}" data-id="${d.id}"`, cls);
-    return `<article class="dik${note ? ' notiz' : ''}" data-id="${d.id}"><header><button type="button" class="dik-fav" data-dik="fav" data-id="${d.id}" aria-pressed="${d.fav}" title="Mark as important" aria-label="Important">★</button><div class="dik-kopf"><b>${esc(d.title || (note ? 'Note' : 'Dictation'))}${note ? ' <span class="dik-art">Note</span>' : ''}</b><small>${meta}</small></div></header>
+    return `<article class="dik${note ? ' notiz' : ''}${sel ? ' gewaehlt' : ''}" data-id="${d.id}"><header>${d.deleted ? '' : `<label class="dik-wahl" title="Select to combine or copy several entries"><input type="checkbox" data-dsel="${d.id}"${sel ? ' checked' : ''} aria-label="Select this entry"></label>`}<button type="button" class="dik-fav" data-dik="fav" data-id="${d.id}" aria-pressed="${d.fav}" title="Mark as important" aria-label="Important">★</button><div class="dik-kopf"><b>${esc(d.title || (note ? 'Note' : 'Dictation'))}${note ? ' <span class="dik-art">Note</span>' : ''}</b><small>${meta}</small></div></header>
       <p class="dik-text${open ? ' offen' : ''}">${d.text ? `<span class="mdw">${mdHTML(d.text)}</span>` : '<span class="muted">(no text)</span>'}</p>
-      ${D.playing === d.id && D.urls[d.id] ? `<audio controls autoplay src="${esc(D.urls[d.id])}" class="dik-audio"></audio>` : D.playing === d.id ? '<p class="muted">Loading audio …</p>' : ''}
-      <div class="row dik-akt">${d.text.length > 240 || d.text.includes('\n') ? b('more', open ? 'Less' : 'More') : ''}${d.audio ? b('play', D.playing === d.id ? 'Stop' : 'Play') : ''}${d.deleted
+      <div class="row dik-akt">${d.text.length > 240 || d.text.includes('\n') ? b('more', open ? 'Less' : 'More') : ''}${d.deleted
         ? `${b('copy', 'Copy')}${b('restore', 'Restore', 'ok')}${b('del', 'Delete for good', 'danger')}`
-        : `${b('copy', 'Copy')}${b('txt', 'Save as .txt')}${d.text.trim() ? b('read', 'Read aloud') : ''}${b('edit', 'Edit')}${mdHas(d.text) ? b('mdweg', 'Remove formatting characters (#, **, --, …)', 'md') : ''}${canTranscribe() ? b('cont', 'Continue dictating (at the cursor)') : ''}${d.audio ? b('rmaudio', 'Delete the audio (the text stays)', 'danger') : ''}${b('del', 'Delete', 'danger')}`}</div></article>`;
+        : `${b('copy', 'Copy')}${b('txt', 'Save as .txt')}${d.text.trim() ? b('read', 'Read aloud') : ''}${b('edit', 'Edit')}${mdHas(d.text) ? b('mdweg', 'Remove formatting characters (#, **, --, …)', 'md') : ''}${canTranscribe() ? b('cont', 'Continue dictating (at the cursor)') : ''}${b('del', 'Delete', 'danger')}`}</div></article>`;
   }
 
   function drawList() {
@@ -570,8 +556,9 @@ window.SLRNotes = (() => {
     const s = visible(), total = D.trash ? inTrash().length : active().length;
     if (t) t.textContent = `${s.length} of ${total}`;
     l.className = 'dik-listebox ' + D.view;
-    const neu = D.edit === 'new' ? editHTML({ title: '', text: '', folder: D.folder && D.folder !== '*' ? D.folder : '', tags: D.tag ? [D.tag] : [] }, true) : '';
-    l.innerHTML = neu + (D.error ? `<p class="err">${esc(D.error)}</p>` : D.list === null ? '<p class="muted">Loading …</p>' : s.length ? s.map(cardHTML).join('') : `<p class="empty">${D.trash ? (total ? 'Nothing found.' : 'The trash is empty.') : total ? 'Nothing found.' : 'No dictations or notes yet. Use the microphone above to record the first one, or write a note.'}</p>`);
+    const neu = D.edit === 'new' ? editHTML({ title: '', text: '', folder: D.folder && D.folder !== '*' ? D.folder : '', project: D.project && D.project !== '*' ? D.project : curProject(), tags: D.tag ? [D.tag] : [] }, true) : '';
+    const trashNote = D.trash && total ? `<p class="field-hint" style="margin:0 0 8px">${config().purge ? `Entries in the trash are removed for good after ${config().purge} days.` : 'Automatic trash cleanup is off.'} You can change this in Settings &rarr; Dictations.</p>` : '';
+    l.innerHTML = trashNote + neu + (D.error ? `<p class="err">${esc(D.error)}</p>` : D.list === null ? '<p class="muted">Loading …</p>' : s.length ? s.map(cardHTML).join('') : `<p class="empty">${D.trash ? (total ? 'Nothing found.' : 'The trash is empty.') : total ? 'Nothing found.' : 'No dictations or notes yet. Use the microphone above to record the first one, or write a note.'}</p>`);
     const en = D.draft && D.draft.id === D.edit ? D.draft : null;
     if (en && en.focus) { const ta = document.getElementById('dEdText'); if (ta) { ta.focus(); ta.setSelectionRange(en.s, en.e); } }
     else if (D.edit === 'new' && !en) { const ta = document.getElementById('dEdTitle'); if (ta && !ta.dataset.focus) { ta.dataset.focus = '1'; ta.focus(); } }
@@ -590,14 +577,37 @@ window.SLRNotes = (() => {
   async function refresh() {
     if (D.loading) return;
     D.loading = true; D.error = '';
-    try { D.list = await loadAll(); }
+    try { D.list = await loadAll(); await purgeTrash(); }
     catch (e) {
       D.list = []; const m = (e && e.message) || String(e);
       D.error = isCloud() && /dictations|relation|schema cache|does not exist|column/i.test(m)
-        ? 'The Dictations & Notes table has not been created (or updated) in your Supabase project yet. Run the one-time SQL for it, then reload this page.'
+        ? 'The Dictations & Notes table has not been created (or updated) in your cloud account yet. Run its one-time setup SQL, then reload this page.'
         : 'Could not load: ' + m;
     }
     D.loading = false; drawList();
+  }
+
+  // Entries that have been in the trash longer than the chosen number of days are removed for good.
+  async function purgeTrash() {
+    const days = purgeDays(); if (!days || !D.list) return;
+    const limit = Date.now() - days * 864e5, old = D.list.filter(d => d.deleted && Date.parse(d.deleted) < limit);
+    if (!old.length) return;
+    for (const n of old) { try { await dropNote(n); } catch (_) { return; } }
+    D.list = D.list.filter(d => !old.includes(d));
+  }
+
+  // Short size note for Settings: how much text is stored. Text is tiny; recordings are never stored.
+  function storageInfo() {
+    if (!D.list) return '';
+    const chars = D.list.reduce((s, d) => s + (d.title || '').length + (d.text || '').length, 0);
+    const kb = chars / 1024, size = kb < 1024 ? Math.max(1, Math.round(kb)) + ' KB' : (kb / 1024).toFixed(1) + ' MB';
+    return `${D.list.length} ${D.list.length === 1 ? 'entry' : 'entries'}, about ${size} of text.`;
+  }
+
+  // Selected entries as one text, oldest first, each under a heading with project and date.
+  function combinedText(ids) {
+    const sel = (D.list || []).filter(d => ids.has(d.id)).sort((a, b) => String(a.created).localeCompare(String(b.created)));
+    return { sel, text: sel.map(d => `## ${d.title || (isDict(d) ? 'Dictation' : 'Note')}\n${[projName(d.project), fmtDate(d.created)].filter(Boolean).join(' · ')}\n\n${(d.text || '').trim()}`).join('\n\n') };
   }
 
   // ── Actions ───────────────────────────────────────────────────────────────
@@ -614,20 +624,19 @@ window.SLRNotes = (() => {
       case 'settings': return SLRApp.navigate('settings');
       case 'fav': if (!d) return; d.fav = !d.fav; drawList(); try { await putNote(d); } catch (e) { d.fav = !d.fav; drawList(); toast(e.message || String(e), true); } return;
       case 'more': if (!d) return; D.open.has(id) ? D.open.delete(id) : D.open.add(id); markUsed(id); return drawList();
-      case 'play': {
-        if (!d) return;
-        if (D.playing === id) { D.playing = null; return drawList(); }
-        D.playing = id; markUsed(id); drawList();
-        if (!D.urls[id]) { try { D.urls[id] = URL.createObjectURL(await getAudio(d)); } catch (e) { D.playing = null; toast('Audio not available: ' + (e.message || e), true); } drawList(); }
-        return;
+      case 'clearsel': D.sel.clear(); return drawList();
+      case 'copysel': { if (!D.sel.size) return; try { await navigator.clipboard.writeText(combinedText(D.sel).text); toast('Copied the selected entries as one text.'); } catch (_) { toast('Copying is blocked in this browser.', true); } return; }
+      case 'combine': {
+        if (!D.sel.size) return;
+        if (D.rec || D.res || D.cont) { toast('Finish or discard the current recording first.', true); return; }
+        const { sel, text } = combinedText(D.sel), ps = [...new Set(sel.map(x => x.project).filter(Boolean))];
+        D.trash = false; D.edit = 'new';
+        D.draft = { id: 'new', title: 'Combined: ' + sel.slice(0, 3).map(x => x.title || 'Note').join(' + ').slice(0, 80), text, folder: '', project: ps.length === 1 ? ps[0] : curProject(), tags: [...new Set(sel.flatMap(x => x.tags))].join(', '), s: 0, e: 0 };
+        toast('Review the combined text, then save it as a new note. The original entries stay as they are.');
+        return drawList();
       }
       case 'copy': if (!d) return; try { await navigator.clipboard.writeText(d.text); markUsed(id); toast('Text copied.'); } catch (_) { toast('Copying is blocked in this browser.', true); } return;
       case 'newnote': if (D.rec || D.res || D.cont) { toast('Finish or discard the current recording first.', true); return; } D.trash = false; D.edit = 'new'; D.draft = null; return drawList();
-      case 'rmaudio': {
-        if (!d || !(await SLRViews.confirmDialog({ title: 'Delete the audio?', message: `The recording of “${d.title || 'Dictation'}” is deleted. The text stays as a note.`, confirmLabel: 'Delete audio', danger: true }))) return;
-        try { await dropAudio(d); await putNote(d); if (D.urls[id]) { URL.revokeObjectURL(D.urls[id]); delete D.urls[id]; } if (D.playing === id) D.playing = null; toast('Audio deleted, the text is now a note.'); } catch (e) { toast(e.message || String(e), true); }
-        return drawList();
-      }
       case 'txt': {
         if (!d) return; markUsed(id);
         const name = (d.title || 'Dictation').replace(/[\\/:*?"<>|]+/g, ' ').trim().slice(0, 60) || 'Dictation';
@@ -640,15 +649,15 @@ window.SLRNotes = (() => {
       case 'canceledit': if (D.rec && D.rec.target) { toast('Finish the recording first.', true); return; } D.edit = null; D.draft = null; return drawList();
       case 'savedit': {
         const v = i => (document.getElementById(i) || {}).value || '';
-        const title = v('dEdTitle'), text = v('dEdText'), folder = v('dEdFolder').trim(), tags = splitTags(v('dEdTags'));
+        const title = v('dEdTitle'), text = v('dEdText'), folder = v('dEdFolder').trim(), project = v('dEdProject'), tags = splitTags(v('dEdTags'));
         try {
           if (id === 'new') {
             if (!text.trim() && !title.trim()) { toast('Please enter a title or some text.', true); return; }
             const now = new Date().toISOString();
-            const n = { id: uid(), title: title.trim() || autoTitle(text, 'Note'), text, lang: 'auto', dur: 0, folder, tags, fav: false, audio: false, audioPath: '', audioType: '', deleted: '', created: now, modified: now };
+            const n = { id: uid(), title: title.trim() || autoTitle(text, 'Note'), text, lang: 'auto', dur: 0, folder, project, tags, fav: false, deleted: '', created: now, modified: now };
             await putNote(n); D.list.unshift(n); markUsed(n.id); toast('Note saved.');
           } else if (d) {
-            d.title = title.trim() || autoTitle(text, d.audio ? 'Dictation' : 'Note'); d.text = text; d.folder = folder; d.tags = tags;
+            d.title = title.trim() || autoTitle(text, isDict(d) ? 'Dictation' : 'Note'); d.text = text; d.folder = folder; d.project = project; d.tags = tags;
             await putNote(d); markUsed(id); toast('Saved.');
           }
           D.edit = null; D.draft = null;
@@ -657,17 +666,17 @@ window.SLRNotes = (() => {
       }
       case 'del': {
         if (!d) return;
-        if (!d.deleted) { return upd(() => { d.deleted = new Date().toISOString(); if (D.playing === id) D.playing = null; if (D.edit === id) { D.edit = null; D.draft = null; } }, `“${d.title || (d.audio ? 'Dictation' : 'Note')}” is in the trash.`); }
-        if (!(await SLRViews.confirmDialog({ title: 'Delete for good?', message: `“${d.title || (d.audio ? 'Dictation' : 'Note')}”${d.audio ? ' with its audio' : ''} is removed permanently. This cannot be undone.`, confirmLabel: 'Delete', danger: true }))) return;
-        try { await dropNote(d); D.list = D.list.filter(x => x.id !== id); if (D.urls[id]) { URL.revokeObjectURL(D.urls[id]); delete D.urls[id]; } if (D.playing === id) D.playing = null; toast('Deleted for good.'); } catch (e) { toast(e.message || String(e), true); }
+        if (!d.deleted) { return upd(() => { d.deleted = new Date().toISOString(); D.sel.delete(id); if (D.edit === id) { D.edit = null; D.draft = null; } }, `“${d.title || (isDict(d) ? 'Dictation' : 'Note')}” is in the trash.`); }
+        if (!(await SLRViews.confirmDialog({ title: 'Delete for good?', message: `“${d.title || (isDict(d) ? 'Dictation' : 'Note')}” is removed permanently. This cannot be undone.`, confirmLabel: 'Delete', danger: true }))) return;
+        try { await dropNote(d); D.list = D.list.filter(x => x.id !== id); D.sel.delete(id); toast('Deleted for good.'); } catch (e) { toast(e.message || String(e), true); }
         return drawList();
       }
       case 'restore': if (!d) return; return upd(() => { d.deleted = ''; }, 'Restored.');
       case 'trash': if (D.edit && D.draft && !confirm('The changes in the open form will be lost. Switch anyway?')) return; D.trash = !D.trash; D.edit = null; D.draft = null; return drawList();
       case 'emptytrash': {
         const t = inTrash(); if (!t.length) return;
-        if (!(await SLRViews.confirmDialog({ title: 'Empty the trash?', message: `${t.length} ${t.length === 1 ? 'entry' : 'entries'} with their audio files will be removed permanently.`, confirmLabel: 'Empty trash', danger: true }))) return;
-        try { for (const n of t) await dropNote(n); D.list = active(); D.playing = null; toast('Trash emptied.'); } catch (e) { toast(e.message || String(e), true); }
+        if (!(await SLRViews.confirmDialog({ title: 'Empty the trash?', message: `${t.length} ${t.length === 1 ? 'entry' : 'entries'} will be removed permanently. This cannot be undone.`, confirmLabel: 'Empty trash', danger: true }))) return;
+        try { for (const n of t) await dropNote(n); D.list = active(); toast('Trash emptied.'); } catch (e) { toast(e.message || String(e), true); }
         return drawList();
       }
       case 'cont': if (id) return contStart(id); return;
@@ -710,6 +719,7 @@ window.SLRNotes = (() => {
       if (v) { D.view = v.dataset.dview === 'list' ? 'list' : 'cards'; lsSet('slr-dik-view', D.view); container.querySelectorAll('[data-dview]').forEach(x => x.setAttribute('aria-pressed', String(x.dataset.dview === D.view))); drawList(); return; }
       const k = e.target.closest('[data-dkind]'); if (k) { D.kind = k.dataset.dkind; drawList(); return; }
       const f = e.target.closest('[data-dfolder]'); if (f) { D.folder = f.dataset.dfolder; drawList(); return; }
+      const pj = e.target.closest('[data-dproject]'); if (pj) { D.project = pj.dataset.dproject; drawList(); return; }
       const t = e.target.closest('[data-dtag]'); if (t) { D.tag = D.tag === t.dataset.dtag ? '' : t.dataset.dtag; drawList(); }
     };
     container.oninput = e => { if (e.target.id === 'dikSearch') { D.q = e.target.value; drawList(); } };
@@ -717,6 +727,7 @@ window.SLRNotes = (() => {
       const t = e.target;
       if (t.id === 'dikSort') { D.sort = t.value; lsSet('slr-dik-sort', D.sort); drawList(); }
       else if (t.id === 'dikFile') { loadFile(t.files && t.files[0]); t.value = ''; }
+      else if (t.matches && t.matches('[data-dsel]')) { t.checked ? D.sel.add(t.dataset.dsel) : D.sel.delete(t.dataset.dsel); drawList(); }
       else if (t.matches && t.matches('[data-dlang]')) { D.lang = t.value; lsSet('slr-dik-lang', D.lang); }
       else if (t.matches && t.matches('[data-drelang]') && D.res && D.res.status !== 'busy') { recognise(t.value); }
     };
@@ -726,10 +737,9 @@ window.SLRNotes = (() => {
 
   // The list belongs to one workspace; switching workspace or account drops it.
   function reset() {
-    D.list = null; D.error = ''; D.edit = null; D.draft = null; D.open.clear(); D.playing = null; D.trash = false;
-    Object.values(D.urls).forEach(u => URL.revokeObjectURL(u)); D.urls = {};
+    D.list = null; D.error = ''; D.edit = null; D.draft = null; D.open.clear(); D.sel.clear(); D.project = '*'; D.trash = false;
   }
 
-  return { render, reset, config, setConfig, MODELS, deviceOK };
+  return { render, reset, config, setConfig, storageInfo, MODELS, deviceOK };
 
 })();
