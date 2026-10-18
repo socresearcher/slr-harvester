@@ -1925,7 +1925,9 @@ window.SLRApp = (() => {
 		let gefragt = false;
 		while (out.length < grenze) {
 			const url = new URL('https://api.crossref.org/works');
-			url.searchParams.set('query', query);
+			// Je nach "Search in" ein anderer Parameter (query, query.title, ...).
+			const crossrefParam = ((SLRViews.SEARCH_SCOPES.crossref || []).find(o => o.wert === state.search.scope) || {}).param || 'query';
+			url.searchParams.set(crossrefParam, query);
 			if (filter.length) url.searchParams.set('filter', filter.join(','));
 			url.searchParams.set('select', CROSSREF_FELDER);
 			url.searchParams.set('rows', String(Math.min(1000, grenze - out.length)));
@@ -2642,20 +2644,25 @@ window.SLRApp = (() => {
 
 		try {
 			let results = [];
+			// Der Suchbereich dieser Quelle und der Zeitraum werden (fuer Scopus,
+			// PubMed, DOAJ) in die Abfrage geschrieben. state.search.query bleibt,
+			// was getippt wurde; im Verlauf steht, was tatsaechlich lief.
+			let gesucht = SLRViews.applySearchScope(state.search.db, query, state.search.scope);
+			gesucht = SLRViews.applySearchYears(state.search.db, gesucht, state.search.yearFrom, state.search.yearTo);
 			const melde = (fertig, ziel) => suchlaufAnzeigen(null, fertig, ziel);
 			const signal = state.search.abortController.signal;
 			if (state.search.db === 'scopus') {
 				setSearchProgress(15, 'Retrieving from Scopus\u2026');
-				results = await runScopusSearch(query, grenze, signal, melde);
+				results = await runScopusSearch(gesucht, grenze, signal, melde);
 			} else if (state.search.db === 'pubmed') {
 				setSearchProgress(15, 'Retrieving from PubMed\u2026');
-				results = await runPubmedSearch(query, grenze, signal, melde);
+				results = await runPubmedSearch(gesucht, grenze, signal, melde);
 			} else if (state.search.db === 'crossref') {
 				setSearchProgress(15, 'Retrieving from Crossref\u2026');
-				results = await runCrossrefSearch(query, grenze, signal, melde);
+				results = await runCrossrefSearch(gesucht, grenze, signal, melde);
 			} else if (state.search.db === 'doaj') {
 				setSearchProgress(15, 'Retrieving from DOAJ\u2026');
-				results = await runDoajSearch(query, grenze, signal, melde);
+				results = await runDoajSearch(gesucht, grenze, signal, melde);
 			} else {
 				setSearchProgress(15, 'Retrieving from OpenAlex\u2026');
 				results = await runOpenAlexSearch(query, grenze, signal, melde);
@@ -2665,7 +2672,7 @@ window.SLRApp = (() => {
 			suchlaufAnzeigen(null, results.length, results.length || 1);
 			const runEntry = {
 				timestamp: new Date().toISOString().slice(0, 19).replace('T', ' '),
-				query,
+				query: gesucht,
 				view: state.search.db,
 				count: results.length,
 				results,

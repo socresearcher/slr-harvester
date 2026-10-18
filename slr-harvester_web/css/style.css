@@ -10684,3 +10684,226 @@ img.flag {
 [data-theme="light"] .badge-source-openalex { color: #1a7a6c; }
 [data-theme="light"] .badge-source-crossref { color: #1a7488; }
 [data-theme="light"] .badge-source-doaj     { color: #a85408; }
+
+/* ══ Runde 7: Search-Zeile, History ruhiger, Visualizations aufgeraeumt, Projects ══ */
+
+/* Search in = eigene Zeile; Years und Max results stehen nebeneinander, auch am Handy */
+.search-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: 12px 16px;
+}
+
+.search-actions > .search-field--scope {
+  flex: 1 1 100%;
+  min-width: 0;
+}
+
+.search-actions > .search-field--scope .filter-select {
+  width: 100%;
+  max-width: none;
+}
+
+@media (max-width: 900px) {
+  .search-actions > .search-field:not(.search-field--scope) {
+    flex: 0 1 auto;
+  }
+}
+
+@media (max-width: 640px) {
+  .search-composer .search-actions {
+    flex-direction: row;
+    flex-wrap: wrap;
+    align-items: flex-end;
+    gap: 12px 10px;
+  }
+
+  .search-actions > .search-field:not(.search-field--scope) {
+    flex: 0 1 auto;
+  }
+
+  .search-year-pair {
+    gap: 4px;
+  }
+
+  .search-year-pair .year-field {
+    width: 64px;
+  }
+
+  .search-max-stepper {
+    gap: 4px;
+  }
+
+  .search-max-stepper input {
+    flex: 0 1 auto;
+    width: 66px;
+    min-width: 0;
+    padding-left: 4px;
+    padding-right: 4px;
+    text-align: center;
+  }
+
+  .search-max-stepper .search-step-btn {
+    width: 34px;
+    flex: 0 0 34px;
+  }
+}
+
+/* History: ruhigere Karten (alle Themes). Die Quellenfarbe bleibt als schmaler Punkt-Hinweis
+   in der Plakette, nicht als Flaeche; die Tag-Leiste ist duenner und gedaempft; die
+   Wisch-Aktionen hinter der Karte sind nur waehrend des Wischens sichtbar (sonst
+   schauten ihre Farben an den Rundungen der Karte heraus). */
+.history-item .badge-source {
+  background: var(--surface-2);
+  border-color: var(--border);
+  color: var(--text-muted);
+}
+
+.hist-tag-bar {
+  height: 4px;
+  margin-top: 10px;
+  opacity: .7;
+}
+
+.hist-tag-seg {
+  filter: saturate(.7);
+}
+
+.hist-tag-bar:hover {
+  opacity: 1;
+}
+
+.history-item .hist-copy-btn,
+.history-item .hist-show-articles-btn {
+  color: var(--text-muted);
+  border-color: var(--border);
+  background: transparent;
+}
+
+.history-item .hist-copy-btn:hover,
+.history-item .hist-show-articles-btn:hover {
+  color: var(--text);
+  border-color: var(--text-muted);
+  background: var(--surface-2);
+}
+
+.hist-swipe-action {
+  visibility: hidden;
+}
+
+.history-item-swipe:has(.history-item[style*="translateX"]) .hist-swipe-action {
+  visibility: visible;
+}
+
+/* Projects: Knopf und Auswahlliste gleich hoch */
+.projects-header-actions .filter-select,
+.projects-header-actions .projects-add-btn {
+  height: var(--ctl-form-h);
+  min-height: var(--ctl-form-h);
+}
+
+@media (max-width: 900px) {
+  .projects-header-actions .filter-select,
+  .projects-header-actions .projects-add-btn {
+    height: 40px;
+    min-height: 40px;
+  }
+}
+
+/* Visualizations: eine umbrechende Leiste, nur was zum Diagramm passt; kein Wiederholen der Ueberschrift;
+   Erklaerungen klappen ein */
+.viz-controls-row [hidden] {
+  display: none !important;
+}
+
+.viz-controls-left,
+.viz-controls-right {
+  display: contents;
+}
+
+.viz-controls-row--top {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+
+#viz-chart-title {
+  display: none;
+}
+
+.viz-note-small {
+  font-size: 12.5px;
+  padding: 8px 12px;
+}
+
+.viz-help {
+  margin: 0 0 10px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  background: var(--surface);
+}
+
+.viz-help > summary {
+  cursor: pointer;
+  padding: 8px 12px;
+  font-size: 12.5px;
+  font-weight: 600;
+  color: var(--text-muted);
+  list-style: none;
+}
+
+.viz-help > summary::-webkit-details-marker {
+  display: none;
+}
+
+.viz-help > summary::before {
+  content: '\25B8';
+  display: inline-block;
+  margin-right: 6px;
+  transition: transform .15s;
+}
+
+.viz-help[open] > summary::before {
+  transform: rotate(90deg);
+}
+
+.viz-help-body {
+  padding: 2px 14px 10px;
+  font-size: 12.5px;
+  line-height: 1.55;
+  color: var(--text-muted);
+}
+
+.viz-help-body p {
+  margin: 0 0 8px;
+}
+
+.viz-authors-more .link-btn {
+  margin-left: 10px;
+}
+
+.viz-controls-row--top {
+  justify-content: flex-start;
+}
+
+.viz-chart-select {
+  min-width: 200px;
+  max-width: 240px;
+}
+
+.viz-groupby-select {
+  min-width: 150px;
+  max-width: 190px;
+}
+
+.viz-export-btn {
+  margin-left: auto;
+}
+
+/* Filters-Knopf so hoch wie Suchfeld und Auswahllisten daneben */
+.list-toolbar .list-filter-toggle {
+  height: 32px;
+  min-height: 32px;
+}

@@ -141,6 +141,83 @@ window.SLRViews = (() => {
     { wert: 'filter',      label: 'Raw OpenAlex filter' },
   ];
 
+  // "Search in" per source. Each database has its own idea of where a word can be
+  // looked for, so each gets its own list; a choice other than the first rewrites
+  // the query (Scopus, PubMed, DOAJ) or picks the API parameter (Crossref,
+  // OpenAlex above) — unless the query already carries its own field codes, then
+  // it goes out exactly as typed. The query that actually ran is what History
+  // records, so the search can be repeated and reported.
+  const SEARCH_SCOPES = {
+    scopus: [
+      { wert: 'all',   label: 'As typed (no field added)',          hint: 'Sent to Scopus exactly as written. Use field codes yourself for anything specific.' },
+      { wert: 'tak',   label: 'Title, abstract, keywords',          wrap: q => `TITLE-ABS-KEY(${q})` },
+      { wert: 'title', label: 'Title only',                         wrap: q => `TITLE(${q})` },
+      { wert: 'abs',   label: 'Abstract only',                      wrap: q => `ABS(${q})` },
+      { wert: 'key',   label: 'Author keywords',                    wrap: q => `AUTHKEY(${q})` },
+      { wert: 'auth',  label: 'Author name',                        wrap: q => `AUTH(${q})` },
+      { wert: 'affil', label: 'Affiliation',                        wrap: q => `AFFIL(${q})` },
+      { wert: 'src',   label: 'Journal / source title',             wrap: q => `SRCTITLE(${q})` },
+    ],
+    pubmed: [
+      { wert: 'all',   label: 'All fields (PubMed default)',        hint: 'Sent to PubMed exactly as written; PubMed itself maps terms to MeSH and all fields.' },
+      { wert: 'tiab',  label: 'Title / abstract',                   wrap: q => `(${q})[tiab]` },
+      { wert: 'ti',    label: 'Title only',                         wrap: q => `(${q})[ti]` },
+      { wert: 'ab',    label: 'Abstract only',                      wrap: q => `(${q})[ab]` },
+      { wert: 'mh',    label: 'MeSH terms',                         wrap: q => `(${q})[mh]` },
+      { wert: 'au',    label: 'Author',                             wrap: q => `(${q})[au]` },
+      { wert: 'ad',    label: 'Affiliation',                        wrap: q => `(${q})[ad]` },
+      { wert: 'ta',    label: 'Journal',                            wrap: q => `(${q})[ta]` },
+    ],
+    crossref: [
+      { wert: 'all',          label: 'Everything (relevance search)', param: 'query' },
+      { wert: 'bibliographic',label: 'Title, authors, year (citation style)', param: 'query.bibliographic' },
+      { wert: 'title',        label: 'Title only',                    param: 'query.title' },
+      { wert: 'author',       label: 'Author',                        param: 'query.author' },
+      { wert: 'journal',      label: 'Journal / container title',     param: 'query.container-title' },
+      { wert: 'affiliation',  label: 'Affiliation',                   param: 'query.affiliation' },
+    ],
+    doaj: [
+      { wert: 'all',      label: 'Everything (all indexed fields)',  hint: 'Sent to DOAJ exactly as written.' },
+      { wert: 'title',    label: 'Title only',                       wrap: q => `bibjson.title:(${q})` },
+      { wert: 'abstract', label: 'Abstract only',                    wrap: q => `bibjson.abstract:(${q})` },
+      { wert: 'keywords', label: 'Keywords',                         wrap: q => `bibjson.keywords:(${q})` },
+      { wert: 'author',   label: 'Author',                           wrap: q => `bibjson.author.name:(${q})` },
+      { wert: 'journal',  label: 'Journal title',                    wrap: q => `bibjson.journal.title:(${q})` },
+    ],
+  };
+  const SCOPE_OWN_SYNTAX = {
+    scopus: /\b(?!AND\b|OR\b|NOT\b)[A-Z][A-Z-]{2,}\s*\(/,
+    pubmed: /\[[^\]]+\]/,
+    doaj:   /[\w.]+:/,
+  };
+  function searchScopesFor(db) {
+    return db === 'openalex' ? OPENALEX_SCOPES : (SEARCH_SCOPES[db] || []);
+  }
+  function applySearchScope(db, query, scope) {
+    const def = (SEARCH_SCOPES[db] || []).find(o => o.wert === scope);
+    if (!def || !def.wrap) return query;
+    if (SCOPE_OWN_SYNTAX[db] && SCOPE_OWN_SYNTAX[db].test(query)) return query;
+    return def.wrap(String(query).trim());
+  }
+  // Scopus and PubMed have no years parameter: the range goes into the query.
+  function applySearchYears(db, query, from, to) {
+    const a = /^\d{4}$/.test(String(from || '')) ? parseInt(from, 10) : null;
+    const b = /^\d{4}$/.test(String(to || '')) ? parseInt(to, 10) : null;
+    if (a === null && b === null) return query;
+    if (db === 'scopus') {
+      if (/\bPUBYEAR\b/i.test(query)) return query;
+      const teile = [];
+      if (a !== null) teile.push(`PUBYEAR > ${a - 1}`);
+      if (b !== null) teile.push(`PUBYEAR < ${b + 1}`);
+      return `(${query}) AND ${teile.join(' AND ')}`;
+    }
+    if (db === 'pubmed') {
+      if (/\[(dp|pdat|edat)\]/i.test(query)) return query;
+      return `(${query}) AND ${a !== null ? a : 1000}:${b !== null ? b : 3000}[dp]`;
+    }
+    return query;
+  }
+
   function formatDocTypeLabel(docTypeKey) {
     const labels = {
       article: 'Article',
@@ -5096,13 +5173,14 @@ window.SLRViews = (() => {
     // mit einer Anzahl — und der Anteil an einer Gesamtmenge waere sinnlos,
     // weil eine Arbeit mehrere Autor:innen hat und die Summe der Anteile
     // ueber hundert Prozent laege.
-    const AUTOR_ZEILEN = 25;
+    const AUTOR_SCHRITT = 25;
+    let autorenZeilen = AUTOR_SCHRITT;      // wird mit "Show more" erhoeht
     const renderAuthorRanking = (liste, hinweis) => {
       if (!liste.length) {
         return `<div class="viz-empty-bars">${esc(hinweis || 'No citations between the articles in this selection.')}</div>`;
       }
       const max = liste[0].count;
-      const zeilen = liste.slice(0, AUTOR_ZEILEN).map((d, i) => `
+      const zeilen = liste.slice(0, autorenZeilen).map((d, i) => `
         <div class="viz-bar-row">
           <div class="viz-bar-label" title="${esc(d.name)}"><span class="viz-rank">${i + 1}</span>${esc(d.name)}</div>
           <div class="viz-bar-track">
@@ -5110,10 +5188,13 @@ window.SLRViews = (() => {
           </div>
           <div class="viz-bar-count"><strong>${d.count}</strong>${d.works !== undefined ? ` <span class="viz-bar-pct">${d.works}&nbsp;work${d.works !== 1 ? 's' : ''}</span>` : ''}</div>
         </div>`).join('');
-      const rest = liste.length > AUTOR_ZEILEN
-        ? `<div class="viz-authors-more">and ${liste.length - AUTOR_ZEILEN} more author${liste.length - AUTOR_ZEILEN !== 1 ? 's' : ''} below the top ${AUTOR_ZEILEN}</div>`
+      const restN = liste.length - autorenZeilen;
+      const rest = restN > 0
+        ? `<div class="viz-authors-more">${restN} more author${restN !== 1 ? 's' : ''} below the top ${autorenZeilen}.
+             <button type="button" class="link-btn" data-authors-more="${AUTOR_SCHRITT}">Show ${Math.min(AUTOR_SCHRITT, restN)} more</button>
+             <button type="button" class="link-btn" data-authors-more="all">Show all ${liste.length}</button></div>`
         : '';
-      return `${hinweis ? `<div class="viz-authors-note">${hinweis}</div>` : ''}
+      return `${hinweis ? `<div class="viz-authors-note viz-note-small">${hinweis}</div>` : ''}
         <div class="viz-resizable-chart-block">
           <div class="viz-bars-scroll" id="viz-bars-area" style="--bar-label-w:28ch;--bar-track-h:18px">${zeilen}${rest}</div>
           <div class="viz-col-resize-handle" id="viz-bars-resize-handle"
@@ -5136,7 +5217,26 @@ window.SLRViews = (() => {
 
       const MODE_BASIS = { all: 'the Initial list', selected: 'the Selected list', corpus: 'the Corpus' };
       const basisZeile = `<div class="viz-authors-note">Basis: <strong>${subset.length}</strong> article${subset.length !== 1 ? 's' : ''} of ${MODE_BASIS[currentMode] || 'this selection'} as they are right now. Deleted or trashed queries do not count.</div>`;
-      const kopf = basisZeile + `
+      const hilfe = `
+        <details class="viz-help">
+          <summary>What is this, and why is it sometimes empty?</summary>
+          <div class="viz-help-body">
+            <p><strong>Within this project</strong> counts how often the authors of the articles in your list are cited
+              <em>by other articles of the same list</em>. For that the app needs each article&rsquo;s reference list, and it
+              does not keep reference lists in your project (they would take far too much space). They are loaded only for the
+              current visit, with <em>Fetch &rarr; Citation network</em> in a result list, and only OpenAlex records have them.
+              So this view is empty until you have fetched them in this session, after every reload, and when no article of the list
+              cites another one.</p>
+            <p><strong>Everything cited</strong> asks OpenAlex, live, who is in the reference lists of your articles &mdash; also
+              authors who are not in your project at all. That is why it usually shows names even when the first view is empty.
+              OpenAlex answers for up to 50 articles at a time; such a group is called a <em>batch</em>, so 200 articles take 4 requests.
+              The answer is not saved anywhere, so it is gone when you leave the chart or reload the page; press the button again
+              to repeat it. OpenAlex returns at most 200 authors per batch, so authors cited only once can be missing.</p>
+            <p>Both views use exactly the list shown in the tabs above (All, Selected or Corpus) as it is right now. Deleted or
+              trashed queries do not count.</p>
+          </div>
+        </details>`;
+      const kopf = basisZeile + hilfe + `
         <div class="viz-authors-tabs">
           <button class="viz-mode-tab${autorenModus === 'corpus' ? ' active' : ''}" data-authors-mode="corpus">Within this project</button>
           <button class="viz-mode-tab${autorenModus === 'world' ? ' active' : ''}" data-authors-mode="world">Everything cited</button>
@@ -5145,7 +5245,7 @@ window.SLRViews = (() => {
       if (autorenModus === 'corpus') {
         return kopf + renderAuthorRanking(eigen,
           eigen.length
-            ? 'Authors of articles <strong>in this selection</strong>, ranked by how often other articles in the same selection cite them. Computed from stored data \u2014 no requests, complete.'
+            ? 'Authors of articles <strong>in this selection</strong>, ranked by how often other articles in the same selection cite them. Computed from the reference lists loaded in this visit \u2014 no new requests.'
             : 'None of the articles in this selection cite one another \u2014 or their reference lists have not been fetched yet (only OpenAlex results carry them).');
       }
 
@@ -5220,7 +5320,14 @@ window.SLRViews = (() => {
       const tagKeys = [...new Map(nodes.filter(n => n.a.tag && n.a.tag !== 'None').map(n => [n.a.tag, tagColor(projectData, n.a.color) || '#888'])).entries()];
       const legend = tagKeys.length ? `<div class="viz-net-legend">${tagKeys.map(([t, hx]) => `<span class="viz-legend-item"><span class="viz-legend-dot" style="background:${esc(hx)}"></span><span class="viz-legend-label">${esc(t)}</span></span>`).join('')}</div>` : '';
       return `
-        <div class="viz-authors-note">Based on ${basis}. <strong>${nodes.length}</strong> of them are linked by <strong>${edges.length}</strong> citation${edges.length !== 1 ? 's' : ''} inside this selection (${g.openalex} are OpenAlex records; only those carry reference lists${g.openalex < subset.length ? `, ${subset.length - g.openalex} cannot appear` : ''}). Position: left to right by year, higher = cited more often overall. Size: how many articles of the selection cite it. Colour: tag. Hover to follow the links, click for a work's own network.${cut ? ` <strong>${cut} least-connected articles are left out for readability.</strong>` : ''}</div>
+        <div class="viz-authors-note viz-note-small">Based on ${basis}: <strong>${nodes.length}</strong> linked by <strong>${edges.length}</strong> citation${edges.length !== 1 ? 's' : ''}.${cut ? ` <strong>${cut} least-connected articles are left out for readability.</strong>` : ''}</div>
+        <details class="viz-help">
+          <summary>How to read this</summary>
+          <div class="viz-help-body">
+            <p>Left to right is the publication year; higher means cited more often overall. The size of a dot is the number of articles in this selection that cite it; the colour is its tag. Hover a dot to follow its links, click it for that work&rsquo;s own network.</p>
+            <p>Only OpenAlex records carry reference lists${g.openalex < subset.length ? ` (${g.openalex} of ${subset.length} here; the others cannot appear)` : ''}, and the lists are loaded per visit with the button below.</p>
+          </div>
+        </details>
         <div class="viz-net-wrap">
           <svg class="viz-network-svg" viewBox="0 0 ${VW} ${VH}" role="img" aria-label="Citation network of the selection">
             <rect x="0" y="0" width="${VW}" height="${VH}" fill="var(--surface)"/>
@@ -5288,8 +5395,7 @@ window.SLRViews = (() => {
       // Update heading to reflect active chart
       if (titleEl) titleEl.textContent = CHART_TITLES[currentChart] || 'Visualisations';
       // Mode tabs are always visible; dim them when irrelevant (PRISMA doesn't use mode)
-      if (modeTabs) modeTabs.style.opacity = currentChart === 'prisma' ? '0.35' : '';
-      if (modeTabs) modeTabs.style.pointerEvents = currentChart === 'prisma' ? 'none' : '';
+      if (modeTabs) modeTabs.hidden = currentChart === 'prisma';
         // Das Auge zeigt den ZUSTAND, nicht die Handlung: offen heisst
         // sichtbar, durchgestrichen heisst ausgeblendet. Die Beschriftung
         // nennt weiterhin die Handlung, sonst muesste man beim Lesen raten,
@@ -5306,6 +5412,10 @@ window.SLRViews = (() => {
         };
         setzeSchalter(legendBtn, showLegend, 'Hide Legend', 'Show Legend', legendSupported);
         setzeSchalter(noneBtn,   showNone,   'Hide None',   'Show None',   noneSupported);
+        // Was zum gewaehlten Diagramm nicht gehoert, wird nicht grau gezeigt, sondern weggelassen.
+        if (legendBtn) legendBtn.hidden = !legendSupported;
+        if (noneBtn) noneBtn.hidden = !noneSupported;
+        if (groupBySel) groupBySel.hidden = !groupBySupported;
         if (groupBySel) {
           groupBySel.disabled = !groupBySupported;
           groupBySel.style.opacity = groupBySupported ? '1' : '0.45';
@@ -5321,6 +5431,7 @@ window.SLRViews = (() => {
           const paletteSupported = currentChart === 'world' || currentChart === 'authors';
           if (paletteSel.value !== currentPalette) paletteSel.value = currentPalette;
           paletteSel.disabled = !paletteSupported;
+          paletteSel.hidden = !paletteSupported;
           paletteSel.style.opacity = paletteSupported ? '1' : '0.45';
           paletteSel.title = paletteSupported
             ? 'Colour scheme for the map and the author bars'
@@ -5354,6 +5465,12 @@ window.SLRViews = (() => {
       }
     };
     function wireAuthorsPanel(el) {
+      el.querySelectorAll('[data-authors-more]').forEach(btn => {
+        btn.addEventListener('click', () => {
+          autorenZeilen = btn.dataset.authorsMore === 'all' ? Number.MAX_SAFE_INTEGER : autorenZeilen + AUTOR_SCHRITT;
+          updateChart();
+        });
+      });
       el.querySelectorAll('[data-authors-mode]').forEach(btn => {
         btn.addEventListener('click', () => {
           autorenModus = btn.dataset.authorsMode;
@@ -6085,7 +6202,9 @@ window.SLRViews = (() => {
     const maxRes   = (search && search.maxResults !== undefined)
       ? (search.maxResults === null ? '' : search.maxResults)
       : 500;
+    // The saved choice only counts if the selected source offers it.
     const scopeVal    = (search && search.scope) || 'all';
+    const scopeEff    = searchScopesFor(db).some(o => o.wert === scopeVal) ? scopeVal : 'all';
     const yearFromVal = (search && search.yearFrom) || '';
     const yearToVal   = (search && search.yearTo)   || '';
     const isSearch = !!(search && search.isSearching);
@@ -6221,12 +6340,12 @@ window.SLRViews = (() => {
             ${keyWarnHTML}
 
             <div class="search-actions">
-              <div class="search-field">
+              <div class="search-field search-field--scope">
                 <label class="search-field-label" for="search-scope">Search in</label>
                 <select class="filter-select" id="search-scope" ${isSearch ? 'disabled' : ''}
-                        title="OpenAlex only. Narrower fields return fewer but far more precise hits.">
-                  ${OPENALEX_SCOPES.map(o =>
-                    `<option value="${o.wert}"${scopeVal === o.wert ? ' selected' : ''}>${o.label}</option>`
+                        title="Where in a record the words are looked for. The list belongs to the selected source.">
+                  ${searchScopesFor(db).map(o =>
+                    `<option value="${o.wert}"${scopeEff === o.wert ? ' selected' : ''}>${o.label}</option>`
                   ).join('')}
                 </select>
               </div>
@@ -6304,6 +6423,7 @@ window.SLRViews = (() => {
     container.querySelectorAll('.search-db-card').forEach(btn => {
       btn.addEventListener('click', () => {
         const newDb = btn.dataset.db;
+        if (SLRApp.state.search.db !== newDb) SLRApp.state.search.scope = 'all';
         if (SLRApp.state.search.db !== newDb) {
           SLRApp.state.search.db = newDb;
           renderSearch(container, SLRApp.state.projectData, SLRApp.state.settings, SLRApp.state.search);
@@ -6560,12 +6680,11 @@ window.SLRViews = (() => {
       const leer = () => String(maxFeld.value).trim() === '';
       const jetzt = () => parseInt(maxFeld.value, 10) || VORGABE;
 
-      // Aus dem leeren Feld heraus — also aus "keine Obergrenze" — fuehrt nur
-      // der Weg nach unten: Ueber "alles" hinaus gibt es nichts, also tut das
-      // Plus dort nichts, und das Minus setzt die Vorgabe.
+      // Aus dem leeren Feld ("keine Obergrenze") springen Plus UND Minus auf die
+      // Vorgabe 500; erst danach zaehlt jeder Klick 50.
       const schritt = (richtung) => {
         if (leer()) {
-          if (richtung < 0) setze(VORGABE);
+          setze(VORGABE);
           return;
         }
         setze(jetzt() + SCHRITT * richtung);
@@ -6618,9 +6737,9 @@ window.SLRViews = (() => {
         if (!q) return;
         markDbUsed((DB_TABS.find(t => t.key === db) || {}).label);
         // Feldbereich und Zeitraum stehen im Zustand, nicht in den Argumenten
-        // von executeSearch: Der Feldbereich gilt nur fuer OpenAlex, der
-        // Zeitraum fuer OpenAlex, Crossref und DOAJ. Scopus und PubMed nehmen
-        // ihn in der Abfrage selbst (PUBYEAR, [PDAT]).
+        // von executeSearch. Der Feldbereich ist je Quelle ein eigener (siehe
+        // SEARCH_SCOPES); Scopus und PubMed bekommen Bereich und Zeitraum in die
+        // Abfrage geschrieben (applySearchScope / applySearchYears).
         const jahr = (id) => {
           const el = container.querySelector(id);
           const v = el ? String(el.value).trim() : '';
@@ -10310,6 +10429,9 @@ window.SLRViews = (() => {
     renderSelected,
     renderVisualizations,
     renderDatabases,
+    SEARCH_SCOPES,
+    applySearchScope,
+    applySearchYears,
     renderSearch,
     renderSettings,
     renderWorkspace,
