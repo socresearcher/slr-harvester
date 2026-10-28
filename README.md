@@ -1,5 +1,7 @@
 # SLR Harvester
 
+> **Development notice.** Further development of SLR Harvester Web now takes place in a separate application, not in this repository. The new functions will be brought back here later, in one step or gradually, by hand, and this repository will then be updated. Until then there will be few or no commits here, and the commit history has a gap; that does not mean the project has been abandoned. The hosted web app keeps working as it is. The original desktop version is no longer developed and is kept for reference only.
+
 **SLR Harvester** helps you conduct structured, reproducible Systematic Literature Reviews (SLRs) — searching academic databases, screening and tagging results, and producing exports for your methods section. Two versions are available, reading and writing the same project folder format:
 
 - **[SLR Harvester Web](#slr-harvester-web)** — browser-based, zero-install. Recommended for most users, **in beta** (see below).

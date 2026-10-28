@@ -781,9 +781,6 @@ window.SLRApp = (() => {
 			case 'databases':
 				SLRViews.renderDatabases(_container);
 				break;
-			case 'notes':
-				SLRNotes.render(_container);
-				break;
 			case 'search':
 				SLRViews.renderSearch(_container, state.projectData, state.settings, state.search);
 				break;

@@ -176,7 +176,6 @@ window.SLRAppUI = (() => {
       about: 'About',
       databases: 'Databases',
       privacy: 'Privacy',
-      notes: 'Dictations',
     };
 
     if (refs.viewTitle) refs.viewTitle.textContent = titles[state.view] || 'SLR Harvester Web';
@@ -254,7 +253,7 @@ window.SLRAppUI = (() => {
   // never be hidden away completely. Hidden views remain reachable by search.
   const NAV_ITEMS = [
     ['welcome', 'Home'], ['databases', 'Databases'], ['projects', 'Projects'], ['search', 'Search'], ['history', 'History'],
-    ['articles', 'Results'], ['visualizations', 'Visualisations'], ['notes', 'Dictations'], ['workspace', 'Workspace'], ['account', 'Account'],
+    ['articles', 'Results'], ['visualizations', 'Visualisations'], ['workspace', 'Workspace'], ['account', 'Account'],
   ];
   function navHidden() {
     try { const v = JSON.parse(localStorage.getItem('slr-navhide') || '[]'); return Array.isArray(v) ? v.filter(x => NAV_ITEMS.some(n => n[0] === x)) : []; }
@@ -295,7 +294,6 @@ window.SLRAppUI = (() => {
     ['visualizations', 'Visualisations', 'charts prisma world map network years'],
     ['tags', 'Tags', 'labels colours schemes categories'],
     ['autotag-rules', 'Auto-Tag Rules', 'keywords disciplines automatic'],
-    ['notes', 'Dictations', 'dictation dictate notes note audio record voice whisper transcribe speech'],
     ['workspace', 'Workspace', 'folder local cloud storage'],
     ['account', 'Account', 'sign in login cloud'],
     ['settings', 'Settings', 'preferences options'],
