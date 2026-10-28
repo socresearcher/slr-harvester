@@ -126,7 +126,7 @@ window.SLRIcons = (() => {
     docIssue: base(`<path d="M12 3 3 8l9 5 9-5z"/><path d="M3 13l9 5 9-5"/>`),
     docOther: base(`<path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8z"/><path d="M14 3v5h5"/>`),
 
-    // Dictations: more glyphs
+    // More glyphs
     eraser: base(`<path d="m7 21-4.3-4.3c-1-1-1-2.5 0-3.4l9.6-9.6c1-1 2.5-1 3.4 0l5.6 5.6c1 1 1 2.5 0 3.4L13 21"/><path d="M22 21H7"/><path d="m5 11 9 9"/>`),
     micplus: base(`<rect x="8" y="2" width="6" height="12" rx="3"/><path d="M4 11a6.5 6.5 0 0 0 10 5.5M11 18v4"/><path d="M19 4v6M16 7h6"/>`),
     micoff: base(`<path d="m2 2 20 20"/><path d="M9 9v3a3 3 0 0 0 5.1 2.1M15 9.3V5a3 3 0 0 0-5.7-1.3"/><path d="M19 11a7 7 0 0 1-.8 3.2M5 11a7 7 0 0 0 11.1 5.7M12 18v4"/>`),
@@ -134,13 +134,13 @@ window.SLRIcons = (() => {
     grid: base(`<rect width="7" height="7" x="3" y="3" rx="1"/><rect width="7" height="7" x="14" y="3" rx="1"/><rect width="7" height="7" x="14" y="14" rx="1"/><rect width="7" height="7" x="3" y="14" rx="1"/>`),
     rows: base(`<path d="M8 6h13M8 12h13M8 18h13M3 6h.01M3 12h.01M3 18h.01"/>`),
 
-    // Microphone (Dictations)
+    // Microphone
     mic: base(
       `<rect x="9" y="2" width="6" height="12" rx="3"/>
        <path d="M5 11a7 7 0 0 0 14 0M12 18v4"/>`
     ),
 
-    // Stop (filled square, recording)
+    // Stop (filled square)
     stop: base(
       `<rect x="6" y="6" width="12" height="12" rx="2" fill="currentColor"/>`
     ),

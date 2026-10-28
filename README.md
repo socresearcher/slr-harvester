@@ -54,17 +54,17 @@ SLR Harvester Desktop is a Python desktop application for conducting structured,
 
 Follow instructions in the documents below:
 
-[![Install](https://img.shields.io/badge/Install-Guide-2ea44f?style=for-the-badge)](docs/INSTALL.md)
-[![Usage](https://img.shields.io/badge/Usage-Guide-0366d6?style=for-the-badge)](docs/USAGE_GUIDE.md)
-[![API Limitations](https://img.shields.io/badge/API-Limitations-ff9800?style=for-the-badge)](docs/API_LIMITATIONS.md)
-[![Workflow Logic](https://img.shields.io/badge/Workflow-Logic-795548?style=for-the-badge)](docs/WORKFLOW_LOGIC.md)
+[![Install](https://img.shields.io/badge/Install-Guide-2ea44f?style=for-the-badge)](slr-harvester/docs/INSTALL.md)
+[![Usage](https://img.shields.io/badge/Usage-Guide-0366d6?style=for-the-badge)](slr-harvester/docs/USAGE_GUIDE.md)
+[![API Limitations](https://img.shields.io/badge/API-Limitations-ff9800?style=for-the-badge)](slr-harvester/docs/API_LIMITATIONS.md)
+[![Workflow Logic](https://img.shields.io/badge/Workflow-Logic-795548?style=for-the-badge)](slr-harvester/docs/WORKFLOW_LOGIC.md)
 
 Alternatively, use the direct links:
 
-- Installation and setup: docs/INSTALL.md
-- Usage guide with screenshots: docs/USAGE_GUIDE.md
-- API limitations and access levels: docs/API_LIMITATIONS.md
-- Workflow logic and methodology: docs/WORKFLOW_LOGIC.md
+- Installation and setup: slr-harvester/docs/INSTALL.md
+- Usage guide with screenshots: slr-harvester/docs/USAGE_GUIDE.md
+- API limitations and access levels: slr-harvester/docs/API_LIMITATIONS.md
+- Workflow logic and methodology: slr-harvester/docs/WORKFLOW_LOGIC.md
 
 ### Highlights
 

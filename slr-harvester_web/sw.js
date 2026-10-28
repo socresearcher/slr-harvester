@@ -58,7 +58,6 @@ const SHELL = [
 const ENGINE_HOSTS = [
   { host: 'cdnjs.cloudflare.com', path: '/ajax/libs/onnxruntime-web/' },
   { host: 'cdn.jsdelivr.net',     path: '/npm/@diffusionstudio/piper-wasm@' },
-  { host: 'cdn.jsdelivr.net',     path: '/npm/@huggingface/transformers@' },
 ];
 
 self.addEventListener('install', event => {
